@@ -34,13 +34,11 @@ import me.yui.yuihub.data.ai.prompts.LEARNING_MODE_PROMPT
 import me.rerere.asr.ASRProviderSetting
 import me.yui.yuihub.data.datastore.migration.PreferenceStoreV1Migration
 import me.yui.yuihub.data.datastore.migration.PreferenceStoreV2Migration
-import me.yui.yuihub.data.datastore.migration.PreferenceStoreV3Migration
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.data.model.InjectionPosition
 import me.yui.yuihub.data.model.Lorebook
 import me.yui.yuihub.data.model.PromptInjection
-import me.yui.yuihub.data.model.QuickMessage
 import me.yui.yuihub.data.model.Tag
 import me.yui.yuihub.data.sync.s3.S3Config
 import me.yui.yuihub.ui.theme.CustomTheme
@@ -61,8 +59,7 @@ private val Context.settingsStore by preferencesDataStore(
     produceMigrations = { context ->
         listOf(
             PreferenceStoreV1Migration(),
-            PreferenceStoreV2Migration(),
-            PreferenceStoreV3Migration()
+            PreferenceStoreV2Migration()
         )
     }
 )
@@ -141,7 +138,6 @@ class SettingsStore(
         // 提示词注入
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")
         val LOREBOOKS = stringPreferencesKey("lorebooks")
-        val QUICK_MESSAGES = stringPreferencesKey("quick_messages")
 
         // 备份提醒
         val BACKUP_REMINDER_CONFIG = stringPreferencesKey("backup_reminder_config")
@@ -230,9 +226,6 @@ class SettingsStore(
                 lorebooks = preferences[LOREBOOKS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
-                quickMessages = preferences[QUICK_MESSAGES]?.let {
-                    JsonInstant.decodeFromString(it)
-                } ?: emptyList(),
                 webServerEnabled = preferences[WEB_SERVER_ENABLED] == true,
                 webServerPort = preferences[WEB_SERVER_PORT] ?: 8080,
                 webServerJwtEnabled = preferences[WEB_SERVER_JWT_ENABLED] == true,
@@ -271,7 +264,6 @@ class SettingsStore(
             val validMcpServerIds = settings.mcpServers.map { it.id }.toSet()
             val validModeInjectionIds = settings.modeInjections.map { it.id }.toSet()
             val validLorebookIds = settings.lorebooks.map { it.id }.toSet()
-            val validQuickMessageIds = settings.quickMessages.map { it.id }.toSet()
             val asrProviders = settings.asrProviders.distinctBy { it.id }
             settings.copy(
                 providers = settings.providers.distinctBy { it.id }.map { provider ->
@@ -303,10 +295,6 @@ class SettingsStore(
                         lorebookIds = assistant.lorebookIds.filter { id ->
                             id in validLorebookIds
                         }.toSet(),
-                        // 过滤掉不存在的快捷消息 ID
-                        quickMessageIds = assistant.quickMessageIds.filter { id ->
-                            id in validQuickMessageIds
-                        }.toSet()
                     )
                 },
                 ttsProviders = settings.ttsProviders.distinctBy { it.id },
@@ -319,7 +307,6 @@ class SettingsStore(
                 },
                 modeInjections = settings.modeInjections.distinctBy { it.id },
                 lorebooks = settings.lorebooks.distinctBy { it.id },
-                quickMessages = settings.quickMessages.distinctBy { it.id },
             )
         }
         .onEach {
@@ -384,7 +371,6 @@ class SettingsStore(
             } ?: preferences.remove(SELECTED_ASR_PROVIDER)
             preferences[MODE_INJECTIONS] = JsonInstant.encodeToString(settings.modeInjections)
             preferences[LOREBOOKS] = JsonInstant.encodeToString(settings.lorebooks)
-            preferences[QUICK_MESSAGES] = JsonInstant.encodeToString(settings.quickMessages)
             preferences[WEB_SERVER_ENABLED] = settings.webServerEnabled
             preferences[WEB_SERVER_PORT] = settings.webServerPort
             preferences[WEB_SERVER_JWT_ENABLED] = settings.webServerJwtEnabled
@@ -465,7 +451,6 @@ class SettingsStore(
         assistantId: Uuid,
         modeInjectionIds: Set<Uuid>,
         lorebookIds: Set<Uuid>,
-        quickMessageIds: Set<Uuid> = emptySet(),
     ) {
         update { settings ->
             settings.copy(
@@ -474,7 +459,6 @@ class SettingsStore(
                         assistant.copy(
                             modeInjectionIds = modeInjectionIds,
                             lorebookIds = lorebookIds,
-                            quickMessageIds = quickMessageIds,
                         )
                     } else {
                         assistant
@@ -527,7 +511,6 @@ data class Settings(
     val selectedASRProviderId: Uuid? = null,
     val modeInjections: List<PromptInjection.ModeInjection> = DEFAULT_MODE_INJECTIONS,
     val lorebooks: List<Lorebook> = emptyList(),
-    val quickMessages: List<QuickMessage> = emptyList(),
     val webServerEnabled: Boolean = false,
     val webServerPort: Int = 8080,
     val webServerJwtEnabled: Boolean = false,
@@ -659,8 +642,6 @@ fun Settings.getAssistantById(id: Uuid): Assistant? {
     return this.assistants.find { it.id == id }
 }
 
-fun Settings.getQuickMessagesOfAssistant(assistant: Assistant) =
-    quickMessages.filter { it.id in assistant.quickMessageIds }
 
 fun Settings.getSelectedTTSProvider(): TTSProviderSetting? {
     return selectedTTSProviderId?.let { id ->

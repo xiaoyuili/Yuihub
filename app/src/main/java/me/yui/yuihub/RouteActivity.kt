@@ -90,7 +90,6 @@ import me.yui.yuihub.ui.pages.chat.ChatPage
 import me.yui.yuihub.ui.pages.debug.DebugPage
 import me.yui.yuihub.ui.pages.extensions.ExtensionsPage
 import me.yui.yuihub.ui.pages.extensions.PromptPage
-import me.yui.yuihub.ui.pages.extensions.QuickMessagesPage
 import me.yui.yuihub.ui.pages.extensions.skills.SkillDetailPage
 import me.yui.yuihub.ui.pages.extensions.skills.SkillsPage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspacePage
@@ -481,9 +480,6 @@ class RouteActivity : ComponentActivity() {
                                 ExtensionsPage()
                             }
 
-                            entry<Screen.QuickMessages> {
-                                QuickMessagesPage()
-                            }
 
                             entry<Screen.Prompts> {
                                 PromptPage()
@@ -693,9 +689,6 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Extensions : Screen
-
-    @Serializable
-    data object QuickMessages : Screen
 
     @Serializable
     data object Prompts : Screen

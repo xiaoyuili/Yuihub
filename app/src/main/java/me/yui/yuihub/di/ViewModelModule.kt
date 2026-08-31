@@ -12,7 +12,6 @@ import me.yui.yuihub.ui.pages.history.HistoryVM
 import me.yui.yuihub.ui.pages.stats.StatsVM
 import me.yui.yuihub.ui.pages.imggen.ImgGenVM
 import me.yui.yuihub.ui.pages.extensions.PromptVM
-import me.yui.yuihub.ui.pages.extensions.QuickMessagesVM
 import me.yui.yuihub.ui.pages.extensions.skills.SkillDetailVM
 import me.yui.yuihub.ui.pages.extensions.skills.SkillsVM
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceDetailVM
@@ -62,7 +61,6 @@ val viewModelModule = module {
     viewModelOf(::BackupVM)
     viewModelOf(::ImgGenVM)
     viewModelOf(::PromptVM)
-    viewModelOf(::QuickMessagesVM)
     viewModelOf(::SkillsVM)
     viewModelOf(::SkillDetailVM)
     viewModelOf(::WorkspaceVM)

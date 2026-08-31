@@ -30,7 +30,6 @@ import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.ui.components.ai.ExtensionEmptyState
 import me.yui.yuihub.ui.components.ai.LorebooksContent
 import me.yui.yuihub.ui.components.ai.ModeInjectionsContent
-import me.yui.yuihub.ui.components.ai.QuickMessagesContent
 import me.yui.yuihub.ui.components.ai.SkillsContent
 import org.koin.compose.koinInject
 
@@ -43,7 +42,6 @@ fun ExtensionSelector(
     onUpdate: (Assistant) -> Unit,
     conversation: Conversation? = null,
     onUpdateConversation: ((Conversation) -> Unit)? = null,
-    onNavigateToQuickMessages: () -> Unit = {},
     onNavigateToPrompts: () -> Unit = {},
     onNavigateToSkills: () -> Unit = {},
 ) {
@@ -69,7 +67,7 @@ fun ExtensionSelector(
         assistant.lorebookIds
     }
 
-    val pagerState = rememberPagerState { 4 }
+    val pagerState = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
 
     Column(
@@ -86,26 +84,19 @@ fun ExtensionSelector(
                 onClick = {
                     scope.launch { pagerState.animateScrollToPage(0) }
                 },
-                text = { Text(stringResource(R.string.extension_selector_tab_quick_messages)) }
+                text = { Text(stringResource(R.string.extension_selector_tab_mode_injections)) }
             )
             Tab(
                 selected = pagerState.currentPage == 1,
                 onClick = {
                     scope.launch { pagerState.animateScrollToPage(1) }
                 },
-                text = { Text(stringResource(R.string.extension_selector_tab_mode_injections)) }
+                text = { Text(stringResource(R.string.extension_selector_tab_lorebooks)) }
             )
             Tab(
                 selected = pagerState.currentPage == 2,
                 onClick = {
                     scope.launch { pagerState.animateScrollToPage(2) }
-                },
-                text = { Text(stringResource(R.string.extension_selector_tab_lorebooks)) }
-            )
-            Tab(
-                selected = pagerState.currentPage == 3,
-                onClick = {
-                    scope.launch { pagerState.animateScrollToPage(3) }
                 },
                 text = { Text(stringResource(R.string.extension_selector_tab_skills)) }
             )
@@ -119,30 +110,6 @@ fun ExtensionSelector(
         ) { page ->
             when (page) {
                 0 -> {
-                    if (settings.quickMessages.isNotEmpty()) {
-                        QuickMessagesContent(
-                            quickMessages = settings.quickMessages,
-                            selectedIds = assistant.quickMessageIds,
-                            onToggle = { id, checked ->
-                                val newIds = if (checked) {
-                                    assistant.quickMessageIds + id
-                                } else {
-                                    assistant.quickMessageIds - id
-                                }
-                                onUpdate(assistant.copy(quickMessageIds = newIds))
-                            },
-                            onManage = onNavigateToQuickMessages,
-                        )
-                    } else {
-                        ExtensionEmptyState(
-                            message = stringResource(R.string.extension_selector_quick_messages_empty),
-                            buttonText = stringResource(R.string.extension_selector_go_to_extensions),
-                            onAction = onNavigateToQuickMessages,
-                        )
-                    }
-                }
-
-                1 -> {
                     if (settings.modeInjections.isNotEmpty()) {
                         ModeInjectionsContent(
                             modeInjections = settings.modeInjections,
@@ -170,7 +137,7 @@ fun ExtensionSelector(
                     }
                 }
 
-                2 -> {
+                1 -> {
                     if (settings.lorebooks.isNotEmpty()) {
                         LorebooksContent(
                             lorebooks = settings.lorebooks,
@@ -198,7 +165,7 @@ fun ExtensionSelector(
                     }
                 }
 
-                3 -> {
+                2 -> {
                     if (skills.isNotEmpty()) {
                         SkillsContent(
                             skills = skills,

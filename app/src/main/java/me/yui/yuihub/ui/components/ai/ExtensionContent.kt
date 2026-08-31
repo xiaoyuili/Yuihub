@@ -30,7 +30,6 @@ import me.yui.yuihub.R
 import me.yui.yuihub.data.files.SkillMetadata
 import me.yui.yuihub.data.model.Lorebook
 import me.yui.yuihub.data.model.PromptInjection
-import me.yui.yuihub.data.model.QuickMessage
 
 @Composable
 fun ModeInjectionsContent(
@@ -146,45 +145,6 @@ fun SkillsContent(
             item {
                 ManageButton(onClick = onManage)
             }
-        }
-    }
-}
-
-@Composable
-fun QuickMessagesContent(
-    quickMessages: List<QuickMessage>,
-    selectedIds: Set<kotlin.uuid.Uuid>,
-    onToggle: (kotlin.uuid.Uuid, Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-    onManage: (() -> Unit)? = null,
-) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        items(quickMessages, key = { it.id }) { quickMessage ->
-            ListItem(
-                headlineContent = {
-                    Text(quickMessage.title.ifBlank { stringResource(R.string.extension_content_unnamed) })
-                },
-                supportingContent = if (quickMessage.content.isNotBlank()) {
-                    {
-                        Text(
-                            text = quickMessage.content,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                            maxLines = 2,
-                        )
-                    }
-                } else null,
-                trailingContent = {
-                    Switch(
-                        checked = selectedIds.contains(quickMessage.id),
-                        onCheckedChange = { checked -> onToggle(quickMessage.id, checked) }
-                    )
-                },
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            )
         }
     }
 }
