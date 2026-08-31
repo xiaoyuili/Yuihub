@@ -4,8 +4,6 @@
 
 一個原生Android LLM 聊天客戶端，支持切換不同的供應商進行聊天 🤖💬
 
-點擊加入我們的Discord伺服器 👉 [【YuiHub】](https://discord.gg/9weBqxe5c4)
-
 [English](README.md) | 繁體中文 | [简体中文](README_ZH_CN.md)
 
 </div>
@@ -17,18 +15,7 @@
 
 ## 🚀 下載
 
-🔗 [前往官網下載](https://rikka-ai.com/download)（推薦）
-🔗 [前往 Google Play 下載](https://play.google.com/store/apps/details?id=me.yui.yuihub)
-
-> [!WARNING]
-> YuiHub 存在許多 fork 版本，fork 版本出現問題與 YuiHub 無關，請謹慎使用 fork 版本，避免隱私洩露或者過度索要權限問題。
-
-## 💖 贊助商
-
-|                                         贊助商                                         | 介紹                                                                                                                                              |
-|:-----------------------------------------------------------------------------------:|:------------------------------------------------------------------------------------------------------------------------------------------------|
-| <img src="docs/sponsors/aihubmix.png" alt="Aihubmix" width="50" /><br /><b>Aihubmix</b> | 感謝 <a href="https://aihubmix.com?aff=pG7r">aihubmix.com</a> 的資金支持。我們推薦使用 aihubmix 作為全球主流模型的一站式服務平台。（OpenAI、Claude、Google Gemini、DeepSeek、Qwen 以及數百種其他模型）。 |
-| <img src="docs/sponsors/suixiang.jpg" alt="隨想AI網關" width="50" /><br /><b>隨想AI網關</b> | 感謝隨想AI網關對本項目的贊助！隨想AI網關 是一家可靠高效的 API 中繼服務提供商，提供 Claude、Codex、Gemini 等的中繼服務。注重隱私的中轉站·無數據倒賣·無模型摻水，隱私，透明，極速售後。新帳戶註冊每日簽到就送 0.5 元測試額度，儲值額度 1:1，無需訂閱，按量付費。多線路冗餘、跨區域容災、自動故障切換，長鏈路 SSE 不中斷。99.9% 可用性，關鍵呼叫從不掉隊。 |
+🔗 [GitHub](https://github.com/xiaoyuili/Yuihub)
 
 ## ✨ 功能特色
 
@@ -73,23 +60,6 @@
 > 1. 添加新語言，因為添加新語言會增加後續本地化的工作量
 > 2. 添加新功能，這個項目是有態度的
 > 3. AI生成的大規模重構和更改
-
-## 💰 捐贈
-
-* [Patreon](https://patreon.com/yuihub)
-* [愛發電](https://afdian.com/a/reovo)
-
-## ⭐ Star History
-
-如果喜歡這個項目，請給個Star ⭐
-
-<a href="https://www.star-history.com/?type=date&repos=re-ovo%2Fyuihub">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=re-ovo/yuihub&type=date&theme=dark&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=re-ovo/yuihub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=re-ovo/yuihub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
- </picture>
-</a>
 
 ## 📄 許可證
 

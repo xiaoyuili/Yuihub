@@ -49,7 +49,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -80,14 +79,12 @@ import me.yui.yuihub.ui.components.ui.BackupReminderCard
 import me.yui.yuihub.ui.components.ui.Greeting
 import me.yui.yuihub.ui.components.ui.Tooltip
 import me.yui.yuihub.ui.components.ui.UIAvatar
-import me.yui.yuihub.ui.components.ui.UpdateCard
 import androidx.compose.ui.draw.clip
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.context.Navigator
 import com.dokar.sonner.ToastType
 import me.yui.yuihub.ui.hooks.EditStateContent
 import me.yui.yuihub.ui.hooks.readBooleanPreference
-import me.yui.yuihub.ui.hooks.rememberIsPlayStoreVersion
 import me.yui.yuihub.ui.hooks.useEditState
 import me.yui.yuihub.ui.modifier.onClick
 import me.yui.yuihub.utils.navigateToChatPage
@@ -106,7 +103,6 @@ fun ChatDrawerContent(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val toaster = LocalToaster.current
-    val isPlayStore = rememberIsPlayStoreVersion()
     val repo = koinInject<ConversationRepository>()
 
     val activity = context as ComponentActivity
@@ -162,22 +158,6 @@ fun ChatDrawerContent(
     // Menu popup 状态
     var showMenuPopup by remember { mutableStateOf(false) }
 
-    val updateCheckDisabledUntil = settings.displaySetting.updateCheckDisabledUntilEpochMillis
-    var updateChecksEnabled by remember(updateCheckDisabledUntil) {
-        mutableStateOf(updateCheckDisabledUntil <= System.currentTimeMillis())
-    }
-    LaunchedEffect(updateCheckDisabledUntil) {
-        while (true) {
-            val remaining = updateCheckDisabledUntil - System.currentTimeMillis()
-            if (remaining <= 0) {
-                updateChecksEnabled = true
-                break
-            }
-            updateChecksEnabled = false
-            delay(minOf(remaining, 60 * 60 * 1_000L))
-        }
-    }
-
     ModalDrawerSheet(
         modifier = Modifier.width(300.dp)
     ) {
@@ -185,10 +165,6 @@ fun ChatDrawerContent(
             modifier = Modifier.padding(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (updateChecksEnabled && !isPlayStore) {
-                UpdateCard(vm)
-            }
-
             BackupReminderCard(
                 settings = settings,
                 onClick = { navController.navigate(Screen.Backup) },

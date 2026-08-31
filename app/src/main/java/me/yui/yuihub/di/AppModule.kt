@@ -14,7 +14,6 @@ import me.yui.yuihub.utils.EmojiData
 import me.yui.yuihub.utils.EmojiUtils
 import me.yui.yuihub.utils.JsonInstant
 import me.yui.yuihub.utils.SoundEffectPlayer
-import me.yui.yuihub.utils.UpdateChecker
 import me.yui.yuihub.web.WebServerManager
 import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
@@ -28,13 +27,6 @@ val appModule = module {
 
     single {
         LocalTools(get(), get(), get(), get())
-    }
-
-    single {
-        UpdateChecker(
-            client = get(),
-            appScope = get(),
-        )
     }
 
     single {

@@ -20,8 +20,6 @@ import me.yui.yuihub.data.ai.transformers.AssistantTemplateLoader
 import me.yui.yuihub.data.ai.GenerationHandler
 import me.yui.yuihub.data.ai.TranslationHandler
 import me.yui.yuihub.data.ai.transformers.TemplateTransformer
-import me.yui.yuihub.data.api.YuiHubAPI
-import me.yui.yuihub.data.api.SponsorAPI
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.AppDatabase
 import me.yui.yuihub.data.db.fts.MessageFtsManager
@@ -38,12 +36,9 @@ import me.yui.yuihub.data.network.SettingsSocks5Authenticator
 import me.yui.yuihub.data.sync.webdav.WebDavSync
 import me.rerere.search.SearchService
 import me.yui.yuihub.data.sync.S3Sync
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.dsl.module
-import retrofit2.Retrofit
-import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
@@ -245,10 +240,6 @@ val dataSourceModule = module {
     }
 
     single {
-        SponsorAPI.create(get())
-    }
-
-    single {
         ProviderManager(client = get(), context = get())
     }
 
@@ -285,14 +276,4 @@ val dataSourceModule = module {
         )
     }
 
-    single<Retrofit> {
-        Retrofit.Builder()
-            .baseUrl("https://api.rikka-ai.com")
-            .addConverterFactory(get<Json>().asConverterFactory("application/json; charset=UTF8".toMediaType()))
-            .build()
-    }
-
-    single<YuiHubAPI> {
-        get<Retrofit>().create(YuiHubAPI::class.java)
-    }
 }
