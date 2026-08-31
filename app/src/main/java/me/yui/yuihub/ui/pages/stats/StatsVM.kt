@@ -10,21 +10,26 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.yui.yuihub.data.db.dao.ConversationDAO
 import me.yui.yuihub.data.db.dao.MessageNodeDAO
-import me.yui.yuihub.data.db.dao.getMessageCountPerDay
+import me.yui.yuihub.data.db.dao.getConversationUsageStats
 import me.yui.yuihub.data.db.dao.getTokenStats
+import me.yui.yuihub.data.db.dao.getTokenUsagePerDay
 import me.yui.yuihub.data.datastore.SettingsStore
-import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.temporal.TemporalAdjusters
 
 data class AppStats(
     val isLoading: Boolean = true,
-    val totalConversations: Int = 0,
-    val totalMessages: Int = 0,
+    val conversationTitle: String = "",
+    val currentPromptTokens: Long = 0L,
+    val currentCompletionTokens: Long = 0L,
+    val currentCachedTokens: Long = 0L,
+    val currentMessageCount: Int = 0,
+    val currentModelCalls: Int = 0,
     val totalPromptTokens: Long = 0L,
     val totalCompletionTokens: Long = 0L,
     val totalCachedTokens: Long = 0L,
-    val conversationsPerDay: Map<LocalDate, Int> = emptyMap(),
+    val totalConversations: Int = 0,
+    val totalModelCalls: Int = 0,
+    val tokensPerDay: Map<LocalDate, Long> = emptyMap(),
     val launchCount: Int = 0,
 )
 
@@ -32,6 +37,7 @@ class StatsVM(
     private val conversationDAO: ConversationDAO,
     private val messageNodeDAO: MessageNodeDAO,
     private val settingsStore: SettingsStore,
+    private val conversationId: String?,
 ) : ViewModel() {
 
     private val _stats = MutableStateFlow(AppStats())
@@ -45,38 +51,39 @@ class StatsVM(
         delay(50)
 
         val today = LocalDate.now()
+        val startDate = today.minusDays(29).toString()
 
-        // 热力图起始日期（52 周前的周日），格式 "yyyy-MM-dd" 直接与 JSON 中的 LocalDateTime 前缀比较
-        val startDate = today
-            .with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
-            .minusWeeks(52)
-            .toString()
-
-        // 基于用户消息的 createdAt 统计每日活跃消息数，SQLite 侧 GROUP BY，返回 ≤371 行
-        val conversationsPerDay = withContext(Dispatchers.IO) {
+        val tokensPerDay = withContext(Dispatchers.IO) {
             messageNodeDAO
-                .getMessageCountPerDay(startDate)
+                .getTokenUsagePerDay(startDate)
                 .mapNotNull { entry ->
-                    runCatching { LocalDate.parse(entry.day) to entry.count }.getOrNull()
+                    runCatching { LocalDate.parse(entry.day) to entry.tokens }.getOrNull()
                 }
                 .toMap()
         }
 
+        val tokenStats = messageNodeDAO.getTokenStats()
         val totalConversations = conversationDAO.countAll()
 
-        // json_each() + json_extract() 在 SQLite 侧聚合，不再加载完整 JSON 到 Kotlin
-        val tokenStats = messageNodeDAO.getTokenStats()
+        val currentStats = conversationId?.let { messageNodeDAO.getConversationUsageStats(it) }
+        val conversationTitle = conversationId?.let { conversationDAO.getConversationById(it)?.title }.orEmpty()
 
         val launchCount = settingsStore.settingsFlow.value.launchCount
 
         _stats.value = AppStats(
             isLoading = false,
-            totalConversations = totalConversations,
-            totalMessages = tokenStats.totalMessages,
+            conversationTitle = conversationTitle,
+            currentPromptTokens = currentStats?.promptTokens ?: 0L,
+            currentCompletionTokens = currentStats?.completionTokens ?: 0L,
+            currentCachedTokens = currentStats?.cachedTokens ?: 0L,
+            currentMessageCount = currentStats?.totalMessages ?: 0,
+            currentModelCalls = currentStats?.assistantMessages ?: 0,
             totalPromptTokens = tokenStats.promptTokens,
             totalCompletionTokens = tokenStats.completionTokens,
             totalCachedTokens = tokenStats.cachedTokens,
-            conversationsPerDay = conversationsPerDay,
+            totalConversations = totalConversations,
+            totalModelCalls = tokenStats.assistantMessages,
+            tokensPerDay = tokensPerDay,
             launchCount = launchCount,
         )
     }

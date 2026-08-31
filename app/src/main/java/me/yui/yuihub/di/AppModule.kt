@@ -13,8 +13,6 @@ import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceTerminalSessionManag
 import me.yui.yuihub.utils.EmojiData
 import me.yui.yuihub.utils.EmojiUtils
 import me.yui.yuihub.utils.JsonInstant
-import me.yui.yuihub.utils.SoundEffectPlayer
-import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
 
 val appModule = module {
@@ -25,7 +23,7 @@ val appModule = module {
     }
 
     single {
-        LocalTools(get(), get(), get(), get())
+        LocalTools(get(), get(), get())
     }
 
     single {
@@ -37,19 +35,11 @@ val appModule = module {
     }
 
     single {
-        TTSManager(get())
-    }
-
-    single {
         Firebase.crashlytics
     }
 
     single {
         Firebase.analytics
-    }
-
-    single {
-        SoundEffectPlayer(get())
     }
 
     single {

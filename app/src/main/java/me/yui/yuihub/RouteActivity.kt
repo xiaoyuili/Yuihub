@@ -64,24 +64,18 @@ import me.yui.yuihub.data.db.MigrationState
 import me.yui.yuihub.data.event.AppEvent
 import me.yui.yuihub.data.event.AppEventBus
 import me.yui.yuihub.ui.activity.SafeModeActivity
-import me.yui.yuihub.ui.components.ui.TTSController
-import me.yui.yuihub.ui.context.LocalASRState
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.context.LocalSharedTransitionScope
-import me.yui.yuihub.ui.context.LocalTTSState
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.context.Navigator
 import me.yui.yuihub.ui.hooks.readBooleanPreference
 import me.yui.yuihub.ui.hooks.readStringPreference
-import me.yui.yuihub.ui.hooks.rememberCustomAsrState
-import me.yui.yuihub.ui.hooks.rememberCustomTtsState
 import me.yui.yuihub.ui.pages.assistant.AssistantPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantBasicPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantDetailPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantExtensionsPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantLocalToolPage
-import me.yui.yuihub.ui.pages.assistant.detail.AssistantMcpPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantMemoryPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantPromptPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantRequestPage
@@ -118,7 +112,6 @@ import me.yui.yuihub.ui.pages.setting.SettingProviderDetailPage
 import me.yui.yuihub.ui.pages.setting.SettingProviderPage
 import me.yui.yuihub.ui.pages.setting.SettingSearchDetailPage
 import me.yui.yuihub.ui.pages.setting.SettingSearchPage
-import me.yui.yuihub.ui.pages.setting.SettingSpeechPage
 import me.yui.yuihub.ui.pages.share.handler.ShareHandlerPage
 import me.yui.yuihub.ui.pages.stats.StatsPage
 import me.yui.yuihub.ui.pages.webview.WebViewPage
@@ -235,13 +228,10 @@ class RouteActivity : ComponentActivity() {
     fun AppRoutes() {
         val toastState = rememberToasterState()
         val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
-        val tts = rememberCustomTtsState()
-        val asr = rememberCustomAsrState()
         val eventBus = koinInject<AppEventBus>()
-        LaunchedEffect(tts) {
+        LaunchedEffect(eventBus) {
             eventBus.events.collect { event ->
                 when (event) {
-                    is AppEvent.Speak -> tts.speak(event.text)
                     is AppEvent.OpenUsageAccessSettings -> this@RouteActivity.openUsageAccessSettings()
                     is AppEvent.ChatGenerationUpdate -> Unit // 由 ChatNotificationManager 消费
                     is AppEvent.ChatGenerationEnded -> Unit // 由 ChatNotificationManager 消费
@@ -272,8 +262,6 @@ class RouteActivity : ComponentActivity() {
                 LocalSharedTransitionScope provides this,
                 LocalSettings provides settings,
                 LocalToaster provides toastState,
-                LocalTTSState provides tts,
-                LocalASRState provides asr,
             ) {
                 Toaster(
                     state = toastState,
@@ -282,7 +270,6 @@ class RouteActivity : ComponentActivity() {
                     alignment = Alignment.TopCenter,
                     showCloseButton = true,
                 )
-                TTSController()
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -362,10 +349,6 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.AssistantRequest> { key ->
                                 AssistantRequestPage(key.id)
-                            }
-
-                            entry<Screen.AssistantMcp> { key ->
-                                AssistantMcpPage(key.id)
                             }
 
                             entry<Screen.AssistantLocalTool> { key ->
@@ -450,10 +433,6 @@ class RouteActivity : ComponentActivity() {
                                 SettingSearchDetailPage(id)
                             }
 
-                            entry<Screen.SettingSpeech> {
-                                SettingSpeechPage()
-                            }
-
                             entry<Screen.SettingMcp> {
                                 SettingMcpPage()
                             }
@@ -507,8 +486,8 @@ class RouteActivity : ComponentActivity() {
                                 SearchPage()
                             }
 
-                            entry<Screen.Stats> {
-                                StatsPage()
+                            entry<Screen.Stats> { key ->
+                                StatsPage(chatId = key.chatId)
                             }
                         }
                     )
@@ -597,9 +576,6 @@ sealed interface Screen : NavKey {
     data class AssistantRequest(val id: String) : Screen
 
     @Serializable
-    data class AssistantMcp(val id: String) : Screen
-
-    @Serializable
     data class AssistantLocalTool(val id: String) : Screen
 
     @Serializable
@@ -660,9 +636,6 @@ sealed interface Screen : NavKey {
     data class SettingSearchDetail(val serviceId: String) : Screen
 
     @Serializable
-    data object SettingSpeech : Screen
-
-    @Serializable
     data object SettingMcp : Screen
 
     @Serializable
@@ -699,5 +672,5 @@ sealed interface Screen : NavKey {
     data object MessageSearch : Screen
 
     @Serializable
-    data object Stats : Screen
+    data class Stats(val chatId: String? = null) : Screen
 }

@@ -7,17 +7,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.hugeicons.HugeIcons
@@ -55,39 +53,42 @@ fun ReasoningButton(
 ) {
     var showPicker by remember { mutableStateOf(false) }
 
-    if (showPicker) {
-        ReasoningPicker(
-            reasoningLevel = reasoningLevel,
-            onDismissRequest = { showPicker = false },
-            onUpdateReasoningLevel = onUpdateReasoningLevel
-        )
-    }
-
-    ToggleSurface(
-        checked = reasoningLevel.isEnabled,
-        onClick = { showPicker = true },
-        modifier = modifier,
-    ) {
-        Row(
-            modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+    Box(modifier = modifier) {
+        ToggleSurface(
+            checked = reasoningLevel.isEnabled,
+            onClick = { showPicker = true },
         ) {
-            Box(
-                modifier = Modifier.size(24.dp),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                ReasoningIcon(reasoningLevel)
+                Box(
+                    modifier = Modifier.size(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    ReasoningIcon(reasoningLevel)
+                }
+                if (!onlyIcon) Text(stringResource(R.string.setting_provider_page_reasoning))
             }
-            if (!onlyIcon) Text(stringResource(R.string.setting_provider_page_reasoning))
         }
+
+        ReasoningLevelPopup(
+            expanded = showPicker,
+            onDismissRequest = { showPicker = false },
+            reasoningLevel = reasoningLevel,
+            onUpdateReasoningLevel = onUpdateReasoningLevel,
+        )
     }
 }
 
+// 弹窗形态的推理强度调整：锚定在按钮上方弹出（靠近屏幕底部时自动向上展开），
+// 替代原先的 ModalBottomSheet，避免整屏上滑打断输入
 @Composable
-fun ReasoningPicker(
+private fun ReasoningLevelPopup(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
     reasoningLevel: ReasoningLevel,
-    onDismissRequest: () -> Unit = {},
     onUpdateReasoningLevel: (ReasoningLevel) -> Unit,
 ) {
     val currentIndex = levels.indexOf(reasoningLevel).coerceAtLeast(0)
@@ -97,44 +98,30 @@ fun ReasoningPicker(
         sliderValue = currentIndex.toFloat()
     }
 
-    ModalBottomSheet(
+    DropdownMenu(
+        expanded = expanded,
         onDismissRequest = onDismissRequest,
-        sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 标题
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.reasoning_picker_title),
-                    style = MaterialTheme.typography.titleLarge,
-                )
-                Text(
-                    text = stringResource(R.string.reasoning_picker_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
+            Text(
+                text = stringResource(R.string.reasoning_picker_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
 
-            // 当前等级展示
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            val iconColor by animateColorAsState(
+                if (reasoningLevel.isEnabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                val iconColor by animateColorAsState(
-                    if (reasoningLevel.isEnabled) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface
-                )
                 Icon(
                     imageVector = when (reasoningLevel) {
                         ReasoningLevel.OFF -> HugeIcons.Idea
@@ -146,12 +133,12 @@ fun ReasoningPicker(
                         ReasoningLevel.MAX -> ReasoningHigh
                     },
                     contentDescription = null,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(24.dp),
                     tint = iconColor,
                 )
                 Text(
                     text = reasoningLevel.label(),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             }
 
@@ -165,18 +152,20 @@ fun ReasoningPicker(
                 },
                 valueRange = 0f..(levelCount - 1).toFloat(),
                 steps = levelCount - 2,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp),
                 thumb = {
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(26.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary),
                         contentAlignment = Alignment.Center,
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(10.dp)
+                                .size(12.dp)
                                 .clip(CircleShape)
                                 .background(MaterialTheme.colorScheme.onPrimary)
                         )
@@ -216,16 +205,4 @@ private fun ReasoningLevel.label(): String = when (this) {
     ReasoningLevel.HIGH -> stringResource(R.string.reasoning_heavy)
     ReasoningLevel.XHIGH -> stringResource(R.string.reasoning_xhigh)
     ReasoningLevel.MAX -> stringResource(R.string.reasoning_max)
-}
-
-@Composable
-@Preview(showBackground = true)
-private fun ReasoningPickerPreview() {
-    MaterialTheme {
-        var level by remember { mutableStateOf(ReasoningLevel.AUTO) }
-        ReasoningPicker(
-            reasoningLevel = level,
-            onUpdateReasoningLevel = { level = it }
-        )
-    }
 }

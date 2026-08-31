@@ -1,16 +1,12 @@
 package me.yui.yuihub.ui.pages.stats
 
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.ChartColumn
-import me.rerere.hugeicons.stroke.Cpu
-import me.rerere.hugeicons.stroke.Message01
 import me.rerere.hugeicons.stroke.Rocket01
-import me.rerere.hugeicons.stroke.Zap
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,11 +16,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -36,9 +32,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.yui.yuihub.R
@@ -46,14 +42,16 @@ import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
-import java.time.DayOfWeek
+import org.koin.core.parameter.parametersOf
 import java.time.LocalDate
-import java.time.format.TextStyle
-import java.time.temporal.TemporalAdjusters
-import java.util.Locale
+import java.time.format.DateTimeFormatter
+import kotlin.math.roundToLong
 
 @Composable
-fun StatsPage(vm: StatsVM = koinViewModel()) {
+fun StatsPage(
+    chatId: String?,
+    vm: StatsVM = koinViewModel(parameters = { parametersOf(chatId) }),
+) {
     val stats by vm.stats.collectAsStateWithLifecycle()
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -82,176 +80,136 @@ fun StatsPage(vm: StatsVM = koinViewModel()) {
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = padding + PaddingValues(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = padding + PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
-                    HeatmapCard(
-                        conversationsPerDay = stats.conversationsPerDay,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
-                }
-                item {
-                    StatsGrid(
-                        stats = stats,
-                        modifier = Modifier.padding(horizontal = 8.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HeatmapCard(conversationsPerDay: Map<LocalDate, Int>, modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CustomColors.cardColorsOnSurfaceContainer,
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(stringResource(R.string.stats_page_heatmap_title), style = MaterialTheme.typography.titleMedium)
-
-            ChatHeatmap(conversationsPerDay = conversationsPerDay)
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.stats_page_heatmap_less),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.width(2.dp))
-                listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { alpha ->
-                    HeatmapCell(alpha = alpha, sizeDp = 10)
-                }
-                Spacer(Modifier.width(2.dp))
-                Text(
-                    text = stringResource(R.string.stats_page_heatmap_more),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatHeatmap(conversationsPerDay: Map<LocalDate, Int>) {
-    val today = LocalDate.now()
-    val startSunday = today
-        .with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
-        .minusWeeks(52)
-
-    val numWeeks = 53
-    val activeCounts = conversationsPerDay.values.filter { it > 0 }.sorted()
-    val q1 = activeCounts.getOrElse((activeCounts.size * 0.25).toInt()) { 1 }
-    val q2 = activeCounts.getOrElse((activeCounts.size * 0.50).toInt()) { 2 }
-    val q3 = activeCounts.getOrElse((activeCounts.size * 0.75).toInt()) { 3 }
-    val cellSize = 11.dp
-    val cellSpacing = 2.dp
-    // Month label row height
-    val monthLabelHeight = 14.dp
-
-    // Day-of-week labels (only Mon/Wed/Fri to save space, Sun=0)
-    val dowLabels = listOf(
-        "",
-        stringResource(R.string.stats_page_dow_mon),
-        "",
-        stringResource(R.string.stats_page_dow_wed),
-        "",
-        stringResource(R.string.stats_page_dow_fri),
-        ""
-    )
-
-    // Shared scroll state so month labels + grid scroll together
-    val scrollState = rememberScrollState(initial = Int.MAX_VALUE)
-
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        // Fixed left column: spacer for month label row + DOW labels
-        Column(
-            modifier = Modifier.width(12.dp),
-            verticalArrangement = Arrangement.spacedBy(cellSpacing),
-        ) {
-            Spacer(Modifier.height(monthLabelHeight + 2.dp))
-            dowLabels.forEach { label ->
-                Box(
-                    modifier = Modifier.size(cellSize),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (label.isNotEmpty()) {
+                    StatsCard(title = stringResource(R.string.stats_page_current_conversation)) {
                         Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.7,
+                            text = stats.conversationTitle.ifBlank {
+                                stringResource(R.string.stats_page_current_conversation)
+                            },
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        StatGrid(
+                            items = listOf(
+                                stringResource(R.string.stats_page_input_tokens) to formatTokens(stats.currentPromptTokens),
+                                stringResource(R.string.stats_page_output_tokens) to formatTokens(stats.currentCompletionTokens),
+                                stringResource(R.string.stats_page_cached_input_tokens) to formatTokens(stats.currentCachedTokens),
+                                stringResource(R.string.stats_page_cache_rate) to formatCacheRate(
+                                    stats.currentCachedTokens,
+                                    stats.currentPromptTokens
+                                ),
+                                stringResource(R.string.stats_page_message_count) to formatCount(stats.currentMessageCount.toLong()),
+                                stringResource(R.string.stats_page_model_calls) to formatCount(stats.currentModelCalls.toLong()),
+                            )
                         )
                     }
                 }
-            }
-        }
 
-        // Scrollable area: month labels + heatmap grid share one scroll state
-        Column(
-            modifier = Modifier.horizontalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            // Month labels row
-            Row(horizontalArrangement = Arrangement.spacedBy(cellSpacing)) {
-                for (weekIdx in 0 until numWeeks) {
-                    val weekStart = startSunday.plusDays((weekIdx * 7).toLong())
-                    val labelDate = (0..6)
-                        .map { weekStart.plusDays(it.toLong()) }
-                        .firstOrNull { it.dayOfMonth == 1 }
-                    Box(
-                        modifier = Modifier
-                            .width(cellSize)
-                            .height(monthLabelHeight),
-                        contentAlignment = Alignment.BottomStart,
+                item {
+                    StatsCard(title = stringResource(R.string.stats_page_history_token_stats)) {
+                        StatGrid(
+                            items = listOf(
+                                stringResource(R.string.stats_page_input_tokens) to formatTokens(stats.totalPromptTokens),
+                                stringResource(R.string.stats_page_output_tokens) to formatTokens(stats.totalCompletionTokens),
+                                stringResource(R.string.stats_page_cached_input_tokens) to formatTokens(stats.totalCachedTokens),
+                                stringResource(R.string.stats_page_total_conversations) to formatCount(stats.totalConversations.toLong()),
+                                stringResource(R.string.stats_page_total_model_calls) to formatCount(stats.totalModelCalls.toLong()),
+                            )
+                        )
+                    }
+                }
+
+                item {
+                    StatsCard(title = stringResource(R.string.stats_page_daily_token_usage)) {
+                        DailyTokenBars(tokensPerDay = stats.tokensPerDay)
+                    }
+                }
+
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CustomColors.cardColorsOnSurfaceContainer,
                     ) {
-                        if (labelDate != null) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = HugeIcons.Rocket01,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(10.dp))
                             Text(
-                                text = if (labelDate.monthValue == 1) {
-                                    labelDate.year.toString()
-                                } else {
-                                    labelDate.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
-                                },
-                                modifier = Modifier.wrapContentWidth(unbounded = true),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.75,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                softWrap = false,
-                                maxLines = 1,
+                                text = stringResource(R.string.stats_page_launch_count),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = formatCount(stats.launchCount.toLong()),
+                                style = MaterialTheme.typography.titleMedium,
                             )
                         }
                     }
                 }
             }
+        }
+    }
+}
 
-            // Heatmap grid
-            Row(horizontalArrangement = Arrangement.spacedBy(cellSpacing)) {
-                for (weekIdx in 0 until numWeeks) {
-                    Column(verticalArrangement = Arrangement.spacedBy(cellSpacing)) {
-                        for (dow in 0..6) {
-                            val date = startSunday.plusDays((weekIdx * 7 + dow).toLong())
-                            val isFuture = date.isAfter(today)
-                            val count = if (isFuture) 0 else (conversationsPerDay[date] ?: 0)
-                            val alpha = when {
-                                isFuture -> -1f
-                                count == 0 -> 0f
-                                count <= q1 -> 0.25f
-                                count <= q2 -> 0.5f
-                                count <= q3 -> 0.75f
-                                else -> 1f
-                            }
-                            HeatmapCell(alpha = alpha, sizeDp = cellSize.value.toInt())
-                        }
+@Composable
+private fun StatsCard(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun StatGrid(items: List<Pair<String, String>>) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items.chunked(2).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                rowItems.forEach { (label, value) ->
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = value,
+                            style = MaterialTheme.typography.titleSmall,
+                        )
                     }
+                }
+                if (rowItems.size == 1) {
+                    Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -259,106 +217,96 @@ private fun ChatHeatmap(conversationsPerDay: Map<LocalDate, Int>) {
 }
 
 @Composable
-private fun HeatmapCell(alpha: Float, sizeDp: Int) {
-    val color = when {
-        alpha < 0f -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f) // future
-        alpha == 0f -> MaterialTheme.colorScheme.surfaceVariant
-        else -> MaterialTheme.colorScheme.primary.copy(alpha = alpha)
-    }
-    Box(
-        modifier = Modifier
-            .size(sizeDp.dp)
-            .clip(MaterialTheme.shapes.extraSmall)
-            .background(color)
-    )
-}
+private fun DailyTokenBars(tokensPerDay: Map<LocalDate, Long>) {
+    val today = LocalDate.now()
+    val days = (29 downTo 0).map { today.minusDays(it.toLong()) }
+    val values = days.map { tokensPerDay[it] ?: 0L }
+    val maxValue = values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+    val chartHeight = 120.dp
 
-@Composable
-private fun StatsGrid(stats: AppStats, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            StatCard(
-                modifier = Modifier.weight(1f),
-                icon = HugeIcons.ChartColumn,
-                label = stringResource(R.string.stats_page_total_conversations),
-                value = formatCount(stats.totalConversations.toLong()),
-            )
-            StatCard(
-                modifier = Modifier.weight(1f),
-                icon = HugeIcons.Message01,
-                label = stringResource(R.string.stats_page_total_messages),
-                value = formatCount(stats.totalMessages.toLong()),
-            )
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row {
+            Column(
+                modifier = Modifier
+                    .width(46.dp)
+                    .height(chartHeight),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.End,
+            ) {
+                Text(
+                    text = formatAxisTokens(maxValue),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = formatAxisTokens(maxValue / 2),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = "0",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(6.dp))
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(chartHeight),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                values.forEach { value ->
+                    val fraction = value.toFloat() / maxValue.toFloat()
+                    val barHeight = (chartHeight * fraction).coerceAtLeast(3.dp)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 1.5.dp)
+                            .height(barHeight)
+                            .clip(
+                                RoundedCornerShape(
+                                    topStart = 3.dp,
+                                    topEnd = 3.dp,
+                                    bottomStart = 0.dp,
+                                    bottomEnd = 0.dp,
+                                )
+                            )
+                            .background(
+                                MaterialTheme.colorScheme.primary.copy(
+                                    alpha = if (value > 0) 0.75f else 0.15f
+                                )
+                            ),
+                    )
+                }
+            }
         }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            StatCard(
-                modifier = Modifier.weight(1f),
-                icon = HugeIcons.Cpu,
-                label = stringResource(R.string.stats_page_input_tokens),
-                value = formatTokens(stats.totalPromptTokens),
-            )
-            StatCard(
-                modifier = Modifier.weight(1f),
-                icon = HugeIcons.Cpu,
-                label = stringResource(R.string.stats_page_output_tokens),
-                value = formatTokens(stats.totalCompletionTokens),
-            )
-        }
-        if (stats.totalCachedTokens > 0) {
-            StatCard(
-                modifier = Modifier.fillMaxWidth(),
-                icon = HugeIcons.Zap,
-                label = stringResource(R.string.stats_page_cached_tokens),
-                value = formatTokens(stats.totalCachedTokens),
-            )
-        }
-        StatCard(
-            modifier = Modifier.fillMaxWidth(),
-            icon = HugeIcons.Rocket01,
-            label = stringResource(R.string.stats_page_launch_count),
-            value = formatCount(stats.launchCount.toLong()),
-        )
-    }
-}
 
-@Composable
-private fun StatCard(
-    modifier: Modifier = Modifier,
-    icon: ImageVector,
-    label: String,
-    value: String,
-) {
-    Card(modifier = modifier, colors = CustomColors.cardColorsOnSurfaceContainer) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 52.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp),
+            Text(
+                text = days.first().format(DateTimeFormatter.ofPattern("MM/dd")),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
-                text = value,
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodySmall,
+                text = days.last().format(DateTimeFormatter.ofPattern("MM/dd")),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
+}
+
+private fun formatCacheRate(cachedTokens: Long, promptTokens: Long): String {
+    val base = cachedTokens + promptTokens
+    if (base <= 0L) return "0.00%"
+    val rate = cachedTokens.toDouble() / base.toDouble() * 100.0
+    return "%.2f%%".format(rate)
 }
 
 private fun formatCount(count: Long): String = when {
@@ -372,4 +320,15 @@ private fun formatTokens(count: Long): String = when {
     count >= 1_000_000 -> "%.2fM".format(count / 1_000_000.0)
     count >= 1_000 -> "%.1fK".format(count / 1_000.0)
     else -> count.toString()
+}
+
+private fun formatAxisTokens(count: Long): String {
+    val m = count / 1_000_000.0
+    return if (m >= 0.1) {
+        "%.1fM".format(m)
+    } else if (count >= 1_000) {
+        "%.0fK".format(count / 1_000.0)
+    } else {
+        count.toString()
+    }
 }

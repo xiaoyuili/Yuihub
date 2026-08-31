@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import me.yui.yuihub.Screen
 import me.yui.yuihub.ui.components.ai.ExtensionEmptyState
 import me.yui.yuihub.ui.components.ai.LorebooksContent
+import me.yui.yuihub.ui.components.ai.McpPicker
 import me.yui.yuihub.ui.components.ai.ModeInjectionsContent
 import me.yui.yuihub.ui.components.ai.SkillsContent
 import me.yui.yuihub.ui.components.nav.BackButton
@@ -40,10 +41,11 @@ fun AssistantExtensionsPage(id: String) {
     val assistant by vm.assistant.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val skills by vm.skills.collectAsStateWithLifecycle()
+    val mcpServerConfigs by vm.mcpServerConfigs.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val scope = rememberCoroutineScope()
-    val pagerState = rememberPagerState { 3 }
+    val pagerState = rememberPagerState { 4 }
 
     Scaffold(
         topBar = {
@@ -80,6 +82,11 @@ fun AssistantExtensionsPage(id: String) {
                     selected = pagerState.currentPage == 2,
                     onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
                     text = { Text(stringResource(R.string.assistant_extensions_page_tab_skills)) }
+                )
+                Tab(
+                    selected = pagerState.currentPage == 3,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(3) } },
+                    text = { Text(stringResource(R.string.assistant_page_tab_mcp)) }
                 )
             }
 
@@ -172,6 +179,31 @@ fun AssistantExtensionsPage(id: String) {
                                     modifier = Modifier.fillMaxWidth(),
                                 ) {
                                     Text(stringResource(R.string.assistant_extensions_page_goto_extensions))
+                                }
+                            }
+                        }
+                    }
+
+                    3 -> {
+                        if (mcpServerConfigs.isEmpty()) {
+                            ExtensionEmptyState(
+                                message = stringResource(R.string.assistant_extensions_page_empty_mcp),
+                                buttonText = stringResource(R.string.assistant_extensions_page_goto_mcp),
+                                onAction = { navController.navigate(Screen.SettingMcp) },
+                            )
+                        } else {
+                            Column {
+                                McpPicker(
+                                    modifier = Modifier.weight(1f),
+                                    assistant = assistant,
+                                    servers = mcpServerConfigs,
+                                    onUpdateAssistant = { vm.update(it) },
+                                )
+                                TextButton(
+                                    onClick = { navController.navigate(Screen.SettingMcp) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(stringResource(R.string.assistant_extensions_page_goto_mcp))
                                 }
                             }
                         }

@@ -129,13 +129,6 @@ fun AssistantDetailPage(id: String) {
                         trailingContent = { Icon(HugeIcons.ArrowRight01, null) },
                     )
                     item(
-                        onClick = { navController.navigate(Screen.AssistantMcp(id)) },
-                        leadingContent = { Icon(HugeIcons.Wrench01, null) },
-                        supportingContent = { Text(stringResource(R.string.assistant_detail_mcp_desc)) },
-                        headlineContent = { Text(stringResource(R.string.assistant_page_tab_mcp)) },
-                        trailingContent = { Icon(HugeIcons.ArrowRight01, null) },
-                    )
-                    item(
                         onClick = { navController.navigate(Screen.AssistantLocalTool(id)) },
                         leadingContent = { Icon(HugeIcons.BookOpen01, null) },
                         supportingContent = { Text(stringResource(R.string.assistant_detail_local_tools_desc)) },

@@ -41,9 +41,6 @@ import kotlin.math.roundToInt
 fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     var displaySetting by remember(settings) { mutableStateOf(settings.displaySetting) }
-    var ttsPlaybackSpeed by remember(settings.defaultTTSPlaybackSpeed) {
-        mutableFloatStateOf(settings.defaultTTSPlaybackSpeed)
-    }
 
     fun updateDisplaySetting(setting: DisplaySetting) {
         displaySetting = setting
@@ -260,85 +257,6 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                             }
                         )
                     }
-                }
-            }
-
-            item {
-                CardGroup(
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                    title = { Text(stringResource(R.string.setting_page_tts_settings)) },
-                ) {
-                    item(
-                        headlineContent = {
-                            Text(stringResource(R.string.setting_tts_page_default_playback_speed))
-                        },
-                        supportingContent = {
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.setting_tts_page_default_playback_speed_description),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                ) {
-                                    Slider(
-                                        value = ttsPlaybackSpeed,
-                                        onValueChange = {
-                                            ttsPlaybackSpeed = (it * 10).roundToInt() / 10f
-                                        },
-                                        onValueChangeFinished = {
-                                            vm.updateSettings(
-                                                settings.copy(defaultTTSPlaybackSpeed = ttsPlaybackSpeed)
-                                            )
-                                        },
-                                        valueRange = 0.5f..2.0f,
-                                        steps = 14,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    Text(text = "x${"%.1f".format(ttsPlaybackSpeed)}")
-                                }
-                            }
-                        },
-                    )
-                    item(
-                        headlineContent = { Text(stringResource(R.string.setting_display_page_tts_only_read_quoted_title)) },
-                        supportingContent = { Text(stringResource(R.string.setting_display_page_tts_only_read_quoted_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = displaySetting.ttsOnlyReadQuoted,
-                                onCheckedChange = {
-                                    updateDisplaySetting(displaySetting.copy(ttsOnlyReadQuoted = it))
-                                }
-                            )
-                        },
-                    )
-                    item(
-                        headlineContent = { Text(stringResource(R.string.setting_display_page_tts_read_outside_brackets_title)) },
-                        supportingContent = { Text(stringResource(R.string.setting_display_page_tts_read_outside_brackets_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = displaySetting.ttsOnlyReadOutsideBrackets,
-                                onCheckedChange = {
-                                    updateDisplaySetting(displaySetting.copy(ttsOnlyReadOutsideBrackets = it))
-                                }
-                            )
-                        },
-                    )
-                    item(
-                        headlineContent = { Text(stringResource(R.string.setting_display_page_auto_play_tts_title)) },
-                        supportingContent = { Text(stringResource(R.string.setting_display_page_auto_play_tts_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = displaySetting.autoPlayTTSAfterGeneration,
-                                onCheckedChange = {
-                                    updateDisplaySetting(displaySetting.copy(autoPlayTTSAfterGeneration = it))
-                                }
-                            )
-                        },
-                    )
                 }
             }
         }

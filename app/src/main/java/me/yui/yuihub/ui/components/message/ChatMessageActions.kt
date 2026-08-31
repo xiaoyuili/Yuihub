@@ -23,7 +23,6 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,9 +48,7 @@ import me.rerere.hugeicons.stroke.GitFork
 import me.rerere.hugeicons.stroke.MoreVertical
 import me.rerere.hugeicons.stroke.Refresh03
 import me.rerere.hugeicons.stroke.Share04
-import me.rerere.hugeicons.stroke.StopCircle
 import me.rerere.hugeicons.stroke.TextSelection
-import me.rerere.hugeicons.stroke.VolumeHigh
 import me.rerere.hugeicons.stroke.WebDesign01
 import me.yui.yuihub.R
 import me.yui.yuihub.data.model.MessageNode
@@ -59,10 +56,7 @@ import me.yui.yuihub.ui.components.ui.RikkaConfirmDialog
 import me.yui.yuihub.ui.components.ui.flowRowMetaColor
 import me.yui.yuihub.ui.components.ui.flowRowMetaStyle
 import me.yui.yuihub.ui.context.LocalSettings
-import me.yui.yuihub.ui.context.LocalTTSState
 import me.yui.yuihub.utils.copyMessageToClipboard
-import me.yui.yuihub.utils.extractQuotedContentAsText
-import me.yui.yuihub.utils.removeBracketedContent
 import me.yui.yuihub.utils.toLocalString
 import me.yui.yuihub.utils.toMessageTimeString
 import java.util.Locale
@@ -121,40 +115,6 @@ fun ColumnScope.ChatMessageActionButtons(
             tint = actionIconColor
         )
 
-        if (message.role == MessageRole.ASSISTANT) {
-            val tts = LocalTTSState.current
-            val isSpeaking by tts.isSpeaking.collectAsState()
-            val isAvailable by tts.isAvailable.collectAsState()
-            Icon(
-                imageVector = if (isSpeaking) HugeIcons.StopCircle else HugeIcons.VolumeHigh,
-                contentDescription = stringResource(R.string.tts),
-                modifier = Modifier
-                    .clip(CircleShape)
-                    .clickable(
-                        enabled = isAvailable,
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = LocalIndication.current,
-                        onClick = {
-                            if (!isSpeaking) {
-                                val text = message.toText()
-                                var textToSpeak = text
-                                if (settings.displaySetting.ttsOnlyReadQuoted) {
-                                    textToSpeak = textToSpeak.extractQuotedContentAsText() ?: textToSpeak
-                                }
-                                if (settings.displaySetting.ttsOnlyReadOutsideBrackets) {
-                                    textToSpeak = textToSpeak.removeBracketedContent() ?: textToSpeak
-                                }
-                                tts.speak(textToSpeak)
-                            } else {
-                                tts.stop()
-                            }
-                        }
-                    )
-                    .padding(6.dp)
-                    .size(16.dp),
-                tint = if (isAvailable) actionIconColor else actionIconColor.copy(alpha = 0.38f)
-            )
-        }
 
         Icon(
             imageVector = HugeIcons.MoreVertical,

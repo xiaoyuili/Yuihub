@@ -155,9 +155,6 @@ fun ChatDrawerContent(
     var folderToRename by remember { mutableStateOf<Folder?>(null) }
     var folderToDelete by remember { mutableStateOf<Folder?>(null) }
 
-    // Menu popup 状态
-    var showMenuPopup by remember { mutableStateOf(false) }
-
     ModalDrawerSheet(
         modifier = Modifier.width(300.dp)
     ) {
@@ -321,32 +318,20 @@ fun ChatDrawerContent(
                     },
                 )
 
-                Box {
-                    DrawerAction(
-                        icon = {
-                            Icon(HugeIcons.Sparkles, "Menu")
-                        },
-                        label = {
-                            Text(stringResource(R.string.menu))
-                        },
-                        onClick = {
-                            showMenuPopup = true
-                        },
-                    )
-                    DropdownMenu(
-                        expanded = showMenuPopup,
-                        onDismissRequest = { showMenuPopup = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.chat_page_menu_image_generation)) },
-                            leadingIcon = { Icon(HugeIcons.Image02, null) },
-                            onClick = {
-                                showMenuPopup = false
-                                navController.navigate(Screen.ImageGen)
-                            }
+                DrawerAction(
+                    icon = {
+                        Icon(
+                            imageVector = HugeIcons.Image02,
+                            contentDescription = stringResource(R.string.chat_page_menu_image_generation)
                         )
-                    }
-                }
+                    },
+                    label = {
+                        Text(stringResource(R.string.chat_page_menu_image_generation))
+                    },
+                    onClick = {
+                        navController.navigate(Screen.ImageGen)
+                    },
+                )
 
                 DrawerAction(
                     icon = {
@@ -368,7 +353,7 @@ fun ChatDrawerContent(
                         Text("统计数据")
                     },
                     onClick = {
-                        navController.navigate(Screen.Stats)
+                        navController.navigate(Screen.Stats(chatId = current.id.toString()))
                     },
                 )
 
