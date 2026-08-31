@@ -123,17 +123,13 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
 
 internal fun ProviderSetting.defaultBaseUrlForReset(): String {
     val defaultProvider = DEFAULT_PROVIDERS.find { it.id == id }
-    if (defaultProvider != null) {
-        when (this) {
-            is ProviderSetting.OpenAI -> if (defaultProvider is ProviderSetting.OpenAI) return defaultProvider.baseUrl
-            is ProviderSetting.Google -> if (defaultProvider is ProviderSetting.Google) return defaultProvider.baseUrl
-            is ProviderSetting.Claude -> if (defaultProvider is ProviderSetting.Claude) return defaultProvider.baseUrl
-        }
-    }
     return when (this) {
-        is ProviderSetting.OpenAI -> ProviderSetting.OpenAI().baseUrl
-        is ProviderSetting.Google -> ProviderSetting.Google().baseUrl
-        is ProviderSetting.Claude -> ProviderSetting.Claude().baseUrl
+        is ProviderSetting.OpenAI -> (defaultProvider as? ProviderSetting.OpenAI)?.baseUrl
+            ?: ProviderSetting.OpenAI().baseUrl
+        is ProviderSetting.Google -> (defaultProvider as? ProviderSetting.Google)?.baseUrl
+            ?: ProviderSetting.Google().baseUrl
+        is ProviderSetting.Claude -> (defaultProvider as? ProviderSetting.Claude)?.baseUrl
+            ?: ProviderSetting.Claude().baseUrl
     }
 }
 
