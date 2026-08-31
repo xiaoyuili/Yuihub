@@ -245,7 +245,7 @@ private fun createMergedInjectionMessages(injections: List<PromptInjection>): Li
 /**
  * 查找安全的插入位置，避免注入到 USER → ASSISTANT(含Tool) 之间
  *
- * 某些提供商（如 deepseek）要求 USER 之后紧跟带工具的 ASSISTANT，
+ * 某些供应商（如 deepseek）要求 USER 之后紧跟带工具的 ASSISTANT，
  * 在两者之间插入消息会导致报错或破坏推理连续性。
  */
 internal fun findSafeInsertIndex(messages: List<UIMessage>, targetIndex: Int): Int {

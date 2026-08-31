@@ -29,7 +29,7 @@
 - 📝 Markdown 渲染（支持代码高亮、数学公式、表格、Mermaid）
 - 🔍 搜索功能（Exa、Tavily、Zhipu、LinkUp、Brave、Perplexity、..）
 - 🧩 Prompt 变量（模型名称、时间等）
-- 🤳 二维码导出和导入提供商
+- 🤳 二维码导出和导入供应商
 - 🤖 智能体自定义
 - 🧠 类ChatGPT记忆功能
 - 📝 AI翻译

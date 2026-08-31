@@ -3,24 +3,31 @@ package me.yui.yuihub.data.datastore
 import me.rerere.ai.provider.ProviderSetting
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.uuid.Uuid
 
 class DefaultProvidersTest {
     @Test
-    fun `default providers should include vercel ai gateway with expected balance config`() {
-        val vercelProviders = DEFAULT_PROVIDERS
-            .filterIsInstance<ProviderSetting.OpenAI>()
-            .filter { it.name == "Vercel AI Gateway" }
+    fun `default providers should only include a removable DeepSeek`() {
+        assertEquals(1, DEFAULT_PROVIDERS.size)
 
-        assertEquals(1, vercelProviders.size)
+        val provider = DEFAULT_PROVIDERS.single() as ProviderSetting.OpenAI
+        assertEquals("DeepSeek", provider.name)
+        assertEquals("https://api.deepseek.com/v1", provider.baseUrl)
+        assertFalse(provider.builtIn)
+        assertEquals("/user/balance", provider.balanceOption.apiPath)
+    }
 
-        val provider = vercelProviders.single()
-        assertEquals("https://ai-gateway.vercel.sh/v1", provider.baseUrl)
-        assertFalse(provider.enabled)
-        assertTrue(provider.builtIn)
-        assertTrue(provider.balanceOption.enabled)
-        assertEquals("/credits", provider.balanceOption.apiPath)
-        assertEquals("balance", provider.balanceOption.resultPath)
+    @Test
+    fun `legacy builtin providers should be stripped from stored lists`() {
+        val openai = ProviderSetting.OpenAI(
+            id = Uuid.parse("1eeea727-9ee5-4cae-93e6-6fb01a4d051e"),
+            name = "OpenAI",
+        )
+        val custom = ProviderSetting.OpenAI(name = "My API")
+        val kept = listOf(openai, DEFAULT_PROVIDERS.single(), custom)
+            .withoutLegacyBuiltinProviders()
+
+        assertEquals(listOf(DEFAULT_PROVIDERS.single().id, custom.id), kept.map { it.id })
     }
 }

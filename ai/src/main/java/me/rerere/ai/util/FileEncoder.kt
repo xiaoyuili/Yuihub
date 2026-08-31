@@ -145,7 +145,7 @@ private fun File.compressAndEncode(
 
     return try {
         val byteArrayOutputStream = ByteArrayOutputStream()
-        // 强制使用 JPEG 格式，因为很多提供商不支持 webp
+        // 强制使用 JPEG 格式，因为很多供应商不支持 webp
         Base64OutputStream(byteArrayOutputStream, Base64.NO_WRAP).use { base64Stream ->
             normalizedBitmap.compress(Bitmap.CompressFormat.JPEG, quality, base64Stream)
         }

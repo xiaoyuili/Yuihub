@@ -28,7 +28,7 @@
 - 📝 Markdown 渲染（支持代碼高亮、數學公式、表格、Mermaid）
 - 🔍 搜尋功能（Exa、Tavily、Zhipu、LinkUp、Brave、Perplexity、..）
 - 🧩 Prompt 變量（模型名稱、時間等）
-- 🤳 二維碼導出和導入提供商
+- 🤳 二維碼導出和導入供应商
 - 🤖 智能體自定義
 - 🧠 類ChatGPT記憶功能
 - 📝 AI翻譯

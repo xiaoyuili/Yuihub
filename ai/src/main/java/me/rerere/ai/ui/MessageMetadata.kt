@@ -41,7 +41,7 @@ data class OpenAIReasoningMetadata(
 ) : PartMetadata
 
 /**
- * 服务端工具原始块所属的 wire protocol，与实际提供商品牌无关。
+ * 服务端工具原始块所属的 wire protocol，与实际供应商品牌无关。
  */
 @Serializable
 enum class ServerToolProtocol {

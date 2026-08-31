@@ -100,7 +100,7 @@ class SettingsStore(
         val COMPRESS_MODEL = stringPreferencesKey("compress_model")
         val COMPRESS_PROMPT = stringPreferencesKey("compress_prompt")
 
-        // 提供商
+        // 供应商
         val PROVIDERS = stringPreferencesKey("providers")
 
         // 助手
@@ -245,22 +245,9 @@ class SettingsStore(
             )
         }
         .map {
-            var providers = it.providers.ifEmpty { DEFAULT_PROVIDERS }.toMutableList()
-            DEFAULT_PROVIDERS.forEach { defaultProvider ->
-                if (providers.none { it.id == defaultProvider.id }) {
-                    providers.add(defaultProvider.copyProvider())
-                }
-            }
-            providers = providers.map { provider ->
-                val defaultProvider = DEFAULT_PROVIDERS.find { it.id == provider.id }
-                if (defaultProvider != null) {
-                    provider.copyProvider(
-                        builtIn = defaultProvider.builtIn,
-                        description = defaultProvider.description,
-                        shortDescription = defaultProvider.shortDescription,
-                    )
-                } else provider
-            }.toMutableList()
+            val providers = it.providers.ifEmpty { DEFAULT_PROVIDERS }
+                .withoutLegacyBuiltinProviders()
+                .toMutableList()
             val assistants = it.assistants.ifEmpty { DEFAULT_ASSISTANTS }.toMutableList()
             DEFAULT_ASSISTANTS.forEach { defaultAssistant ->
                 if (assistants.none { it.id == defaultAssistant.id }) {
