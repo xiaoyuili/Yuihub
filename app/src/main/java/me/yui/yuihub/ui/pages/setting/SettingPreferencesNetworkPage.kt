@@ -51,6 +51,7 @@ import me.yui.yuihub.R
 import me.yui.yuihub.data.network.toProxyOrNull
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.CardGroup
+import me.yui.yuihub.ui.components.ui.Switch
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
@@ -275,6 +276,34 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
             contentPadding = contentPadding + PaddingValues(8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            item {
+                CardGroup(
+                    modifier = Modifier.padding(horizontal = 8.dp),
+                ) {
+                    item(
+                        headlineContent = {
+                            Text(stringResource(R.string.setting_page_preferences_network_auto_retry))
+                        },
+                        supportingContent = {
+                            Text(stringResource(R.string.setting_page_preferences_network_auto_retry_desc))
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = settings.networkSetting.enableAutoRetry,
+                                onCheckedChange = { enabled ->
+                                    vm.updateSettings(
+                                        settings.copy(
+                                            networkSetting = settings.networkSetting.copy(
+                                                enableAutoRetry = enabled,
+                                            ),
+                                        ),
+                                    )
+                                },
+                            )
+                        },
+                    )
+                }
+            }
             item {
                 CardGroup(
                     modifier = Modifier.padding(horizontal = 8.dp),

@@ -18,8 +18,6 @@ data class ConversationEntity(
     val createAt: Long,
     @ColumnInfo("update_at")
     val updateAt: Long,
-    @ColumnInfo("suggestions", defaultValue = "[]")
-    val chatSuggestions: String,
     @ColumnInfo("is_pinned", defaultValue = "0")
     val isPinned: Boolean,
     @ColumnInfo("custom_system_prompt", defaultValue = "")

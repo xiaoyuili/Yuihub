@@ -93,7 +93,6 @@ import me.yui.yuihub.ui.theme.extendColors
 import me.yui.yuihub.utils.JsonInstant
 import me.yui.yuihub.utils.openUrl
 import me.yui.yuihub.utils.urlDecode
-import java.util.Locale
 import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
@@ -112,8 +111,6 @@ fun ChatMessage(
     onUpdate: (MessageNode) -> Unit,
     isFavorite: Boolean = false,
     onToggleFavorite: (() -> Unit)? = null,
-    onTranslate: ((UIMessage, Locale) -> Unit)? = null,
-    onClearTranslation: (UIMessage) -> Unit = {},
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
 ) {
@@ -169,13 +166,6 @@ fun ChatMessage(
                 onToolAnswer = onToolAnswer,
                 onUserMessageClick = if (message.role == MessageRole.USER) onEdit else null,
             )
-
-            message.translation?.let { translation ->
-                CollapsibleTranslationText(
-                    content = translation,
-                    onClickCitation = {}
-                )
-            }
         }
 
         val showActions = if (lastMessage) {
@@ -202,8 +192,6 @@ fun ChatMessage(
                     onOpenActionSheet = {
                         showActionsSheet = true
                     },
-                    onTranslate = onTranslate,
-                    onClearTranslation = onClearTranslation
                 )
             }
         }

@@ -186,7 +186,6 @@ data class ConversationDto(
     val assistantId: String,
     val title: String,
     val messages: List<MessageNodeDto>,
-    val chatSuggestions: List<String>,
     val isPinned: Boolean,
     val customSystemPrompt: String? = null,
     val modeInjectionIds: List<String> = emptyList(),
@@ -214,8 +213,7 @@ data class MessageDto(
     val createdAt: String,
     val finishedAt: String? = null,
     val modelId: String? = null,
-    val usage: TokenUsage? = null,
-    val translation: String? = null
+    val usage: TokenUsage? = null
 )
 
 @Serializable
@@ -327,7 +325,6 @@ fun Conversation.toDto(isGenerating: Boolean = false) = ConversationDto(
     assistantId = assistantId.toString(),
     title = title,
     messages = messageNodes.map { it.toDto() },
-    chatSuggestions = chatSuggestions,
     isPinned = isPinned,
     customSystemPrompt = customSystemPrompt,
     modeInjectionIds = modeInjectionIds.map { it.toString() },
@@ -353,6 +350,5 @@ fun UIMessage.toDto() = MessageDto(
     createdAt = createdAt.toString(),
     finishedAt = finishedAt?.toString(),
     modelId = modelId?.toString(),
-    usage = usage,
-    translation = translation
+    usage = usage
 )

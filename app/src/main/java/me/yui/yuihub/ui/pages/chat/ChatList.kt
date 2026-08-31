@@ -127,9 +127,6 @@ fun ChatList(
     onForkMessage: (UIMessage) -> Unit = {},
     onDelete: (UIMessage) -> Unit = {},
     onUpdateMessage: (MessageNode) -> Unit = {},
-    onClickSuggestion: (String) -> Unit = {},
-    onTranslate: ((UIMessage, java.util.Locale) -> Unit)? = null,
-    onClearTranslation: (UIMessage) -> Unit = {},
     onJumpToMessage: (Int) -> Unit = {},
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
@@ -169,9 +166,6 @@ fun ChatList(
                 onForkMessage = onForkMessage,
                 onDelete = onDelete,
                 onUpdateMessage = onUpdateMessage,
-                onClickSuggestion = onClickSuggestion,
-                onTranslate = onTranslate,
-                onClearTranslation = onClearTranslation,
                 animatedVisibilityScope = this@AnimatedContent,
                 onToolApproval = onToolApproval,
                 onToolAnswer = onToolAnswer,
@@ -199,9 +193,6 @@ private fun ChatListNormal(
     onForkMessage: (UIMessage) -> Unit,
     onDelete: (UIMessage) -> Unit,
     onUpdateMessage: (MessageNode) -> Unit,
-    onClickSuggestion: (String) -> Unit,
-    onTranslate: ((UIMessage, java.util.Locale) -> Unit)?,
-    onClearTranslation: (UIMessage) -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
@@ -359,8 +350,6 @@ private fun ChatListNormal(
                             onToggleFavorite = {
                                 onToggleFavorite?.invoke(node)
                             },
-                            onTranslate = onTranslate,
-                            onClearTranslation = onClearTranslation,
                             onToolApproval = onToolApproval,
                             onToolAnswer = onToolAnswer,
                             lastMessage = index == lastMessageIndex,
@@ -515,15 +504,6 @@ private fun ChatListNormal(
                 scope = scope,
                 state = state
             )
-
-            // Suggestion
-            if (conversation.chatSuggestions.isNotEmpty() && !captureProgress) {
-                ChatSuggestionsRow(
-                    conversation = conversation,
-                    onClickSuggestion = onClickSuggestion,
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                )
-            }
         }
     }
 }
@@ -708,38 +688,6 @@ private fun ChatListPreview(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChatSuggestionsRow(
-    modifier: Modifier = Modifier,
-    conversation: Conversation,
-    onClickSuggestion: (String) -> Unit
-) {
-    LazyRow(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        items(conversation.chatSuggestions) { suggestion ->
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .clickable {
-                        onClickSuggestion(suggestion)
-                    }
-                    .background(MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp))
-                    .padding(vertical = 4.dp, horizontal = 8.dp),
-            ) {
-                Text(
-                    text = suggestion,
-                    style = MaterialTheme.typography.bodySmall
-                )
             }
         }
     }

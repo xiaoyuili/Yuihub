@@ -29,6 +29,7 @@ import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.ui.components.ai.ExtensionEmptyState
 import me.yui.yuihub.ui.components.ai.LorebooksContent
+import me.yui.yuihub.ui.components.ai.McpServersContent
 import me.yui.yuihub.ui.components.ai.ModeInjectionsContent
 import me.yui.yuihub.ui.components.ai.SkillsContent
 import org.koin.compose.koinInject
@@ -44,6 +45,7 @@ fun ExtensionSelector(
     onUpdateConversation: ((Conversation) -> Unit)? = null,
     onNavigateToPrompts: () -> Unit = {},
     onNavigateToSkills: () -> Unit = {},
+    onNavigateToMcp: () -> Unit = {},
 ) {
     val skillManager: SkillManager = koinInject()
     var skills by remember { mutableStateOf<List<SkillMetadata>>(emptyList()) }
@@ -67,7 +69,7 @@ fun ExtensionSelector(
         assistant.lorebookIds
     }
 
-    val pagerState = rememberPagerState { 3 }
+    val pagerState = rememberPagerState { 4 }
     val scope = rememberCoroutineScope()
 
     Column(
@@ -99,6 +101,13 @@ fun ExtensionSelector(
                     scope.launch { pagerState.animateScrollToPage(2) }
                 },
                 text = { Text(stringResource(R.string.extension_selector_tab_skills)) }
+            )
+            Tab(
+                selected = pagerState.currentPage == 3,
+                onClick = {
+                    scope.launch { pagerState.animateScrollToPage(3) }
+                },
+                text = { Text(stringResource(R.string.extension_selector_tab_mcp)) }
             )
         }
 
@@ -185,6 +194,30 @@ fun ExtensionSelector(
                             message = stringResource(R.string.extension_selector_skills_empty),
                             buttonText = stringResource(R.string.extension_selector_go_to_skills),
                             onAction = onNavigateToSkills,
+                        )
+                    }
+                }
+
+                3 -> {
+                    if (settings.mcpServers.isNotEmpty()) {
+                        McpServersContent(
+                            servers = settings.mcpServers,
+                            selectedIds = assistant.mcpServers,
+                            onToggle = { id, checked ->
+                                val newIds = if (checked) {
+                                    assistant.mcpServers + id
+                                } else {
+                                    assistant.mcpServers - id
+                                }
+                                onUpdate(assistant.copy(mcpServers = newIds))
+                            },
+                            onManage = onNavigateToMcp,
+                        )
+                    } else {
+                        ExtensionEmptyState(
+                            message = stringResource(R.string.extension_selector_mcp_empty),
+                            buttonText = stringResource(R.string.extension_selector_go_to_mcp),
+                            onAction = onNavigateToMcp,
                         )
                     }
                 }

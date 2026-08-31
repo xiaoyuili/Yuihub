@@ -21,7 +21,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import me.rerere.common.android.appTempFolder
 import com.whl.quickjs.android.QuickJSLoader
 import me.yui.yuihub.di.appModule
@@ -30,7 +32,9 @@ import me.yui.yuihub.di.repositoryModule
 import me.yui.yuihub.di.viewModelModule
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.datastore.SettingsStore
+import me.yui.yuihub.service.KeepAliveService
 import me.yui.yuihub.service.WebServerService
+import me.yui.yuihub.utils.SystemPermissions
 import me.yui.yuihub.utils.CrashHandler
 import me.yui.yuihub.utils.DatabaseUtil
 import me.yui.yuihub.data.repository.WorkspaceRepository
@@ -46,6 +50,7 @@ private const val TAG = "YuiHubApp"
 const val CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID = "chat_completed"
 const val CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID = "chat_live_update"
 const val WEB_SERVER_NOTIFICATION_CHANNEL_ID = "web_server"
+const val KEEP_AWAKE_NOTIFICATION_CHANNEL_ID = "keep_awake"
 
 class YuiHubApp : Application() {
     override fun onCreate() {
@@ -84,6 +89,9 @@ class YuiHubApp : Application() {
 
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
+
+        // 同步常驻保活服务与设置开关
+        syncKeepAwakeService()
 
         // Increment launch count
         incrementLaunchCount()
@@ -221,12 +229,43 @@ class YuiHubApp : Application() {
             .setShowBadge(false)
             .build()
         notificationManager.createNotificationChannel(webServerChannel)
+
+        val keepAwakeChannel = NotificationChannelCompat
+            .Builder(KEEP_AWAKE_NOTIFICATION_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
+            .setName(getString(R.string.notification_channel_keep_awake))
+            .setVibrationEnabled(false)
+            .setShowBadge(false)
+            .build()
+        notificationManager.createNotificationChannel(keepAwakeChannel)
+    }
+
+    /**
+     * 按 keepAwakeEnabled 拉起/停止常驻保活服务，并跟随设置变化。
+     *
+     * 通知权限未授予时不启动：前台服务必须有可见通知，否则 startForeground 会抛异常。
+     */
+    private fun syncKeepAwakeService() {
+        get<AppScope>().launch {
+            get<SettingsStore>().settingsFlowRaw
+                .map { it.keepAwakeEnabled }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    if (enabled && SystemPermissions.isNotificationEnabled(this@YuiHubApp)) {
+                        KeepAliveService.start(this@YuiHubApp)
+                    } else {
+                        if (KeepAliveService.isRunning()) {
+                            KeepAliveService.stop(this@YuiHubApp)
+                        }
+                    }
+                }
+        }
     }
 
     override fun onTerminate() {
         super.onTerminate()
         get<AppScope>().cancel()
         stopService(Intent(this, WebServerService::class.java))
+        stopService(Intent(this, KeepAliveService::class.java))
     }
 }
 

@@ -47,17 +47,17 @@ import me.yui.yuihub.AppScope
 import me.yui.yuihub.R
 import me.yui.yuihub.data.ai.GenerationChunk
 import me.yui.yuihub.data.ai.GenerationHandler
-import me.yui.yuihub.data.ai.TranslationHandler
 import me.yui.yuihub.data.ai.mcp.McpManager
 import me.yui.yuihub.data.ai.tools.createConversationTools
 import me.yui.yuihub.data.ai.tools.local.LocalTools
 import me.yui.yuihub.data.ai.tools.createSearchTools
+import me.yui.yuihub.data.ai.tools.createMcpManageTools
+import me.yui.yuihub.data.ai.tools.createSkillManageTools
 import me.yui.yuihub.data.ai.tools.createSkillTools
 import me.yui.yuihub.data.ai.tools.createWorkspaceTools
 import me.yui.yuihub.data.files.SkillManager
 import me.yui.yuihub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.yui.yuihub.data.ai.transformers.DocumentAsPromptTransformer
-import me.yui.yuihub.data.ai.transformers.OcrTransformer
 import me.yui.yuihub.data.ai.transformers.PlaceholderTransformer
 import me.yui.yuihub.data.ai.transformers.PromptInjectionTransformer
 import me.yui.yuihub.data.ai.transformers.RegexOutputTransformer
@@ -142,7 +142,6 @@ private val inputTransformers by lazy {
         PromptInjectionTransformer,
         PlaceholderTransformer,
         DocumentAsPromptTransformer,
-        OcrTransformer,
     )
 }
 
@@ -162,7 +161,6 @@ class ChatService(
     private val conversationRepo: ConversationRepository,
     private val memoryRepository: MemoryRepository,
     private val generationHandler: GenerationHandler,
-    private val translationHandler: TranslationHandler,
     private val templateTransformer: TemplateTransformer,
     private val providerManager: ProviderManager,
     private val localTools: LocalTools,
@@ -544,9 +542,6 @@ class ChatService(
 
         runCatching {
 
-            // reset suggestions
-            updateConversation(conversationId, initialConversation.copy(chatSuggestions = emptyList()))
-
             // memory tool
             if (!model.abilities.contains(ModelAbility.TOOL)) {
                 if (useExternalWebSearch || mcpManager.getAllAvailableTools().isNotEmpty()) {
@@ -609,6 +604,9 @@ class ChatService(
                             )
                         )
                     }
+                    // 管理工具不受 enabledSkills 门控：否则模型无法创建出第一个技能
+                    addAll(createSkillManageTools(skillManager))
+                    addAll(createMcpManageTools(mcpManager, settingsStore))
                     mcpManager.getAllAvailableTools().also { allTools ->
                         val invalidNames = allTools
                             .map { it.second }
@@ -690,9 +688,6 @@ class ChatService(
 
             launchWithConversationReference(conversationId) {
                 generateTitle(conversationId, finalConversation)
-            }
-            launchWithConversationReference(conversationId) {
-                generateSuggestion(conversationId, finalConversation)
             }
         }
     }
@@ -842,59 +837,6 @@ class ChatService(
         }
     }
 
-    // ---- 生成建议 ----
-
-    suspend fun generateSuggestion(
-        conversationId: Uuid,
-        conversation: Conversation,
-    ) = withContext(Dispatchers.IO) {
-        runCatching {
-            val settings = settingsStore.settingsFlow.first()
-            if (!settings.enableSuggestion) return@runCatching
-            val model = settings.findModelById(settings.fastModelId)
-                ?: return@runCatching
-            val provider = model.findProvider(settings.providers) ?: return@runCatching
-
-            sessions[conversationId]?.let { session ->
-                updateConversation(
-                    conversationId,
-                    session.state.value.copy(chatSuggestions = emptyList())
-                )
-            }
-
-            val providerHandler = providerManager.getProviderByType(provider)
-            val result = providerHandler.generateText(
-                providerSetting = provider,
-                messages = listOf(
-                    UIMessage.user(
-                        settings.suggestionPrompt.applyPlaceholders(
-                            "locale" to Locale.getDefault().displayName,
-                            "content" to conversation.currentMessages
-                                .takeLast(8).joinToString("\n\n") { it.summaryAsText(maxLength = 500) }),
-                    )
-                ),
-                params = backgroundTextGenerationParams(model, settings.fastModelReasoningLevel),
-            )
-            val suggestions =
-                result.message.toText().split("\n").map { it.trim() }
-                    .filter { it.isNotBlank() }
-
-            val latestConversation = conversationRepo.getConversationById(conversationId)
-                ?: sessions[conversationId]?.state?.value
-                ?: conversation
-            saveConversation(
-                conversationId,
-                latestConversation.copy(
-                    chatSuggestions = suggestions.take(
-                        10
-                    )
-                )
-            )
-        }.onFailure {
-            it.printStackTrace()
-        }
-    }
-
     // ---- 压缩对话历史 ----
 
     suspend fun compressConversation(
@@ -975,7 +917,6 @@ class ChatService(
         }
         val newConversation = conversation.copy(
             messageNodes = newMessageNodes,
-            chatSuggestions = emptyList(),
         )
 
         saveConversation(conversationId, newConversation)
@@ -1058,70 +999,6 @@ class ChatService(
         } else {
             conversationRepo.updateConversation(updatedConversation)
         }
-    }
-
-    // ---- 翻译消息 ----
-
-    fun translateMessage(
-        conversationId: Uuid,
-        message: UIMessage,
-        targetLanguage: Locale
-    ) {
-        appScope.launch(Dispatchers.IO) {
-            try {
-                val settings = settingsStore.settingsFlow.first()
-
-                val messageText = message.parts.filterIsInstance<UIMessagePart.Text>()
-                    .joinToString("\n\n") { it.text }
-                    .trim()
-
-                if (messageText.isBlank()) return@launch
-
-                // Set loading state for translation
-                val loadingText = context.getString(R.string.translating)
-                updateTranslationField(conversationId, message.id, loadingText)
-
-                translationHandler.translateText(
-                    settings = settings,
-                    sourceText = messageText,
-                    targetLanguage = targetLanguage
-                ) { translatedText ->
-                    // Update translation field in real-time
-                    updateTranslationField(conversationId, message.id, translatedText)
-                }.collect { /* Final translation already handled in onStreamUpdate */ }
-
-                // Save the conversation after translation is complete
-                saveConversation(conversationId, getConversationFlow(conversationId).value)
-            } catch (e: Exception) {
-                // Clear translation field on error
-                clearTranslationField(conversationId, message.id)
-                addError(e, conversationId, title = context.getString(R.string.error_title_translate_message))
-            }
-        }
-    }
-
-    private fun updateTranslationField(
-        conversationId: Uuid,
-        messageId: Uuid,
-        translationText: String
-    ) {
-        val currentConversation = getConversationFlow(conversationId).value
-        val updatedNodes = currentConversation.messageNodes.map { node ->
-            if (node.messages.any { it.id == messageId }) {
-                val updatedMessages = node.messages.map { msg ->
-                    if (msg.id == messageId) {
-                        msg.copy(translation = translationText)
-                    } else {
-                        msg
-                    }
-                }
-                node.copy(messages = updatedMessages)
-            } else {
-                node
-            }
-        }
-
-        updateConversation(conversationId, currentConversation.copy(messageNodes = updatedNodes))
     }
 
     // ---- 消息操作 ----
@@ -1291,26 +1168,6 @@ class ChatService(
             is UIMessagePart.Audio -> copy(url = copyLocalFileIfNeeded(url))
             else -> this
         }
-    }
-
-    fun clearTranslationField(conversationId: Uuid, messageId: Uuid) {
-        val currentConversation = getConversationFlow(conversationId).value
-        val updatedNodes = currentConversation.messageNodes.map { node ->
-            if (node.messages.any { it.id == messageId }) {
-                val updatedMessages = node.messages.map { msg ->
-                    if (msg.id == messageId) {
-                        msg.copy(translation = null)
-                    } else {
-                        msg
-                    }
-                }
-                node.copy(messages = updatedMessages)
-            } else {
-                node
-            }
-        }
-
-        updateConversation(conversationId, currentConversation.copy(messageNodes = updatedNodes))
     }
 
     // 停止当前会话生成任务（不清理会话缓存）

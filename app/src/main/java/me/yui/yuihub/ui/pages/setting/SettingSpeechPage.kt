@@ -146,13 +146,6 @@ fun SettingSpeechPage(vm: SettingVM = koinViewModel()) {
     ) { innerPadding ->
         when (selectedPage) {
             0 -> Column(modifier = Modifier.padding(innerPadding)) {
-                TTSPlaybackSpeedSetting(
-                    speed = settings.defaultTTSPlaybackSpeed,
-                    onSpeedChange = {
-                        vm.updateSettings(settings.copy(defaultTTSPlaybackSpeed = it))
-                    },
-                    modifier = Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 8.dp),
-                )
                 TTSProviderList(
                     settings = settings,
                     onUpdateSettings = vm::updateSettings,
@@ -371,53 +364,6 @@ private fun TTSProviderList(
                     }
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun TTSPlaybackSpeedSetting(
-    speed: Float,
-    onSpeedChange: (Float) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    var sliderValue by remember(speed) { mutableFloatStateOf(speed) }
-
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(R.string.setting_tts_page_default_playback_speed),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = "x${"%.1f".format(sliderValue)}",
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            Slider(
-                value = sliderValue,
-                onValueChange = { sliderValue = (it * 10).roundToInt() / 10f },
-                onValueChangeFinished = { onSpeedChange(sliderValue) },
-                valueRange = 0.5f..2.0f,
-                steps = 14,
-            )
-            Text(
-                text = stringResource(R.string.setting_tts_page_default_playback_speed_description),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }

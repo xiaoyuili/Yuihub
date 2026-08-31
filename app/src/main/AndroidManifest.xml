@@ -20,6 +20,8 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
   <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
   <uses-permission
     android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -122,6 +124,14 @@
       android:name=".service.ChatGenerationForegroundService"
       android:exported="false"
       android:foregroundServiceType="dataSync" />
+    <service
+      android:name=".service.KeepAliveService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="keep AI agent alive while app is in background" />
+    </service>
     <service
       android:name=".service.WebServerService"
       android:exported="false"

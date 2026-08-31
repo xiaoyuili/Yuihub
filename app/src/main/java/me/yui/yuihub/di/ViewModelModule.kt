@@ -18,7 +18,6 @@ import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceDetailVM
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceVM
 import me.yui.yuihub.ui.pages.setting.SettingVM
 import me.yui.yuihub.ui.pages.share.handler.ShareHandlerVM
-import me.yui.yuihub.ui.pages.translator.TranslatorVM
 import org.koin.core.module.dsl.viewModel
 import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
@@ -51,7 +50,6 @@ val viewModelModule = module {
             workspaceRepository = get(),
         )
     }
-    viewModelOf(::TranslatorVM)
     viewModel<ShareHandlerVM> {
         ShareHandlerVM(
             text = it.get(),

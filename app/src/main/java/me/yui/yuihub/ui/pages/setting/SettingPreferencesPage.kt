@@ -72,6 +72,12 @@ fun SettingPreferencesPage() {
                         supportingContent = { Text(stringResource(R.string.setting_page_preferences_notification_desc)) },
                     )
                     item(
+                        onClick = { navController.navigate(Screen.SettingPermissions) },
+                        leadingContent = { Icon(HugeIcons.Settings03, null) },
+                        headlineContent = { Text(stringResource(R.string.setting_permissions_title)) },
+                        supportingContent = { Text(stringResource(R.string.setting_permissions_desc)) },
+                    )
+                    item(
                         onClick = { navController.navigate(Screen.SettingPreferencesGeneral) },
                         leadingContent = { Icon(HugeIcons.Settings03, null) },
                         headlineContent = { Text(stringResource(R.string.setting_page_preferences_general)) },

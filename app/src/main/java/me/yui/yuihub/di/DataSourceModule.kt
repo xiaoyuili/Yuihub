@@ -18,7 +18,6 @@ import me.yui.yuihub.data.ai.AIRequestInterceptor
 import me.yui.yuihub.data.ai.RequestLoggingInterceptor
 import me.yui.yuihub.data.ai.transformers.AssistantTemplateLoader
 import me.yui.yuihub.data.ai.GenerationHandler
-import me.yui.yuihub.data.ai.TranslationHandler
 import me.yui.yuihub.data.ai.transformers.TemplateTransformer
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.AppDatabase
@@ -159,10 +158,6 @@ val dataSourceModule = module {
             json = get(),
             memoryRepo = get()
         )
-    }
-
-    single {
-        TranslationHandler(providerManager = get())
     }
 
     single<OkHttpClient> {

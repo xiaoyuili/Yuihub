@@ -18,7 +18,6 @@ data class Conversation(
     val assistantId: Uuid,
     val title: String = "",
     val messageNodes: List<MessageNode>,
-    val chatSuggestions: List<String> = emptyList(),
     val isPinned: Boolean = false,
     @Serializable(with = InstantSerializer::class)
     val createAt: Instant = Instant.now(),

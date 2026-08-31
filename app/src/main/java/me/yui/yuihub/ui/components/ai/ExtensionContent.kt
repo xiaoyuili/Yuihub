@@ -27,6 +27,8 @@ import com.composables.icons.lucide.Lucide
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Link01
 import me.yui.yuihub.R
+import me.yui.yuihub.data.ai.mcp.McpServerConfig
+import me.yui.yuihub.data.ai.mcp.serverUrl
 import me.yui.yuihub.data.files.SkillMetadata
 import me.yui.yuihub.data.model.Lorebook
 import me.yui.yuihub.data.model.PromptInjection
@@ -136,6 +138,64 @@ fun SkillsContent(
                     Switch(
                         checked = enabledSkills.contains(skill.name),
                         onCheckedChange = { checked -> onToggle(skill.name, checked) }
+                    )
+                },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            )
+        }
+        if (onManage != null) {
+            item {
+                ManageButton(onClick = onManage)
+            }
+        }
+    }
+}
+
+@Composable
+fun McpServersContent(
+    servers: List<McpServerConfig>,
+    selectedIds: Set<kotlin.uuid.Uuid>,
+    onToggle: (kotlin.uuid.Uuid, Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    onManage: (() -> Unit)? = null,
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        items(servers, key = { it.id }) { server ->
+            val enabled = server.commonOptions.enable
+            ListItem(
+                headlineContent = {
+                    Text(
+                        text = server.commonOptions.name.ifBlank {
+                            stringResource(R.string.extension_content_unnamed)
+                        },
+                        maxLines = 1,
+                    )
+                },
+                supportingContent = {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            text = server.serverUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            maxLines = 1,
+                        )
+                        if (!enabled) {
+                            Text(
+                                text = stringResource(R.string.extension_content_mcp_disabled),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                },
+                trailingContent = {
+                    Switch(
+                        checked = selectedIds.contains(server.id),
+                        onCheckedChange = { checked -> onToggle(server.id, checked) },
+                        enabled = enabled,
                     )
                 },
                 colors = ListItemDefaults.colors(containerColor = Color.Transparent),

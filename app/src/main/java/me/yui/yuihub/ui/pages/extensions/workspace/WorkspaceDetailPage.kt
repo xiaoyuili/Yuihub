@@ -101,6 +101,7 @@ import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceMountDir
 import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
+import me.yui.yuihub.utils.SystemPermissions
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -880,7 +881,7 @@ private fun AddMountDirDialog(
     val settingsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { permissionEpoch++ }
-    val hasAllFiles = remember(permissionEpoch) { hasAllFilesAccess() }
+    val hasAllFiles = remember(permissionEpoch) { SystemPermissions.hasAllFilesAccess() }
     val needsPermission = !hasAllFiles && source.isNotBlank() && requiresAllFilesAccess(context, source)
 
     AlertDialog(
@@ -911,7 +912,9 @@ private fun AddMountDirDialog(
                             color = MaterialTheme.colorScheme.onErrorContainer,
                         )
                         TextButton(
-                            onClick = { settingsLauncher.launch(allFilesAccessIntent(context)) },
+                            onClick = {
+                                settingsLauncher.launch(SystemPermissions.allFilesAccessIntent(context))
+                            },
                         ) {
                             Text(stringResource(R.string.workspace_detail_mount_grant_permission))
                         }
@@ -979,12 +982,6 @@ private fun AddMountDirDialog(
  * SD 卡与 U 盘的卷 id 因设备而异，映射不出来时返回 null 让用户自己填路径。
  */
 /**
- * 是否已拿到「所有文件访问权限」。Android 10 以下靠 WRITE_EXTERNAL_STORAGE，无需此权限。
- */
-private fun hasAllFilesAccess(): Boolean =
-    Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
-
-/**
  * 判断该路径是否非得有全文件访问权限才能读写。
  *
  * App 自己的外部目录（Android/data/<pkg>）不受分区存储限制，无需权限；公共区其余
@@ -1003,14 +1000,11 @@ private fun requiresAllFilesAccess(context: Context, path: String): Boolean {
 }
 
 /**
- * 打开本应用的「所有文件访问权限」设置页；部分 ROM 不支持带包名跳转，回退到总列表。
+ * 把 SAF 目录树 URI 还原成宿主机文件路径。
+ *
+ * 只有 `primary:` 这类外部存储的 document id 能可靠映射到 `/storage/emulated/0/...`；
+ * SD 卡与 U 盘的卷 id 因设备而异，映射不出来时返回 null 让用户自己填路径。
  */
-private fun allFilesAccessIntent(context: Context): Intent =
-    Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-        data = "package:${context.packageName}".toUri()
-    }.takeIf { it.resolveActivity(context.packageManager) != null }
-        ?: Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-
 private fun documentTreeToFilePath(uri: android.net.Uri): String? {
     val documentId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull() ?: return null
     val (volume, relative) = documentId.split(':', limit = 2).let {

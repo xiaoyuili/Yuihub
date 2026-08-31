@@ -24,7 +24,6 @@ data class UIMessage(
     val finishedAt: LocalDateTime? = null,
     val modelId: Uuid? = null,
     val usage: TokenUsage? = null,
-    val translation: String? = null,
     // 请求期间生成的内部消息；该标记仅在内存中使用
     @Transient
     val isSynthetic: Boolean = false,

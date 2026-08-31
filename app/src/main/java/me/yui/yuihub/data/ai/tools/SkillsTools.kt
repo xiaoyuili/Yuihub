@@ -29,6 +29,7 @@ fun createSkillTools(
                 buildString {
                     appendLine("**Skills**")
                     appendLine("You have access to the following skills. Use the `use_skill` tool to load a skill's instructions when the user's request matches.")
+                    appendLine(skillManagementHint())
                     appendLine("<available_skills>")
                     available.forEach { skill ->
                         appendLine("  <skill>")

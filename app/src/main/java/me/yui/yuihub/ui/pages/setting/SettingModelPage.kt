@@ -16,7 +16,6 @@ import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -129,30 +128,6 @@ private fun ModelSettingsPage(settings: Settings, vm: SettingVM, contentPadding:
             )
         }
         item {
-            SuggestionSettingItem(
-                settings = settings,
-                vm = vm,
-            )
-        }
-        item {
-            ModelSettingItem(
-                title = stringResource(R.string.setting_model_page_translate_model),
-                description = stringResource(R.string.setting_model_page_translate_model_desc),
-                modelId = settings.translateModeId,
-                providers = settings.providers,
-                onSelect = { vm.updateSettings(settings.copy(translateModeId = it.id)) },
-            )
-        }
-        item {
-            ModelSettingItem(
-                title = stringResource(R.string.setting_model_page_ocr_model),
-                description = stringResource(R.string.setting_model_page_ocr_model_desc),
-                modelId = settings.ocrModelId,
-                providers = settings.providers,
-                onSelect = { vm.updateSettings(settings.copy(ocrModelId = it.id)) },
-            )
-        }
-        item {
             ModelSettingItem(
                 title = stringResource(R.string.setting_model_page_compress_model),
                 description = stringResource(R.string.setting_model_page_compress_model_desc),
@@ -161,26 +136,6 @@ private fun ModelSettingsPage(settings: Settings, vm: SettingVM, contentPadding:
                 onSelect = { vm.updateSettings(settings.copy(compressModelId = it.id)) },
             )
         }
-    }
-}
-
-@Composable
-private fun SuggestionSettingItem(
-    settings: Settings,
-    vm: SettingVM,
-) {
-    CardGroup {
-        item(
-            headlineContent = { Text(stringResource(R.string.setting_model_page_enable_suggestion)) },
-            trailingContent = {
-                Switch(
-                    checked = settings.enableSuggestion,
-                    onCheckedChange = {
-                        vm.updateSettings(settings.copy(enableSuggestion = it))
-                    }
-                )
-            },
-        )
     }
 }
 

@@ -26,10 +26,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.yui.yuihub.AppScope
 import me.yui.yuihub.data.ai.mcp.McpServerConfig
 import me.yui.yuihub.data.ai.prompts.DEFAULT_COMPRESS_PROMPT
-import me.yui.yuihub.data.ai.prompts.DEFAULT_OCR_PROMPT
-import me.yui.yuihub.data.ai.prompts.DEFAULT_SUGGESTION_PROMPT
 import me.yui.yuihub.data.ai.prompts.DEFAULT_TITLE_PROMPT
-import me.yui.yuihub.data.ai.prompts.DEFAULT_TRANSLATION_PROMPT
 import me.yui.yuihub.data.ai.prompts.LEARNING_MODE_PROMPT
 import me.rerere.asr.ASRProviderSetting
 import me.yui.yuihub.data.datastore.migration.PreferenceStoreV1Migration
@@ -85,15 +82,8 @@ class SettingsStore(
         val SELECT_MODEL = stringPreferencesKey("chat_model")
         val FAST_MODEL = stringPreferencesKey("fast_model")
         val FAST_MODEL_REASONING_LEVEL = stringPreferencesKey("fast_model_reasoning_level")
-        val TRANSLATE_MODEL = stringPreferencesKey("translate_model")
-        val ENABLE_SUGGESTION = booleanPreferencesKey("enable_suggestion")
         val IMAGE_GENERATION_MODEL = stringPreferencesKey("image_generation_model")
         val TITLE_PROMPT = stringPreferencesKey("title_prompt")
-        val TRANSLATION_PROMPT = stringPreferencesKey("translation_prompt")
-        val TRANSLATE_THINKING_BUDGET = intPreferencesKey("translate_thinking_budget")
-        val SUGGESTION_PROMPT = stringPreferencesKey("suggestion_prompt")
-        val OCR_MODEL = stringPreferencesKey("ocr_model")
-        val OCR_PROMPT = stringPreferencesKey("ocr_prompt")
         val COMPRESS_MODEL = stringPreferencesKey("compress_model")
         val COMPRESS_PROMPT = stringPreferencesKey("compress_prompt")
 
@@ -139,6 +129,9 @@ class SettingsStore(
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")
         val LOREBOOKS = stringPreferencesKey("lorebooks")
 
+        // 后台保活
+        val KEEP_AWAKE_ENABLED = booleanPreferencesKey("keep_awake_enabled")
+
         // 备份提醒
         val BACKUP_REMINDER_CONFIG = stringPreferencesKey("backup_reminder_config")
 
@@ -167,16 +160,8 @@ class SettingsStore(
                 fastModelReasoningLevel = preferences[FAST_MODEL_REASONING_LEVEL]
                     ?.let { value -> ReasoningLevel.entries.find { it.name == value } }
                     ?: ReasoningLevel.AUTO,
-                translateModeId = preferences[TRANSLATE_MODEL]?.let { Uuid.parse(it) }
-                    ?: DEFAULT_AUTO_MODEL_ID,
-                enableSuggestion = preferences[ENABLE_SUGGESTION] != false,
                 imageGenerationModelId = preferences[IMAGE_GENERATION_MODEL]?.let { Uuid.parse(it) } ?: Uuid.random(),
                 titlePrompt = preferences[TITLE_PROMPT] ?: DEFAULT_TITLE_PROMPT,
-                translatePrompt = preferences[TRANSLATION_PROMPT] ?: DEFAULT_TRANSLATION_PROMPT,
-                translateThinkingBudget = preferences[TRANSLATE_THINKING_BUDGET] ?: 0,
-                suggestionPrompt = preferences[SUGGESTION_PROMPT] ?: DEFAULT_SUGGESTION_PROMPT,
-                ocrModelId = preferences[OCR_MODEL]?.let { Uuid.parse(it) } ?: Uuid.random(),
-                ocrPrompt = preferences[OCR_PROMPT] ?: DEFAULT_OCR_PROMPT,
                 compressModelId = preferences[COMPRESS_MODEL]?.let { Uuid.parse(it) } ?: DEFAULT_AUTO_MODEL_ID,
                 compressPrompt = preferences[COMPRESS_PROMPT] ?: DEFAULT_COMPRESS_PROMPT,
                 assistantId = preferences[SELECT_ASSISTANT]?.let { Uuid.parse(it) }
@@ -231,6 +216,7 @@ class SettingsStore(
                 webServerJwtEnabled = preferences[WEB_SERVER_JWT_ENABLED] == true,
                 webServerAccessPassword = preferences[WEB_SERVER_ACCESS_PASSWORD] ?: "",
                 webServerLocalhostOnly = preferences[WEB_SERVER_LOCALHOST_ONLY] == true,
+                keepAwakeEnabled = preferences[KEEP_AWAKE_ENABLED] == true,
                 backupReminderConfig = preferences[BACKUP_REMINDER_CONFIG]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: BackupReminderConfig(),
@@ -335,15 +321,8 @@ class SettingsStore(
             preferences[SELECT_MODEL] = settings.chatModelId.toString()
             preferences[FAST_MODEL] = settings.fastModelId.toString()
             preferences[FAST_MODEL_REASONING_LEVEL] = settings.fastModelReasoningLevel.name
-            preferences[TRANSLATE_MODEL] = settings.translateModeId.toString()
-            preferences[ENABLE_SUGGESTION] = settings.enableSuggestion
             preferences[IMAGE_GENERATION_MODEL] = settings.imageGenerationModelId.toString()
             preferences[TITLE_PROMPT] = settings.titlePrompt
-            preferences[TRANSLATION_PROMPT] = settings.translatePrompt
-            preferences[TRANSLATE_THINKING_BUDGET] = settings.translateThinkingBudget
-            preferences[SUGGESTION_PROMPT] = settings.suggestionPrompt
-            preferences[OCR_MODEL] = settings.ocrModelId.toString()
-            preferences[OCR_PROMPT] = settings.ocrPrompt
             preferences[COMPRESS_MODEL] = settings.compressModelId.toString()
             preferences[COMPRESS_PROMPT] = settings.compressPrompt
 
@@ -376,6 +355,7 @@ class SettingsStore(
             preferences[WEB_SERVER_JWT_ENABLED] = settings.webServerJwtEnabled
             preferences[WEB_SERVER_ACCESS_PASSWORD] = settings.webServerAccessPassword
             preferences[WEB_SERVER_LOCALHOST_ONLY] = settings.webServerLocalhostOnly
+            preferences[KEEP_AWAKE_ENABLED] = settings.keepAwakeEnabled
             preferences[BACKUP_REMINDER_CONFIG] = JsonInstant.encodeToString(settings.backupReminderConfig)
             preferences[LAUNCH_COUNT] = settings.launchCount
         }
@@ -485,13 +465,6 @@ data class Settings(
     val fastModelReasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
     val imageGenerationModelId: Uuid = Uuid.random(),
     val titlePrompt: String = DEFAULT_TITLE_PROMPT,
-    val translateModeId: Uuid = Uuid.random(),
-    val translatePrompt: String = DEFAULT_TRANSLATION_PROMPT,
-    val translateThinkingBudget: Int = 0,
-    val enableSuggestion: Boolean = true,
-    val suggestionPrompt: String = DEFAULT_SUGGESTION_PROMPT,
-    val ocrModelId: Uuid = Uuid.random(),
-    val ocrPrompt: String = DEFAULT_OCR_PROMPT,
     val compressModelId: Uuid = Uuid.random(),
     val compressPrompt: String = DEFAULT_COMPRESS_PROMPT,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,
@@ -516,6 +489,7 @@ data class Settings(
     val webServerJwtEnabled: Boolean = false,
     val webServerAccessPassword: String = "",
     val webServerLocalhostOnly: Boolean = false,
+    val keepAwakeEnabled: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
     val launchCount: Int = 0,
 ) {
@@ -531,6 +505,7 @@ data class NetworkSetting(
     val proxyUrl: String = "",
     val proxyUsername: String = "",
     val proxyPassword: String = "",
+    val enableAutoRetry: Boolean = true,
 )
 
 @Serializable

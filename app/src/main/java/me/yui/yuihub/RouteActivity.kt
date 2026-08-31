@@ -105,6 +105,7 @@ import me.yui.yuihub.ui.pages.search.SearchPage
 import me.yui.yuihub.ui.pages.setting.SettingAboutPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesThemePage
+import me.yui.yuihub.ui.pages.setting.SettingPermissionsPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesNotificationPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesGeneralPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesNetworkPage
@@ -122,7 +123,6 @@ import me.yui.yuihub.ui.pages.setting.SettingSpeechPage
 import me.yui.yuihub.ui.pages.setting.SettingWebPage
 import me.yui.yuihub.ui.pages.share.handler.ShareHandlerPage
 import me.yui.yuihub.ui.pages.stats.StatsPage
-import me.yui.yuihub.ui.pages.translator.TranslatorPage
 import me.yui.yuihub.ui.pages.webview.WebViewPage
 import me.yui.yuihub.ui.theme.LocalDarkMode
 import me.yui.yuihub.ui.theme.YuihubTheme
@@ -378,10 +378,6 @@ class RouteActivity : ComponentActivity() {
                                 AssistantExtensionsPage(key.id)
                             }
 
-                            entry<Screen.Translator> {
-                                TranslatorPage()
-                            }
-
                             entry<Screen.Setting> {
                                 SettingPage()
                             }
@@ -424,6 +420,10 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.SettingPreferencesNetwork> {
                                 SettingPreferencesNetworkPage()
+                            }
+
+                            entry<Screen.SettingPermissions> {
+                                SettingPermissionsPage()
                             }
 
                             entry<Screen.SettingProvider> {
@@ -616,9 +616,6 @@ sealed interface Screen : NavKey {
     data class AssistantInjections(val id: String) : Screen
 
     @Serializable
-    data object Translator : Screen
-
-    @Serializable
     data object Setting : Screen
 
     @Serializable
@@ -650,6 +647,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingPreferencesNetwork : Screen
+
+    @Serializable
+    data object SettingPermissions : Screen
 
     @Serializable
     data object SettingProvider : Screen

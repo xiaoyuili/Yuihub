@@ -419,6 +419,10 @@ private fun InjectionQuickConfigSheet(
                 onNavigateToSkills = {
                     onDismissAll()
                     navController.navigate(Screen.Skills)
+                },
+                onNavigateToMcp = {
+                    onDismissAll()
+                    navController.navigate(Screen.SettingMcp)
                 })
 
             Spacer(modifier = Modifier.height(16.dp))

@@ -40,7 +40,6 @@ import me.yui.yuihub.service.ChatError
 import me.yui.yuihub.service.ChatService
 import me.yui.yuihub.ui.hooks.writeStringPreference
 import me.yui.yuihub.ui.hooks.ChatInputState
-import java.util.Locale
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatVM"
@@ -286,25 +285,11 @@ class ChatVM(
         }
     }
 
-    fun translateMessage(message: UIMessage, targetLanguage: Locale) {
-        chatService.translateMessage(_conversationId, message, targetLanguage)
-    }
-
     fun generateTitle(conversation: Conversation, force: Boolean = false) {
         viewModelScope.launch {
             val conversationFull = conversationRepo.getConversationById(conversation.id) ?: return@launch
             chatService.generateTitle(_conversationId, conversationFull, force)
         }
-    }
-
-    fun generateSuggestion(conversation: Conversation) {
-        viewModelScope.launch {
-            chatService.generateSuggestion(_conversationId, conversation)
-        }
-    }
-
-    fun clearTranslationField(messageId: Uuid) {
-        chatService.clearTranslationField(_conversationId, messageId)
     }
 
     fun updateConversation(newConversation: Conversation) {
