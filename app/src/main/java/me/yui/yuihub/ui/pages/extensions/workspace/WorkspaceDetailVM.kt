@@ -2,6 +2,7 @@ package me.yui.yuihub.ui.pages.extensions.workspace
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.os.Build
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,10 +14,14 @@ import java.io.InputStream
 import java.io.OutputStream
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.yui.yuihub.data.repository.WorkspaceRepository
+import me.rerere.workspace.RootfsCatalog
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstallStage
+import me.rerere.workspace.RootfsMirrorSpeed
+import me.rerere.workspace.RootfsMirrorSelector
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceCommandResult
+import me.rerere.workspace.WorkspaceMountDir
 import me.rerere.workspace.WorkspaceStorageArea
 
 class WorkspaceDetailVM(
@@ -35,6 +40,14 @@ class WorkspaceDetailVM(
 
     private val _installError = MutableStateFlow<String?>(null)
     val installError = _installError.asStateFlow()
+
+    private val mirrorSelector = RootfsMirrorSelector()
+
+    private val _mirrorSpeeds = MutableStateFlow<List<RootfsMirrorSpeed>>(emptyList())
+    val mirrorSpeeds = _mirrorSpeeds.asStateFlow()
+
+    private val _mountError = MutableStateFlow<String?>(null)
+    val mountError = _mountError.asStateFlow()
 
     init {
         loadWorkspace()
@@ -175,6 +188,61 @@ class WorkspaceDetailVM(
             repository.setToolApproval(workspace.id, toolName, needsApproval)
             loadWorkspace()
         }
+    }
+
+    fun addMountDir(mountDir: WorkspaceMountDir) {
+        viewModelScope.launch {
+            _mountError.value = null
+            runCatching { repository.addMountDir(id, mountDir) }
+                .onFailure { error -> _mountError.value = error.message ?: "挂载失败" }
+            // 已开着的终端标签的 proot 参数是创建时固定下来的, 不重开看不到新挂载
+            state.value.workspace?.let { terminalSessionManager.closeWorkspace(it.root) }
+            loadWorkspace()
+        }
+    }
+
+    fun removeMountDir(target: String) {
+        viewModelScope.launch {
+            _mountError.value = null
+            repository.removeMountDir(id, target)
+            state.value.workspace?.let { terminalSessionManager.closeWorkspace(it.root) }
+            loadWorkspace()
+        }
+    }
+
+    fun setMountDirReadOnly(target: String, readOnly: Boolean) {
+        viewModelScope.launch {
+            repository.setMountDirReadOnly(id, target, readOnly)
+            state.value.workspace?.let { terminalSessionManager.closeWorkspace(it.root) }
+            loadWorkspace()
+        }
+    }
+
+    fun dismissMountError() {
+        _mountError.value = null
+    }
+
+    /** 当前设备 ABI 对应的 rootfs 文件名，不支持的架构返回 null */
+    fun rootfsFileName(): String? = RootfsCatalog.fileNameForAbi(Build.SUPPORTED_ABIS.firstOrNull() ?: "")
+
+    /**
+     * 对候选镜像测速，返回按速度降序的结果；首个即推荐源。
+     *
+     * 重复点击时直接复用上次结果，避免反复对镜像站发压测流量。
+     */
+    fun testRootfsMirrors(force: Boolean = false): List<RootfsMirrorSpeed> {
+        if (!force && _mirrorSpeeds.value.isNotEmpty()) return _mirrorSpeeds.value
+        val fileName = rootfsFileName() ?: return emptyList()
+        viewModelScope.launch {
+            _mirrorSpeeds.value = emptyList()
+            _mirrorSpeeds.value = runCatching { mirrorSelector.select(fileName) }
+                .getOrDefault(emptyList())
+        }
+        return _mirrorSpeeds.value
+    }
+
+    fun clearMirrorSpeeds() {
+        _mirrorSpeeds.value = emptyList()
     }
 
     fun installRootfs(url: String) {

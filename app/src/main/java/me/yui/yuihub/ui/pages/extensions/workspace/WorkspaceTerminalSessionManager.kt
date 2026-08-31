@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.yui.yuihub.AppScope
+import me.yui.yuihub.data.repository.WorkspaceRepository
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -29,6 +30,7 @@ import java.util.concurrent.atomic.AtomicLong
 class WorkspaceTerminalSessionManager internal constructor(
     context: Context,
     private val appScope: AppScope,
+    private val workspaceRepository: WorkspaceRepository,
 ) {
     private val appContext = context.applicationContext
     private val workspaceStates = MutableStateFlow<Map<String, WorkspaceTerminalTabsState>>(emptyMap())
@@ -156,10 +158,16 @@ class WorkspaceTerminalSessionManager internal constructor(
             markFinished(root = root, tabId = tabId)
         }
         val session = runCatching {
+            val workspace = workspaceRepository.getByRoot(root)
             createWorkspaceTerminalSession(
                 context = appContext,
                 root = root,
                 client = client,
+                prootArgs = workspaceRepository.prootArgs(
+                    root = root,
+                    cwd = "",
+                    mounts = workspace?.mountDirList().orEmpty(),
+                ),
             )
         }.onFailure { error ->
             Log.e(TAG, "Failed to create terminal for workspace $root", error)

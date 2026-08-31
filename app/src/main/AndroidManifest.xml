@@ -8,6 +8,11 @@
   <uses-permission
     android:name="android.permission.WRITE_EXTERNAL_STORAGE"
     android:maxSdkVersion="28" />
+  <!-- 工作区挂载宿主目录必需：/storage/emulated/0 是 FUSE 网关，按 App 持有的存储权限判定读写，
+       Unix 权限位与 proot 的伪 root 均无效，只有全文件访问权限能写公共目录 -->
+  <uses-permission
+    android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+    tools:ignore="ScopedStorage" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />

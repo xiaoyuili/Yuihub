@@ -13,9 +13,11 @@ import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.yui.yuihub.utils.JsonInstant
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstaller
+import me.rerere.workspace.WorkspaceBindMount
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
+import me.rerere.workspace.WorkspaceMountDir
 import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
 import java.io.ByteArrayOutputStream
@@ -55,6 +57,8 @@ class WorkspaceRepository(
     }
 
     suspend fun getById(id: String): WorkspaceEntity? = dao.getById(id)
+
+    suspend fun getByRoot(root: String): WorkspaceEntity? = dao.getByRoot(root)
 
     suspend fun create(name: String): WorkspaceEntity {
         val id = Uuid.random().toString()
@@ -107,6 +111,62 @@ class WorkspaceRepository(
             )
         )
         return true
+    }
+
+    /** 挂载目录的校验规则（由 [WorkspaceManager] 统一持有），返回错误码或 null */
+    suspend fun validateMountDir(id: String, mountDir: WorkspaceMountDir): String? {
+        val workspace = dao.getById(id) ?: return "workspace_missing"
+        return manager.validateMountDir(workspace.root, mountDir, workspace.mountDirList())
+    }
+
+    suspend fun addMountDir(id: String, mountDir: WorkspaceMountDir): Boolean {
+        val workspace = dao.getById(id) ?: return false
+        val normalized = mountDir.copy(
+            sourcePath = mountDir.sourcePath.trim(),
+            target = mountDir.target.trim().trimEnd('/'),
+        )
+        val error = manager.validateMountDir(workspace.root, normalized, workspace.mountDirList())
+        require(error == null) { "Invalid mount: $error" }
+        val mounts = workspace.mountDirList() + normalized
+        dao.upsert(
+            workspace.copy(
+                mountDirs = JsonInstant.encodeToString(mounts),
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+        return true
+    }
+
+    suspend fun removeMountDir(id: String, target: String): Boolean {
+        val workspace = dao.getById(id) ?: return false
+        val mounts = workspace.mountDirList().filterNot { it.target.trimEnd('/') == target.trimEnd('/') }
+        dao.upsert(
+            workspace.copy(
+                mountDirs = JsonInstant.encodeToString(mounts),
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+        return true
+    }
+
+    suspend fun setMountDirReadOnly(id: String, target: String, readOnly: Boolean): Boolean {
+        val workspace = dao.getById(id) ?: return false
+        val mounts = workspace.mountDirList().map {
+            if (it.target.trimEnd('/') == target.trimEnd('/')) it.copy(readOnly = readOnly) else it
+        }
+        dao.upsert(
+            workspace.copy(
+                mountDirs = JsonInstant.encodeToString(mounts),
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+        return true
+    }
+
+    /** 该工作区当前生效的自定义挂载（已转成宿主路径的 bind 描述） */
+    suspend fun bindMountsFor(id: String): List<WorkspaceBindMount> {
+        val workspace = dao.getById(id) ?: return emptyList()
+        return workspace.mountDirList().map { manager.bindMountFor(it) }
     }
 
     suspend fun installRootfs(
@@ -235,7 +295,7 @@ class WorkspaceRepository(
     ): Long = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         manager.ensureWorkspace(workspace.root)
-        manager.rootfsFileSize(workspace.root, path)
+        manager.rootfsFileSize(workspace.root, path, workspace.bindMounts())
     }
 
     /** 按 Rootfs 内绝对路径导出文件内容, 支持 /workspace、bind mount 与 Rootfs 内部路径 */
@@ -246,7 +306,7 @@ class WorkspaceRepository(
     ) = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         manager.ensureWorkspace(workspace.root)
-        manager.exportRootfsFile(workspace.root, path, outputStream)
+        manager.exportRootfsFile(workspace.root, path, outputStream, workspace.bindMounts())
     }
 
     suspend fun deleteFile(
@@ -281,12 +341,29 @@ class WorkspaceRepository(
         stdin: ByteArray? = null,
     ): WorkspaceCommandResult {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        val mounts = workspace.bindMounts()
         // runInterruptible 让协程取消转化为线程中断，从而打断阻塞的 Process.waitFor 并杀掉进程
         return runInterruptible(Dispatchers.IO) {
             manager.ensureWorkspace(workspace.root)
-            manager.executeCommand(workspace.root, command, cwd, timeoutMillis, stdin)
+            manager.executeCommand(
+                root = workspace.root,
+                command = command,
+                cwd = cwd,
+                timeoutMillis = timeoutMillis,
+                stdin = stdin,
+                extraBindMounts = mounts,
+            )
         }
     }
+
+    /** 暴露给交互终端: 与 AI 工具共用同一份 PRoot 参数组装 */
+    fun prootArgs(root: String, cwd: String, mounts: List<WorkspaceMountDir>): List<String> =
+        manager.buildProotArgs(root, cwd, mounts.map { manager.bindMountFor(it) })
+
+    fun globalBindMounts(): List<WorkspaceBindMount> = manager.globalBindMounts
+
+    private fun WorkspaceEntity.bindMounts(): List<WorkspaceBindMount> =
+        mountDirList().map { manager.bindMountFor(it) }
 
     suspend fun delete(id: String): Boolean {
         val workspace = dao.getById(id) ?: return false
