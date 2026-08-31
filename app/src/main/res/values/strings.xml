@@ -90,7 +90,7 @@
   <string name="assistant_page_max_tokens_no_token_limit">No token limit</string>
   <string name="assistant_page_memory">Memory</string>
   <string name="assistant_page_memory_count">Memory: %d</string>
-  <string name="assistant_page_memory_desc">When memory is enabled, the model will try to actively record your information during conversations and use it in subsequent conversations. This feature requires the model to support tool calls to work properly</string>
+  <string name="assistant_page_memory_desc">Automatically extract and update long-term memories (profile, preferences, plans) from conversations and inject the most relevant ones into later chats.</string>
   <string name="assistant_page_message_template">Message Content Template</string>
   <string name="assistant_page_message_template_desc">Controls the content format of chat messages before being sent to the LLM, usually no need to modify</string>
   <string name="assistant_page_message_template_missing_message">Template does not contain {{ message }}, user messages will not be sent</string>
@@ -1126,4 +1126,14 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="stats_page_daily_token_usage">Token usage, last 30 days</string>
   <string name="assistant_extensions_page_empty_mcp">No MCP servers configured</string>
   <string name="assistant_extensions_page_goto_mcp">Manage MCP servers</string>
+  <string name="assistant_memory_count">%1$d memories</string>
+  <string name="memory_updated_toast">Memory updated (%1$d)</string>
+  <string name="embedding_config_title">Embedding settings</string>
+  <string name="embedding_config_url">Base URL (up to /v1)</string>
+  <string name="embedding_config_key">API Key</string>
+  <string name="embedding_config_model">Model</string>
+  <string name="embedding_config_test">Test</string>
+  <string name="embedding_config_test_success">Connected, dimension: %1$d</string>
+  <string name="embedding_config_test_failed">Test failed: %1$s</string>
+  <string name="memory_page_search">Search memories</string>
 </resources>

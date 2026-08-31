@@ -90,7 +90,7 @@
   <string name="assistant_page_max_tokens_no_token_limit">無Token限制</string>
   <string name="assistant_page_memory">記憶</string>
   <string name="assistant_page_memory_count">記憶: %d</string>
-  <string name="assistant_page_memory_desc">啟用記憶後，模型在與你對話時嘗試主動記錄你的資訊，並在後續其他對話中使用，此功能需要模型支援工具調用才能正常工作</string>
+  <string name="assistant_page_memory_desc">自動從對話中提取並更新長期記憶（個人資訊、偏好、計劃等），並在後續對話中注入最相關的記憶。</string>
   <string name="assistant_page_message_template">聊天內容模板</string>
   <string name="assistant_page_message_template_desc">控制聊天訊息在發送給LLM之前的內容格式，通常不需要修改</string>
   <string name="assistant_page_message_template_missing_message">範本未包含 {{ message }}，使用者訊息將不會被傳送</string>
@@ -1118,4 +1118,14 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="stats_page_daily_token_usage">近 30 天 token 消耗</string>
   <string name="assistant_extensions_page_empty_mcp">還沒有設定 MCP 伺服器</string>
   <string name="assistant_extensions_page_goto_mcp">管理 MCP 伺服器</string>
+  <string name="assistant_memory_count">共 %1$d 條</string>
+  <string name="memory_updated_toast">已更新 %1$d 條記憶</string>
+  <string name="embedding_config_title">Embedding 設定</string>
+  <string name="embedding_config_url">介面地址（填到 /v1 即可）</string>
+  <string name="embedding_config_key">API Key</string>
+  <string name="embedding_config_model">模型</string>
+  <string name="embedding_config_test">測試</string>
+  <string name="embedding_config_test_success">連線成功，向量維度 %1$d</string>
+  <string name="embedding_config_test_failed">測試失敗：%1$s</string>
+  <string name="memory_page_search">搜尋記憶</string>
 </resources>

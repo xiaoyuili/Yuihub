@@ -6,6 +6,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import android.content.Context
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpHeaders
 import io.pebbletemplates.pebble.PebbleEngine
 import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory
@@ -32,6 +33,9 @@ import me.yui.yuihub.data.ai.mcp.McpManager
 import me.yui.yuihub.data.network.SettingsProxySelector
 import me.yui.yuihub.data.network.SettingsProxyAuthenticator
 import me.yui.yuihub.data.network.SettingsSocks5Authenticator
+import me.yui.yuihub.AppScope
+import me.yui.yuihub.data.ai.memory.EmbeddingService
+import me.yui.yuihub.data.ai.memory.MemoryExtractor
 import me.yui.yuihub.data.sync.LocalBackupService
 import me.rerere.search.SearchService
 import okhttp3.OkHttpClient
@@ -245,8 +249,28 @@ val dataSourceModule = module {
         )
     }
 
+    single {
+        EmbeddingService(
+            client = get(),
+            json = get(),
+        )
+    }
+
+    single {
+        MemoryExtractor(
+            memoryRepository = get(),
+            conversationRepository = get(),
+            settingsStore = get(),
+            providerManager = get(),
+            json = get(),
+            scope = get<AppScope>(),
+            eventBus = get(),
+        )
+    }
+
     single<HttpClient> {
         HttpClient(OkHttp) {
+            install(HttpTimeout)
             engine {
                 config {
                     connectTimeout(20, TimeUnit.SECONDS)

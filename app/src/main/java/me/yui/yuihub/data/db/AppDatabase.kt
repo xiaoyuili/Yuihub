@@ -25,6 +25,8 @@ import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.yui.yuihub.data.db.migrations.Migration_16_17
 import me.yui.yuihub.data.db.migrations.Migration_22_23
 import me.yui.yuihub.data.db.migrations.Migration_25_26
+import me.yui.yuihub.data.db.migrations.Migration_26_27
+import me.yui.yuihub.data.db.migrations.Migration_27_28
 import me.yui.yuihub.data.db.migrations.Migration_8_9
 import me.yui.yuihub.utils.JsonInstant
 
@@ -39,7 +41,7 @@ import me.yui.yuihub.utils.JsonInstant
         WorkspaceEntity::class,
         FolderEntity::class,
     ],
-    version = 26,
+    version = 28,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -61,6 +63,8 @@ import me.yui.yuihub.utils.JsonInstant
         AutoMigration(from = 23, to = 24),
         AutoMigration(from = 24, to = 25),
         AutoMigration(from = 25, to = 26, spec = Migration_25_26::class),
+        AutoMigration(from = 26, to = 27, spec = Migration_26_27::class),
+        AutoMigration(from = 27, to = 28, spec = Migration_27_28::class),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)

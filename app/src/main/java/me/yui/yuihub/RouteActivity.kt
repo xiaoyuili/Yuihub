@@ -58,6 +58,7 @@ import coil3.svg.SvgDecoder
 import com.dokar.sonner.Toaster
 import com.dokar.sonner.rememberToasterState
 import kotlinx.serialization.Serializable
+import kotlin.time.Duration.Companion.milliseconds
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.DatabaseMigrationTracker
 import me.yui.yuihub.data.db.MigrationState
@@ -233,6 +234,13 @@ class RouteActivity : ComponentActivity() {
             eventBus.events.collect { event ->
                 when (event) {
                     is AppEvent.OpenUsageAccessSettings -> this@RouteActivity.openUsageAccessSettings()
+                    is AppEvent.MemoryUpdated -> {
+                        toastState.show(
+                            message = getString(R.string.memory_updated_toast, event.count),
+                            type = com.dokar.sonner.ToastType.Success,
+                            duration = 1500.milliseconds,
+                        )
+                    }
                     is AppEvent.ChatGenerationUpdate -> Unit // 由 ChatNotificationManager 消费
                     is AppEvent.ChatGenerationEnded -> Unit // 由 ChatNotificationManager 消费
                 }

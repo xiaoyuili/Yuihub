@@ -55,6 +55,12 @@ data class Assistant(
 data class AssistantMemory(
     val id: Int,
     val content: String = "",
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
+    val lastAccessedAt: Long = 0L,
+    val accessCount: Int = 0,
+    val importance: Float = 0.5f,
+    val embedding: String? = null,
 )
 
 @Serializable

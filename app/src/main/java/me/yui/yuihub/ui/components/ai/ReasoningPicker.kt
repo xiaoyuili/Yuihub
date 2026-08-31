@@ -1,11 +1,13 @@
 package me.yui.yuihub.ui.components.ai
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,6 +18,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -28,7 +31,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.hugeicons.HugeIcons
@@ -50,7 +52,21 @@ fun ReasoningButton(
     onlyIcon: Boolean = false,
     reasoningLevel: ReasoningLevel,
     onUpdateReasoningLevel: (ReasoningLevel) -> Unit,
+    showExternalPopup: Boolean = false,
+    onShowExternalPopup: () -> Unit = {},
 ) {
+    if (showExternalPopup) {
+        // 外部面板模式：点击只切换外部状态，面板由调用方内嵌在输入框上方渲染
+        ToggleSurface(
+            checked = reasoningLevel.isEnabled,
+            onClick = onShowExternalPopup,
+            modifier = modifier,
+        ) {
+            ReasoningButtonContent(onlyIcon = onlyIcon, reasoningLevel = reasoningLevel)
+        }
+        return
+    }
+
     var showPicker by remember { mutableStateOf(false) }
 
     Box(modifier = modifier) {
@@ -58,19 +74,7 @@ fun ReasoningButton(
             checked = reasoningLevel.isEnabled,
             onClick = { showPicker = true },
         ) {
-            Row(
-                modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(
-                    modifier = Modifier.size(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    ReasoningIcon(reasoningLevel)
-                }
-                if (!onlyIcon) Text(stringResource(R.string.setting_provider_page_reasoning))
-            }
+            ReasoningButtonContent(onlyIcon = onlyIcon, reasoningLevel = reasoningLevel)
         }
 
         ReasoningLevelPopup(
@@ -82,8 +86,97 @@ fun ReasoningButton(
     }
 }
 
-// 弹窗形态的推理强度调整：锚定在按钮上方弹出（靠近屏幕底部时自动向上展开），
-// 替代原先的 ModalBottomSheet，避免整屏上滑打断输入
+@Composable
+private fun ReasoningButtonContent(
+    onlyIcon: Boolean,
+    reasoningLevel: ReasoningLevel,
+) {
+    Row(
+        modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier.size(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            ReasoningIcon(reasoningLevel)
+        }
+        if (!onlyIcon) Text(stringResource(R.string.setting_provider_page_reasoning))
+    }
+}
+
+// 内嵌式推理强度面板：放在输入框上方的布局槽位里渲染，
+// 宽度与输入框一致。无底色无边框的轻量层，避免与输入框形成双色块
+@Composable
+fun ReasoningLevelPanel(
+    reasoningLevel: ReasoningLevel,
+    onUpdateReasoningLevel: (ReasoningLevel) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val currentIndex = levels.indexOf(reasoningLevel).coerceAtLeast(0)
+    var sliderValue by remember { mutableFloatStateOf(currentIndex.toFloat()) }
+
+    LaunchedEffect(currentIndex) {
+        sliderValue = currentIndex.toFloat()
+    }
+
+    // 拖动时实时预览档位
+    val previewLevel = levels[sliderValue.roundToInt().coerceIn(0, levelCount - 1)]
+
+    Column(
+        modifier = modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.reasoning_picker_title),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = previewLevel.label(),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Slider(
+            value = sliderValue,
+            onValueChange = { sliderValue = it },
+            onValueChangeFinished = {
+                val snappedIndex = sliderValue.roundToInt().coerceIn(0, levelCount - 1)
+                sliderValue = snappedIndex.toFloat()
+                onUpdateReasoningLevel(levels[snappedIndex])
+            },
+            valueRange = 0f..(levelCount - 1).toFloat(),
+            steps = 0,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(30.dp),
+            thumb = {
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            },
+            track = { sliderState ->
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    drawStopIndicator = null,
+                    thumbTrackGapSize = 0.dp,
+                )
+            }
+        )
+    }
+}
+
+// 弹窗形态（设置页/助手页等中部按钮用）：锚定按钮的下拉菜单
 @Composable
 private fun ReasoningLevelPopup(
     expanded: Boolean,
@@ -142,7 +235,7 @@ private fun ReasoningLevelPopup(
                 )
             }
 
-            Slider(
+            ReasoningSlider(
                 value = sliderValue,
                 onValueChange = { sliderValue = it },
                 onValueChangeFinished = {
@@ -150,37 +243,52 @@ private fun ReasoningLevelPopup(
                     sliderValue = snappedIndex.toFloat()
                     onUpdateReasoningLevel(levels[snappedIndex])
                 },
-                valueRange = 0f..(levelCount - 1).toFloat(),
-                steps = levelCount - 2,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(44.dp),
-                thumb = {
-                    Box(
-                        modifier = Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.onPrimary)
-                        )
-                    }
-                },
-                track = { sliderState ->
-                    SliderDefaults.Track(
-                        sliderState = sliderState,
-                        drawStopIndicator = null,
-                        thumbTrackGapSize = 0.dp,
-                    )
-                }
             )
         }
     }
+}
+
+@Composable
+private fun ReasoningSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
+        valueRange = 0f..(levelCount - 1).toFloat(),
+        steps = levelCount - 2,
+        modifier = modifier,
+        thumb = {
+            Box(
+                modifier = Modifier
+                    .size(26.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onPrimary)
+                )
+            }
+        },
+        track = { sliderState ->
+            SliderDefaults.Track(
+                sliderState = sliderState,
+                drawStopIndicator = null,
+                thumbTrackGapSize = 0.dp,
+            )
+        }
+    )
 }
 
 @Composable

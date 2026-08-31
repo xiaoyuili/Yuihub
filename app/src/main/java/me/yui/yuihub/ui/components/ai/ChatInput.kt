@@ -1,10 +1,12 @@
 package me.yui.yuihub.ui.components.ai
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -122,6 +124,7 @@ fun ChatInput(
 ) {
     val toaster = LocalToaster.current
     val assistant = settings.getCurrentAssistant()
+    var showReasoningPanel by remember { mutableStateOf(false) }
     val hazeTintColor = MaterialTheme.colorScheme.surfaceContainerLow
     val inputHazeStyle = HazeBlurStyle.Material3 {
         blurRadius(12.dp)
@@ -160,6 +163,21 @@ fun ChatInput(
                 .padding(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // 推理强度面板：内嵌在输入框上方，宽度与输入框一致
+            AnimatedVisibility(
+                visible = showReasoningPanel,
+                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
+            ) {
+                ReasoningLevelPanel(
+                    reasoningLevel = assistant.reasoningLevel,
+                    onUpdateReasoningLevel = {
+                        onUpdateAssistant(assistant.copy(reasoningLevel = it))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -243,6 +261,10 @@ fun ChatInput(
                                         onUpdateAssistant(assistant.copy(reasoningLevel = it))
                                     },
                                     onlyIcon = true,
+                                    showExternalPopup = true,
+                                    onShowExternalPopup = {
+                                        showReasoningPanel = !showReasoningPanel
+                                    },
                                 )
                             }
 

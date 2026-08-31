@@ -90,7 +90,7 @@
   <string name="assistant_page_max_tokens_no_token_limit">토큰 제한 없음</string>
   <string name="assistant_page_memory">기억 기능</string>
   <string name="assistant_page_memory_count">기억: %d</string>
-  <string name="assistant_page_memory_desc">기억 기능 활성화 시, 모델이 대화 중 사용자 정보를 적극적으로 기록하고 이후 대화에서 활용합니다. 이 기능은 모델이 도구 호출을 지원해야 제대로 작동합니다</string>
+  <string name="assistant_page_memory_desc">대화에서 장기 기억(프로필, 선호도, 계획 등)을 자동으로 추출·업데이트하고 이후 대화에서 가장 관련성 높은 기억을 주입합니다.</string>
   <string name="assistant_page_message_template">메시지 내용 템플릿</string>
   <string name="assistant_page_message_template_desc">LLM에 전송되기 전 채팅 메시지 형식을 제어. 일반적으로 수정할 필요 없음</string>
   <string name="assistant_page_message_template_missing_message">템플릿에 {{ message }}가 없어 사용자 메시지가 전송되지 않습니다</string>
@@ -1098,4 +1098,14 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="stats_page_daily_token_usage">최근 30일 토큰 사용량</string>
   <string name="assistant_extensions_page_empty_mcp">설정된 MCP 서버가 없습니다</string>
   <string name="assistant_extensions_page_goto_mcp">MCP 서버 관리</string>
+  <string name="assistant_memory_count">총 %1$d개</string>
+  <string name="memory_updated_toast">기억 %1$d개 업데이트됨</string>
+  <string name="embedding_config_title">임베딩 설정</string>
+  <string name="embedding_config_url">베이스 URL(/v1까지)</string>
+  <string name="embedding_config_key">API 키</string>
+  <string name="embedding_config_model">모델</string>
+  <string name="embedding_config_test">테스트</string>
+  <string name="embedding_config_test_success">연결 성공, 차원 %1$d</string>
+  <string name="embedding_config_test_failed">테스트 실패: %1$s</string>
+  <string name="memory_page_search">기억 검색</string>
 </resources>

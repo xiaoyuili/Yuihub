@@ -6,6 +6,9 @@ import kotlin.uuid.Uuid
 sealed class AppEvent {
     data object OpenUsageAccessSettings : AppEvent()
 
+    /** 记忆提取管道更新了记忆（条数），用于向用户展示轻提示 */
+    data class MemoryUpdated(val count: Int) : AppEvent()
+
     /** 聊天生成过程中的流式更新，由 ChatNotificationManager 消费用于 Live Update 通知。 */
     data class ChatGenerationUpdate(
         val conversationId: Uuid,

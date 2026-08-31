@@ -4,6 +4,8 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Delete01
+import me.rerere.hugeicons.stroke.Settings02
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,15 +15,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -33,16 +38,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import me.yui.yuihub.R
+import me.yui.yuihub.data.ai.memory.EmbeddingService
+import me.yui.yuihub.data.datastore.EmbeddingConfig
+import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantMemory
 import me.yui.yuihub.ui.components.nav.BackButton
@@ -52,7 +64,12 @@ import me.yui.yuihub.ui.hooks.EditStateContent
 import me.yui.yuihub.ui.hooks.useEditState
 import me.yui.yuihub.ui.theme.CustomColors
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 @Composable
 fun AssistantMemoryPage(id: String) {
@@ -64,6 +81,7 @@ fun AssistantMemoryPage(id: String) {
     val assistant by vm.assistant.collectAsStateWithLifecycle()
     val memories by vm.memories.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    var showEmbeddingConfig by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -73,6 +91,14 @@ fun AssistantMemoryPage(id: String) {
                 },
                 navigationIcon = {
                     BackButton()
+                },
+                actions = {
+                    IconButton(onClick = { showEmbeddingConfig = true }) {
+                        Icon(
+                            imageVector = HugeIcons.Settings02,
+                            contentDescription = stringResource(R.string.embedding_config_title),
+                        )
+                    }
                 },
                 scrollBehavior = scrollBehavior,
                 colors = CustomColors.topBarColors,
@@ -91,6 +117,133 @@ fun AssistantMemoryPage(id: String) {
             onUpdateMemory = { vm.updateMemory(it) }
         )
     }
+
+    if (showEmbeddingConfig) {
+        EmbeddingConfigDialog(onDismiss = { showEmbeddingConfig = false })
+    }
+}
+
+@Composable
+private fun EmbeddingConfigDialog(onDismiss: () -> Unit) {
+    val settingsStore: SettingsStore = koinInject()
+    val embeddingService: EmbeddingService = koinInject()
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
+    var url by remember(settings.embeddingConfig) { mutableStateOf(settings.embeddingConfig.url) }
+    var apiKey by remember(settings.embeddingConfig) { mutableStateOf(settings.embeddingConfig.apiKey) }
+    var model by remember(settings.embeddingConfig) { mutableStateOf(settings.embeddingConfig.model) }
+
+    var testing by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf<String?>(null) }
+
+    fun save() {
+        scope.launch {
+            settingsStore.update {
+                it.copy(
+                    embeddingConfig = EmbeddingConfig(
+                        url = url.trim(),
+                        apiKey = apiKey.trim(),
+                        model = model.trim(),
+                    )
+                )
+            }
+        }
+        onDismiss()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.embedding_config_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text(stringResource(R.string.embedding_config_url)) },
+                    placeholder = { Text("https://api.example.com/v1") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { apiKey = it },
+                    label = { Text(stringResource(R.string.embedding_config_key)) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = model,
+                    onValueChange = { model = it },
+                    label = { Text(stringResource(R.string.embedding_config_model)) },
+                    placeholder = { Text("text-embedding-3-small") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    TextButton(
+                        onClick = {
+                            testing = true
+                            testResult = null
+                            scope.launch {
+                                val result = embeddingService.testConnection(
+                                    EmbeddingConfig(
+                                        url = url.trim(),
+                                        apiKey = apiKey.trim(),
+                                        model = model.trim(),
+                                    )
+                                )
+                                testResult = result.fold(
+                                    onSuccess = { dimension ->
+                                        context.getString(R.string.embedding_config_test_success, dimension)
+                                    },
+                                    onFailure = { e ->
+                                        context.getString(
+                                            R.string.embedding_config_test_failed,
+                                            e.message ?: ""
+                                        )
+                                    },
+                                )
+                                testing = false
+                            }
+                        },
+                        enabled = !testing && url.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank(),
+                    ) {
+                        if (testing) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp))
+                        } else {
+                            Text(stringResource(R.string.embedding_config_test))
+                        }
+                    }
+                    if (testResult != null) {
+                        Text(
+                            text = testResult.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { save() }) {
+                Text(stringResource(R.string.assistant_page_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.assistant_page_cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -111,8 +264,8 @@ private fun AssistantMemoryContent(
         }
     }
     var pendingDeleteMemory by remember { mutableStateOf<AssistantMemory?>(null) }
+    var searchText by remember { mutableStateOf("") }
 
-    // 记忆对话框
     memoryDialogState.EditStateContent { memory, update ->
         AlertDialog(
             onDismissRequest = {
@@ -154,6 +307,12 @@ private fun AssistantMemoryContent(
             }
         )
     }
+
+    val filteredMemories = if (searchText.isBlank()) {
+        memories
+    } else {
+        memories.filter { it.content.contains(searchText, ignoreCase = true) }
+    }.sortedByDescending { it.updatedAt }
 
     Column(
         modifier = Modifier
@@ -248,24 +407,32 @@ private fun AssistantMemoryContent(
             )
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp)
+        OutlinedTextField(
+            value = searchText,
+            onValueChange = { searchText = it },
+            label = { Text(stringResource(R.string.memory_page_search)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = stringResource(R.string.assistant_page_manage_memory_title),
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier
-                    .padding(bottom = 8.dp)
-                    .align(Alignment.CenterStart)
+                modifier = Modifier.weight(1f),
             )
-
+            Text(
+                text = stringResource(R.string.assistant_memory_count, memories.size),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             IconButton(
                 onClick = {
                     memoryDialogState.open(AssistantMemory(0, ""))
-                },
-                modifier = Modifier.align(Alignment.CenterEnd)
+                }
             ) {
                 Icon(
                     imageVector = HugeIcons.Add01,
@@ -274,7 +441,7 @@ private fun AssistantMemoryContent(
             }
         }
 
-        memories.fastForEach { memory ->
+        filteredMemories.fastForEach { memory ->
             key(memory.id) {
                 MemoryItem(
                     memory = memory,
@@ -322,13 +489,13 @@ private fun MemoryItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
                     text = memory.content,
@@ -336,6 +503,17 @@ private fun MemoryItem(
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ImportanceDots(importance = memory.importance)
+                    Text(
+                        text = formatMemoryTime(memory.updatedAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             IconButton(
                 onClick = { onEditMemory(memory) }
@@ -352,4 +530,34 @@ private fun MemoryItem(
             }
         }
     }
+}
+
+@Composable
+private fun ImportanceDots(importance: Float) {
+    val filled = (importance.coerceIn(0f, 1f) * 5).roundToInt()
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        repeat(5) { index ->
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(
+                        color = if (index < filled) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                        shape = CircleShape,
+                    )
+            )
+        }
+    }
+}
+
+private fun formatMemoryTime(epochMillis: Long): String {
+    if (epochMillis <= 0L) return ""
+    val time = Instant.ofEpochMilli(epochMillis)
+        .atZone(ZoneId.systemDefault())
+        .toLocalDateTime()
+    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    return time.format(formatter)
 }

@@ -90,7 +90,7 @@
   <string name="assistant_page_max_tokens_no_token_limit">Без ограничения токенов</string>
   <string name="assistant_page_memory">Память</string>
   <string name="assistant_page_memory_count">Память: %d</string>
-  <string name="assistant_page_memory_desc">Когда память включена, модель будет стараться активно записывать вашу информацию во время разговоров и использовать её в последующих беседах. Для работы этой функции модель должна поддерживать вызовы инструментов</string>
+  <string name="assistant_page_memory_desc">Автоматически извлекает и обновляет долговременные воспоминания (профиль, предпочтения, планы) из диалогов и вставляет самые релевантные в следующие чаты.</string>
   <string name="assistant_page_message_template">Шаблон содержимого сообщения</string>
   <string name="assistant_page_message_template_desc">Управляет форматом содержимого сообщений чата перед отправкой в LLM, обычно изменять не требуется</string>
   <string name="assistant_page_message_template_missing_message">Шаблон не содержит {{ message }}, сообщения пользователя не будут отправлены</string>
@@ -1098,4 +1098,14 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="stats_page_daily_token_usage">Расход токенов за 30 дней</string>
   <string name="assistant_extensions_page_empty_mcp">MCP-серверы не настроены</string>
   <string name="assistant_extensions_page_goto_mcp">Управление MCP-серверами</string>
+  <string name="assistant_memory_count">Всего: %1$d</string>
+  <string name="memory_updated_toast">Память обновлена (%1$d)</string>
+  <string name="embedding_config_title">Настройки эмбеддингов</string>
+  <string name="embedding_config_url">Базовый URL (до /v1)</string>
+  <string name="embedding_config_key">API-ключ</string>
+  <string name="embedding_config_model">Модель</string>
+  <string name="embedding_config_test">Проверить</string>
+  <string name="embedding_config_test_success">Подключено, размерность %1$d</string>
+  <string name="embedding_config_test_failed">Ошибка: %1$s</string>
+  <string name="memory_page_search">Поиск воспоминаний</string>
 </resources>

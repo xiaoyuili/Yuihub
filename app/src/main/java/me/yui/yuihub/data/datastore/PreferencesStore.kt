@@ -100,6 +100,9 @@ class SettingsStore(
         // MCP
         val MCP_SERVERS = stringPreferencesKey("mcp_servers")
 
+        // Embedding
+        val EMBEDDING_CONFIG = stringPreferencesKey("embedding_config")
+
         // 提示词注入
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")
         val LOREBOOKS = stringPreferencesKey("lorebooks")
@@ -164,6 +167,9 @@ class SettingsStore(
                 mcpServers = preferences[MCP_SERVERS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
+                embeddingConfig = preferences[EMBEDDING_CONFIG]?.let {
+                    JsonInstant.decodeFromString(it)
+                } ?: EmbeddingConfig(),
                 modeInjections = preferences[MODE_INJECTIONS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -278,6 +284,7 @@ class SettingsStore(
             preferences[SEARCH_SELECTED] = settings.searchServiceSelected.coerceIn(0, settings.searchServices.size - 1)
 
             preferences[MCP_SERVERS] = JsonInstant.encodeToString(settings.mcpServers)
+            preferences[EMBEDDING_CONFIG] = JsonInstant.encodeToString(settings.embeddingConfig)
             preferences[MODE_INJECTIONS] = JsonInstant.encodeToString(settings.modeInjections)
             preferences[LOREBOOKS] = JsonInstant.encodeToString(settings.lorebooks)
             preferences[KEEP_AWAKE_ENABLED] = settings.keepAwakeEnabled
@@ -386,6 +393,7 @@ data class Settings(
     val searchCommonOptions: SearchCommonOptions = SearchCommonOptions(),
     val searchServiceSelected: Int = 0,
     val mcpServers: List<McpServerConfig> = emptyList(),
+    val embeddingConfig: EmbeddingConfig = EmbeddingConfig(),
     val modeInjections: List<PromptInjection.ModeInjection> = DEFAULT_MODE_INJECTIONS,
     val lorebooks: List<Lorebook> = emptyList(),
     val keepAwakeEnabled: Boolean = false,
@@ -455,6 +463,13 @@ data class DisplaySetting(
     val chatCustomFontName: String = "",
     val enableVolumeKeyScroll: Boolean = false,
     val volumeKeyScrollRatio: Float = 1.0f,
+)
+
+@Serializable
+data class EmbeddingConfig(
+    val url: String = "",
+    val apiKey: String = "",
+    val model: String = "",
 )
 
 @Serializable

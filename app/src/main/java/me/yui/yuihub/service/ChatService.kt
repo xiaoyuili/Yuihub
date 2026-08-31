@@ -48,6 +48,7 @@ import me.yui.yuihub.R
 import me.yui.yuihub.data.ai.GenerationChunk
 import me.yui.yuihub.data.ai.GenerationHandler
 import me.yui.yuihub.data.ai.mcp.McpManager
+import me.yui.yuihub.data.ai.memory.MemoryExtractor
 import me.yui.yuihub.data.ai.tools.createConversationTools
 import me.yui.yuihub.data.ai.tools.local.LocalTools
 import me.yui.yuihub.data.ai.tools.createSearchTools
@@ -158,6 +159,7 @@ class ChatService(
     private val settingsStore: SettingsStore,
     private val conversationRepo: ConversationRepository,
     private val memoryRepository: MemoryRepository,
+    private val memoryExtractor: MemoryExtractor,
     private val generationHandler: GenerationHandler,
     private val templateTransformer: TemplateTransformer,
     private val providerManager: ProviderManager,
@@ -376,6 +378,9 @@ class ChatService(
                 }
 
                 _generationDoneFlow.emit(conversationId)
+                if (answer) {
+                    memoryExtractor.launchExtraction(conversationId)
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
                 addError(e, conversationId, title = context.getString(R.string.error_title_send_message))
@@ -439,6 +444,7 @@ class ChatService(
                 }
 
                 _generationDoneFlow.emit(conversationId)
+                memoryExtractor.launchExtraction(conversationId)
             } catch (e: Exception) {
                 addError(e, conversationId, title = context.getString(R.string.error_title_regenerate_message))
             }
@@ -511,6 +517,9 @@ class ChatService(
                 }
 
                 _generationDoneFlow.emit(conversationId)
+                if (!hasPendingTools) {
+                    memoryExtractor.launchExtraction(conversationId)
+                }
             } catch (e: Exception) {
                 addError(e, conversationId, title = context.getString(R.string.error_title_tool_approval))
             }
@@ -574,10 +583,25 @@ class ChatService(
                 conversationModeInjectionIds = conversation.modeInjectionIds,
                 conversationLorebookIds = conversation.lorebookIds,
                 workspaceCwd = conversation.workspaceCwd,
-                memories = if (assistant.useGlobalMemory) {
-                    memoryRepository.getGlobalMemories()
+                memories = if (!assistant.enableMemory) {
+                    emptyList()
                 } else {
-                    memoryRepository.getMemoriesOfAssistant(assistant.id.toString())
+                    memoryRepository.selectForPrompt(
+                        assistantId = if (assistant.useGlobalMemory) {
+                            MemoryRepository.GLOBAL_MEMORY_ID
+                        } else {
+                            assistant.id.toString()
+                        },
+                        query = conversation.currentMessages
+                            .lastOrNull { it.role == MessageRole.USER }
+                            ?.toText()
+                            .orEmpty(),
+                        embeddingConfig = settings.embeddingConfig,
+                    ).also { selected ->
+                        if (selected.isNotEmpty()) {
+                            appScope.launch { memoryRepository.markAccessed(selected) }
+                        }
+                    }
                 },
                 inputTransformers = buildList {
                     addAll(inputTransformers)
