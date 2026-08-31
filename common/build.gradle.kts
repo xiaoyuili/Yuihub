@@ -2,7 +2,7 @@ import org.gradle.kotlin.dsl.withType
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("rikkahub.android.library")
+    id("yuihub.android.library")
     alias(libs.plugins.kotlin.serialization)
 }
 

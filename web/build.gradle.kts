@@ -1,7 +1,7 @@
 import org.apache.tools.ant.taskdefs.condition.Os
 
 plugins {
-    id("rikkahub.android.library")
+    id("yuihub.android.library")
 }
 
 val webUiDir = rootProject.layout.projectDirectory.dir("web-ui")
@@ -34,7 +34,7 @@ val buildWebUi = tasks.register<Exec>("buildWebUi") {
 }
 
 android {
-    namespace = "me.rerere.rikkahub.web"
+    namespace = "me.yui.yuihub.web"
 
     defaultConfig {
         minSdk = 24

@@ -101,7 +101,7 @@ async def test_keys_preserved_in_response(translator):
 @pytest.mark.asyncio
 async def test_non_empty_translations(translator):
     """每个 key 翻译结果不能为空字符串。"""
-    entries = {"app_name": "RikkaHub", "loading": "Loading..."}
+    entries = {"app_name": "YuiHub", "loading": "Loading..."}
     result = await translator.translate_batch(entries, "Chinese (Simplified)")
     for key, val in result.items():
         assert val and val.strip(), f"Translation for {key!r} is empty"

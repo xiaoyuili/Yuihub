@@ -1,5 +1,5 @@
 plugins {
-    id("rikkahub.android.library")
+    id("yuihub.android.library")
     alias(libs.plugins.kotlin.serialization)
 }
 
@@ -7,6 +7,9 @@ android {
     namespace = "me.rerere.workspace"
 
     defaultConfig {
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
         externalNativeBuild {
             cmake {
                 cppFlags += ""

@@ -1,5 +1,5 @@
 plugins {
-    id("rikkahub.android.library.compose")
+    id("yuihub.android.library.compose")
 }
 
 android {

@@ -34,7 +34,7 @@ export function buildProviderRequest(trace: LoadedTraceCase, apiKey: string): Pr
   const headers: Record<string, string> = {
     Accept: "text/event-stream",
     "Content-Type": "application/json",
-    "User-Agent": "rikkahub-trace-cli/0.1.0",
+    "User-Agent": "yuihub-trace-cli/0.1.0",
     ...trace.headers,
   };
 

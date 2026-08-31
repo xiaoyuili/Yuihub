@@ -1,6 +1,6 @@
-# Contributing to RikkaHub
+# Contributing to YuiHub
 
-Thank you for your interest in contributing to RikkaHub. To keep reviews focused and the project
+Thank you for your interest in contributing to YuiHub. To keep reviews focused and the project
 maintainable, please read the following rules before opening a pull request.
 
 ## Contribution policy
@@ -14,7 +14,7 @@ Pull requests without a corresponding issue will not be accepted.
 
 ### No new-feature pull requests
 
-We do not accept pull requests that add new features. RikkaHub is an opinionated project, and new
+We do not accept pull requests that add new features. YuiHub is an opinionated project, and new
 features need to be designed and implemented by the maintainers to keep the product direction and
 user experience consistent.
 

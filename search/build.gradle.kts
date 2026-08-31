@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
-    id("rikkahub.android.library.compose")
+    id("yuihub.android.library.compose")
     alias(libs.plugins.kotlin.serialization)
 }
 

@@ -77,11 +77,11 @@ class RootfsPathResolutionTest {
     fun unknownAbsolutePathFallsBackToRootfsInterior() {
         manager = createManager()
         File(manager.linuxDir(root), "etc").mkdirs()
-        File(manager.linuxDir(root), "etc/hostname").writeText("rikkahub\n")
+        File(manager.linuxDir(root), "etc/hostname").writeText("yuihub\n")
 
         val buffer = ByteArrayOutputStream()
         manager.exportRootfsFile(root, "/etc/hostname", buffer)
-        assertEquals("rikkahub\n", buffer.toString(Charsets.UTF_8.name()))
+        assertEquals("yuihub\n", buffer.toString(Charsets.UTF_8.name()))
     }
 
     @Test

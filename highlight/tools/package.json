@@ -1,5 +1,5 @@
 {
-  "name": "rikkahub-highlight-fixtures",
+  "name": "yuihub-highlight-fixtures",
   "private": true,
   "type": "module",
   "description": "Generates golden token fixtures from highlight.js, the source of truth for the Kotlin highlighter.",

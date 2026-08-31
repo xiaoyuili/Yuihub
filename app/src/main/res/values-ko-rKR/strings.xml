@@ -7,7 +7,7 @@
   <string name="about_page_version">버전</string>
   <string name="about_page_website">웹사이트</string>
   <string name="add">추가</string>
-  <string name="app_name">RikkaHub</string>
+  <string name="app_name">YuiHub</string>
   <string name="asr_button_content_description">음성 인식</string>
   <string name="asr_button_stop">중지</string>
   <string name="assistant_detail_basic_desc">이름, 아바타, 모델 및 매개변수 구성</string>
@@ -542,7 +542,7 @@
   <string name="regenerate">다시 생성</string>
   <string name="regenerate_confirm_message">이 메시지를 다시 생성하시겠습니까?</string>
   <string name="render_with_webview">WebView로 렌더링</string>
-  <string name="rikkahub_provider_description">공식 무료 AI 서비스로, 사용자 후원금으로 일부 무료 모델을 신규 사용자에게 대체 수단으로 제공하며 API 키가 필요 없습니다. 엄격한 요청 제한이 있으므로, 자체 제공자를 구매한 경우 되도록 자체 제공자를 사용하세요.</string>
+  <string name="yuihub_provider_description">공식 무료 AI 서비스로, 사용자 후원금으로 일부 무료 모델을 신규 사용자에게 대체 수단으로 제공하며 API 키가 필요 없습니다. 엄격한 요청 제한이 있으므로, 자체 제공자를 구매한 경우 되도록 자체 제공자를 사용하세요.</string>
   <string name="safe_mode_assistants">도우미</string>
   <string name="safe_mode_copy">복사</string>
   <string name="safe_mode_crash_report">충돌 보고서</string>
@@ -819,7 +819,7 @@
   <string name="setting_page_search_title">검색 서비스</string>
   <string name="setting_page_share">공유</string>
   <string name="setting_page_share_desc">앱을 친구들과 공유하기</string>
-  <string name="setting_page_share_text">RikkaHub - 오픈소스 Android AI 어시스턴트\n\n웹사이트: https://rikka-ai.com/</string>
+  <string name="setting_page_share_text">YuiHub - 오픈소스 Android AI 어시스턴트\n\n웹사이트: https://rikka-ai.com/</string>
   <string name="setting_page_sponsor_alert_confirm">기부하기</string>
   <string name="setting_page_sponsor_alert_desc">앱을 100번 이상 실행하셨네요! 만족스럽게 사용하고 계시다면 개발자를 후원해 주세요.</string>
   <string name="setting_page_sponsor_alert_dismiss">나중에</string>
@@ -847,7 +847,7 @@
   <string name="setting_page_web_server_address_note_desc">LAN 주소: 기기의 WiFi IP를 사용하며, 같은 네트워크에 연결된 다른 기기에서 접근할 수 있습니다. 모바일 데이터에서는 사용할 수 없습니다.
 로컬 주소: localhost를 사용하며, 이 기기에서만 접근할 수 있습니다.
 mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네트워크의 다른 기기에서 이름으로 접근할 수 있습니다.</string>
-  <string name="setting_page_web_server_desc">웹을 통해 RikkaHub에 접근할 수 있도록 허용</string>
+  <string name="setting_page_web_server_desc">웹을 통해 YuiHub에 접근할 수 있도록 허용</string>
   <string name="setting_page_web_server_error">오류</string>
   <string name="setting_page_web_server_jwt_enable">인증 활성화</string>
   <string name="setting_page_web_server_jwt_enable_desc">웹 인터페이스에 접근할 때 비밀번호 인증이 필요합니다</string>
@@ -1242,7 +1242,7 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="setting_asr_configure_step_itn">ITN 활성화</string>
   <string name="setting_asr_configure_step_itn_desc">역 텍스트 정규화: 말로 한 숫자를 숫자로 변환합니다(예: 三百 → 300)</string>
   <string name="setting_asr_configure_step_timestamp">타임스탬프 활성화</string>
-  <string name="setting_asr_configure_step_timestamp_desc">단어 단위 타임스탬프를 반환합니다. rikkahub은 현재 이를 사용하지 않으므로 token 절약을 위해 기본적으로 꺼져 있습니다</string>
+  <string name="setting_asr_configure_step_timestamp_desc">단어 단위 타임스탬프를 반환합니다. yuihub은 현재 이를 사용하지 않으므로 token 절약을 위해 기본적으로 꺼져 있습니다</string>
   <string name="setting_asr_configure_step_hotwords">핫워드</string>
   <string name="setting_asr_configure_step_hotwords_desc">고유명사/도메인 용어 인식 정확도를 높이기 위한 쉼표로 구분된 핫워드 목록</string>
   <string name="log_page_record_requests">요청 기록</string>

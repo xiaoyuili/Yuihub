@@ -1,10 +1,10 @@
 <div align="center">
   <img src="docs/icon.png" alt="App 圖標" width="100" />
-  <h1>RikkaHub</h1>
+  <h1>YuiHub</h1>
 
 一個原生Android LLM 聊天客戶端，支持切換不同的供應商進行聊天 🤖💬
 
-點擊加入我們的Discord伺服器 👉 [【RikkaHub】](https://discord.gg/9weBqxe5c4)
+點擊加入我們的Discord伺服器 👉 [【YuiHub】](https://discord.gg/9weBqxe5c4)
 
 [English](README.md) | 繁體中文 | [简体中文](README_ZH_CN.md)
 
@@ -18,10 +18,10 @@
 ## 🚀 下載
 
 🔗 [前往官網下載](https://rikka-ai.com/download)（推薦）
-🔗 [前往 Google Play 下載](https://play.google.com/store/apps/details?id=me.rerere.rikkahub)
+🔗 [前往 Google Play 下載](https://play.google.com/store/apps/details?id=me.yui.yuihub)
 
 > [!WARNING]
-> RikkaHub 存在許多 fork 版本，fork 版本出現問題與 RikkaHub 無關，請謹慎使用 fork 版本，避免隱私洩露或者過度索要權限問題。
+> YuiHub 存在許多 fork 版本，fork 版本出現問題與 YuiHub 無關，請謹慎使用 fork 版本，避免隱私洩露或者過度索要權限問題。
 
 ## 💖 贊助商
 
@@ -76,18 +76,18 @@
 
 ## 💰 捐贈
 
-* [Patreon](https://patreon.com/rikkahub)
+* [Patreon](https://patreon.com/yuihub)
 * [愛發電](https://afdian.com/a/reovo)
 
 ## ⭐ Star History
 
 如果喜歡這個項目，請給個Star ⭐
 
-<a href="https://www.star-history.com/?type=date&repos=re-ovo%2Frikkahub">
+<a href="https://www.star-history.com/?type=date&repos=re-ovo%2Fyuihub">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&theme=dark&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=re-ovo/yuihub&type=date&theme=dark&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=re-ovo/yuihub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=re-ovo/yuihub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
  </picture>
 </a>
 

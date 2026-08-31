@@ -15,11 +15,11 @@ plugins {
 }
 
 android {
-    namespace = "me.rerere.rikkahub"
+    namespace = "me.yui.yuihub"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "me.rerere.rikkahub"
+        applicationId = "me.yui.yuihub"
         minSdk = 26
         targetSdk = 37
         versionCode = 182
@@ -262,7 +262,7 @@ dependencies {
     implementation(libs.image.viewer)
 
     // JLatexMath
-    // https://github.com/rikkahub/jlatexmath-android
+    // https://github.com/yuihub/jlatexmath-android
     implementation(libs.jlatexmath)
     implementation(libs.jlatexmath.font.greek)
     implementation(libs.jlatexmath.font.cyrillic)
