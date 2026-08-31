@@ -4,6 +4,15 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.FileInputStream
 import java.util.Properties
 
+// debug 快速验证：本次构建只请求 debug 变体（且非 bundle）时，只编 arm64 单包，
+// 跳过 x86_64/universal 打包与 x86_64 native 编译，加快日常装机验证。
+// release/bundle 构建不受影响，仍按全 ABI 出包。
+val taskNames = gradle.startParameter.taskNames
+val isBuildingBundle = taskNames.any { it.lowercase().contains("bundle") }
+val isDebugFastBuild = taskNames.isNotEmpty() &&
+    taskNames.all { it.lowercase().contains("debug") } &&
+    !isBuildingBundle
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -28,16 +37,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            if (isDebugFastBuild) {
+                abiFilters += listOf("arm64-v8a")
+            } else {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
         }
     }
 
     splits {
         abi {
-            // AppBundle tasks usually contain "bundle" in their name
-            //noinspection WrongGradleMethod
-            val isBuildingBundle = gradle.startParameter.taskNames.any { it.lowercase().contains("bundle") }
-            isEnable = !isBuildingBundle
+            isEnable = !isBuildingBundle && !isDebugFastBuild
             reset()
             include("arm64-v8a", "x86_64")
             isUniversalApk = true
