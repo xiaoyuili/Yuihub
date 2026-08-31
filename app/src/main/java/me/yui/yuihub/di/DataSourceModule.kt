@@ -32,9 +32,8 @@ import me.yui.yuihub.data.ai.mcp.McpManager
 import me.yui.yuihub.data.network.SettingsProxySelector
 import me.yui.yuihub.data.network.SettingsProxyAuthenticator
 import me.yui.yuihub.data.network.SettingsSocks5Authenticator
-import me.yui.yuihub.data.sync.webdav.WebDavSync
+import me.yui.yuihub.data.sync.LocalBackupService
 import me.rerere.search.SearchService
-import me.yui.yuihub.data.sync.S3Sync
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.dsl.module
@@ -239,11 +238,10 @@ val dataSourceModule = module {
     }
 
     single {
-        WebDavSync(
+        LocalBackupService(
             settingsStore = get(),
             json = get(),
-            context = get(),
-            httpClient = get()
+            context = get()
         )
     }
 
@@ -260,15 +258,6 @@ val dataSourceModule = module {
                 }
             }
         }
-    }
-
-    single {
-        S3Sync(
-            settingsStore = get(),
-            json = get(),
-            context = get(),
-            httpClient = get()
-        )
     }
 
 }

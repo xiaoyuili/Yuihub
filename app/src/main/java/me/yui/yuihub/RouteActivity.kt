@@ -111,7 +111,6 @@ import me.yui.yuihub.ui.pages.setting.SettingPreferencesGeneralPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesNetworkPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesUIPage
 import me.yui.yuihub.ui.pages.setting.SettingThemePage
-import me.yui.yuihub.ui.pages.setting.SettingFilesPage
 import me.yui.yuihub.ui.pages.setting.SettingMcpPage
 import me.yui.yuihub.ui.pages.setting.SettingModelPage
 import me.yui.yuihub.ui.pages.setting.SettingPage
@@ -459,10 +458,6 @@ class RouteActivity : ComponentActivity() {
                                 SettingMcpPage()
                             }
 
-                            entry<Screen.SettingFiles> {
-                                SettingFilesPage()
-                            }
-
                             entry<Screen.Debug> {
                                 DebugPage()
                             }
@@ -669,9 +664,6 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingMcp : Screen
-
-    @Serializable
-    data object SettingFiles : Screen
 
     @Serializable
     data object Debug : Screen

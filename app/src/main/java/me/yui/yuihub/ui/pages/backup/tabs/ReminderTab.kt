@@ -2,12 +2,7 @@ package me.yui.yuihub.ui.pages.backup.tabs
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -22,6 +17,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.BackupReminderConfig
 import me.yui.yuihub.ui.components.ui.CardGroup
+import me.yui.yuihub.ui.components.ui.StickyHeader
 import me.yui.yuihub.ui.pages.backup.BackupVM
 import me.yui.yuihub.utils.toLocalDateTime
 import java.time.Instant
@@ -36,13 +32,13 @@ fun ReminderTab(vm: BackupVM) {
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp)
-            .imePadding(),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
+        StickyHeader {
+            Text(stringResource(R.string.backup_page_reminder))
+        }
+
         CardGroup(
             modifier = Modifier.fillMaxWidth(),
         ) {
