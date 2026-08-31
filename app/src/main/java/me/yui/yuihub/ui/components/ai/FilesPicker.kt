@@ -66,7 +66,6 @@ import me.rerere.hugeicons.stroke.Settings02
 import me.rerere.hugeicons.stroke.Video01
 import me.yui.yuihub.R
 import me.yui.yuihub.Screen
-import me.yui.yuihub.data.ai.mcp.McpManager
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.getCurrentChatModel
 import me.yui.yuihub.data.datastore.findProvider
@@ -90,7 +89,6 @@ internal fun FilesPicker(
     conversation: Conversation,
     assistant: Assistant,
     state: ChatInputState,
-    mcpManager: McpManager,
     onCompressContext: (additionalPrompt: String, targetTokens: Int, keepRecentMessages: Int) -> Job,
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateConversation: (Conversation) -> Unit,
@@ -157,15 +155,6 @@ internal fun FilesPicker(
                     onDismiss()
                     navController.navigate(Screen.Workspaces)
                 },
-            )
-        }
-
-        if (settings.mcpServers.isNotEmpty()) {
-            McpPickerListItem(
-                assistant = assistant,
-                servers = settings.mcpServers,
-                mcpManager = mcpManager,
-                onUpdateAssistant = onUpdateAssistant,
             )
         }
 

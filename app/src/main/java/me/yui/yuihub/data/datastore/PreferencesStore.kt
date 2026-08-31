@@ -118,13 +118,6 @@ class SettingsStore(
         val ASR_PROVIDERS = stringPreferencesKey("asr_providers")
         val SELECTED_ASR_PROVIDER = stringPreferencesKey("selected_asr_provider")
 
-        // Web Server
-        val WEB_SERVER_ENABLED = booleanPreferencesKey("web_server_enabled")
-        val WEB_SERVER_PORT = intPreferencesKey("web_server_port")
-        val WEB_SERVER_JWT_ENABLED = booleanPreferencesKey("web_server_jwt_enabled")
-        val WEB_SERVER_ACCESS_PASSWORD = stringPreferencesKey("web_server_access_password")
-        val WEB_SERVER_LOCALHOST_ONLY = booleanPreferencesKey("web_server_localhost_only")
-
         // 提示词注入
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")
         val LOREBOOKS = stringPreferencesKey("lorebooks")
@@ -211,11 +204,6 @@ class SettingsStore(
                 lorebooks = preferences[LOREBOOKS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
-                webServerEnabled = preferences[WEB_SERVER_ENABLED] == true,
-                webServerPort = preferences[WEB_SERVER_PORT] ?: 8080,
-                webServerJwtEnabled = preferences[WEB_SERVER_JWT_ENABLED] == true,
-                webServerAccessPassword = preferences[WEB_SERVER_ACCESS_PASSWORD] ?: "",
-                webServerLocalhostOnly = preferences[WEB_SERVER_LOCALHOST_ONLY] == true,
                 keepAwakeEnabled = preferences[KEEP_AWAKE_ENABLED] == true,
                 backupReminderConfig = preferences[BACKUP_REMINDER_CONFIG]?.let {
                     JsonInstant.decodeFromString(it)
@@ -350,11 +338,6 @@ class SettingsStore(
             } ?: preferences.remove(SELECTED_ASR_PROVIDER)
             preferences[MODE_INJECTIONS] = JsonInstant.encodeToString(settings.modeInjections)
             preferences[LOREBOOKS] = JsonInstant.encodeToString(settings.lorebooks)
-            preferences[WEB_SERVER_ENABLED] = settings.webServerEnabled
-            preferences[WEB_SERVER_PORT] = settings.webServerPort
-            preferences[WEB_SERVER_JWT_ENABLED] = settings.webServerJwtEnabled
-            preferences[WEB_SERVER_ACCESS_PASSWORD] = settings.webServerAccessPassword
-            preferences[WEB_SERVER_LOCALHOST_ONLY] = settings.webServerLocalhostOnly
             preferences[KEEP_AWAKE_ENABLED] = settings.keepAwakeEnabled
             preferences[BACKUP_REMINDER_CONFIG] = JsonInstant.encodeToString(settings.backupReminderConfig)
             preferences[LAUNCH_COUNT] = settings.launchCount
@@ -484,11 +467,6 @@ data class Settings(
     val selectedASRProviderId: Uuid? = null,
     val modeInjections: List<PromptInjection.ModeInjection> = DEFAULT_MODE_INJECTIONS,
     val lorebooks: List<Lorebook> = emptyList(),
-    val webServerEnabled: Boolean = false,
-    val webServerPort: Int = 8080,
-    val webServerJwtEnabled: Boolean = false,
-    val webServerAccessPassword: String = "",
-    val webServerLocalhostOnly: Boolean = false,
     val keepAwakeEnabled: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
     val launchCount: Int = 0,

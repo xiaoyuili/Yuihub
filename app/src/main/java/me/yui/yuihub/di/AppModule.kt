@@ -14,7 +14,6 @@ import me.yui.yuihub.utils.EmojiData
 import me.yui.yuihub.utils.EmojiUtils
 import me.yui.yuihub.utils.JsonInstant
 import me.yui.yuihub.utils.SoundEffectPlayer
-import me.yui.yuihub.web.WebServerManager
 import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
 
@@ -85,18 +84,6 @@ val appModule = module {
             skillManager = get(),
             workspaceRepository = get(),
             folderRepository = get()
-        )
-    }
-
-    single {
-        WebServerManager(
-            context = get(),
-            appScope = get(),
-            chatService = get(),
-            conversationRepo = get(),
-            folderRepo = get(),
-            settingsStore = get(),
-            filesManager = get()
         )
     }
 }

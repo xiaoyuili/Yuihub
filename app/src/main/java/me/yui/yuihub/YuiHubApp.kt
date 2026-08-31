@@ -19,7 +19,6 @@ import me.yui.yuihub.data.files.FileFolders
 import java.io.File
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -33,7 +32,6 @@ import me.yui.yuihub.di.viewModelModule
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.service.KeepAliveService
-import me.yui.yuihub.service.WebServerService
 import me.yui.yuihub.utils.SystemPermissions
 import me.yui.yuihub.utils.CrashHandler
 import me.yui.yuihub.utils.DatabaseUtil
@@ -49,7 +47,6 @@ private const val TAG = "YuiHubApp"
 
 const val CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID = "chat_completed"
 const val CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID = "chat_live_update"
-const val WEB_SERVER_NOTIFICATION_CHANNEL_ID = "web_server"
 const val KEEP_AWAKE_NOTIFICATION_CHANNEL_ID = "keep_awake"
 
 class YuiHubApp : Application() {
@@ -86,9 +83,6 @@ class YuiHubApp : Application() {
 
         // sync upload files to DB
         syncManagedFiles()
-
-        // Start WebServer if enabled in settings
-        startWebServerIfEnabled()
 
         // 同步常驻保活服务与设置开关
         syncKeepAwakeService()
@@ -162,44 +156,6 @@ class YuiHubApp : Application() {
         }
     }
 
-    private fun startWebServerIfEnabled() {
-        get<AppScope>().launch {
-            runCatching {
-                delay(500)
-                val settings = get<SettingsStore>().settingsFlowRaw.first()
-                if (settings.webServerEnabled) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        ContextCompat.checkSelfPermission(
-                            this@YuiHubApp,
-                            android.Manifest.permission.POST_NOTIFICATIONS
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        Log.w(TAG, "startWebServerIfEnabled: notification permission not granted, skipping")
-                        return@launch
-                    }
-                    if (Build.VERSION.SDK_INT >= 37 &&
-                        !settings.webServerLocalhostOnly &&
-                        ContextCompat.checkSelfPermission(
-                            this@YuiHubApp,
-                            android.Manifest.permission.ACCESS_LOCAL_NETWORK
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        Log.w(TAG, "startWebServerIfEnabled: local network permission not granted, skipping")
-                        return@launch
-                    }
-                    val intent = Intent(this@YuiHubApp, WebServerService::class.java).apply {
-                        action = WebServerService.ACTION_START
-                        putExtra(WebServerService.EXTRA_PORT, settings.webServerPort)
-                        putExtra(WebServerService.EXTRA_LOCALHOST_ONLY, settings.webServerLocalhostOnly)
-                    }
-                    startForegroundService(intent)
-                }
-            }.onFailure {
-                Log.e(TAG, "startWebServerIfEnabled failed", it)
-            }
-        }
-    }
-
     private fun createNotificationChannel() {
         val notificationManager = NotificationManagerCompat.from(this)
         val chatCompletedChannel = NotificationChannelCompat
@@ -221,14 +177,6 @@ class YuiHubApp : Application() {
             .setVibrationEnabled(false)
             .build()
         notificationManager.createNotificationChannel(chatLiveUpdateChannel)
-
-        val webServerChannel = NotificationChannelCompat
-            .Builder(WEB_SERVER_NOTIFICATION_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
-            .setName(getString(R.string.notification_channel_web_server))
-            .setVibrationEnabled(false)
-            .setShowBadge(false)
-            .build()
-        notificationManager.createNotificationChannel(webServerChannel)
 
         val keepAwakeChannel = NotificationChannelCompat
             .Builder(KEEP_AWAKE_NOTIFICATION_CHANNEL_ID, NotificationManagerCompat.IMPORTANCE_LOW)
@@ -264,7 +212,6 @@ class YuiHubApp : Application() {
     override fun onTerminate() {
         super.onTerminate()
         get<AppScope>().cancel()
-        stopService(Intent(this, WebServerService::class.java))
         stopService(Intent(this, KeepAliveService::class.java))
     }
 }

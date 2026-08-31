@@ -203,6 +203,7 @@ dependencies {
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(libs.ktor.http.cio)
 
     // ucrop
     implementation(libs.ucrop)
@@ -282,7 +283,6 @@ dependencies {
 
     // modules
     implementation(project(":ai"))
-    implementation(project(":web"))
     implementation(project(":document"))
     implementation(project(":highlight"))
     implementation(project(":search"))

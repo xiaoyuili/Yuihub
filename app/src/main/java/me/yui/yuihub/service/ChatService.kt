@@ -84,8 +84,6 @@ import me.yui.yuihub.data.repository.ConversationRepository
 import me.yui.yuihub.data.repository.FolderRepository
 import me.yui.yuihub.data.repository.MemoryRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
-import me.yui.yuihub.web.BadRequestException
-import me.yui.yuihub.web.NotFoundException
 import me.yui.yuihub.utils.applyPlaceholders
 import me.rerere.workspace.WorkspaceShellStatus
 import java.time.Instant
@@ -1046,7 +1044,7 @@ class ChatService(
             node.messages.any { it.id == messageId }
         }
         if (targetNodeIndex == -1) {
-            throw NotFoundException("Message not found")
+            throw IllegalArgumentException("Message not found")
         }
 
         val copiedNodes = currentConversation.messageNodes
@@ -1077,10 +1075,10 @@ class ChatService(
     ) {
         val currentConversation = getConversationFlow(conversationId).value
         val targetNode = currentConversation.messageNodes.firstOrNull { it.id == nodeId }
-            ?: throw NotFoundException("Message node not found")
+            ?: throw IllegalArgumentException("Message node not found")
 
         if (selectIndex !in targetNode.messages.indices) {
-            throw BadRequestException("Invalid selectIndex")
+            throw IllegalArgumentException("Invalid selectIndex")
         }
 
         if (targetNode.selectIndex == selectIndex) {
@@ -1108,7 +1106,7 @@ class ChatService(
 
         if (updatedConversation == null) {
             if (failIfMissing) {
-                throw NotFoundException("Message not found")
+                throw IllegalArgumentException("Message not found")
             }
             return
         }

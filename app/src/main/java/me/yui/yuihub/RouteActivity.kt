@@ -120,7 +120,6 @@ import me.yui.yuihub.ui.pages.setting.SettingProviderPage
 import me.yui.yuihub.ui.pages.setting.SettingSearchDetailPage
 import me.yui.yuihub.ui.pages.setting.SettingSearchPage
 import me.yui.yuihub.ui.pages.setting.SettingSpeechPage
-import me.yui.yuihub.ui.pages.setting.SettingWebPage
 import me.yui.yuihub.ui.pages.share.handler.ShareHandlerPage
 import me.yui.yuihub.ui.pages.stats.StatsPage
 import me.yui.yuihub.ui.pages.webview.WebViewPage
@@ -464,10 +463,6 @@ class RouteActivity : ComponentActivity() {
                                 SettingFilesPage()
                             }
 
-                            entry<Screen.SettingWeb> {
-                                SettingWebPage()
-                            }
-
                             entry<Screen.Debug> {
                                 DebugPage()
                             }
@@ -677,9 +672,6 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingFiles : Screen
-
-    @Serializable
-    data object SettingWeb : Screen
 
     @Serializable
     data object Debug : Screen

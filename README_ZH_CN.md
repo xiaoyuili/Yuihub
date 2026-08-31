@@ -22,7 +22,6 @@
 
 - 🎨 现代化安卓APP设计（Material You / 预测性返回）和 🌙 暗色模式
 - 📦 工作区：基于 proot 的 Linux 智能体环境
-- 🖥️ Web多端访问支持
 - 🛠️ MCP 支持
 - 🔄 多种类型的供应商支持，自定义 API / URL / 模型（目前支持 OpenAI、Google、Anthropic）
 - 🖼️ 多模态输入支持

@@ -23,7 +23,6 @@ conversations 🤖💬
 - 📦 Workspace: a proot-based Linux agent environment
 - 🔄 Multiple AI Provider Support: custom API / URL / models (all OpenAI, Google, Anthropic compatible api)
 - 🖼️ Multimodal input support (Image, Text Documentation, PDF, Docx)
-- 🖥️ Web access for multi-platform use
 - 🛠️ MCP support
 - 📝 Markdown Rendering (with code highlighting, Latex formulas, tables, Mermaid)
 - 🪾 Message Branching
