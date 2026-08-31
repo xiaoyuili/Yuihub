@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,7 +18,6 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -56,6 +56,9 @@ import me.yui.yuihub.ui.components.message.tools.ToolUIRegistry
 import me.yui.yuihub.ui.components.richtext.ZoomableAsyncImage
 import me.yui.yuihub.ui.components.ui.ChainOfThoughtScope
 import me.yui.yuihub.ui.components.ui.DotLoading
+import me.yui.yuihub.ui.components.ui.flowRowMetaColor
+import me.yui.yuihub.ui.components.ui.flowRowMetaStyle
+import me.yui.yuihub.ui.components.ui.flowRowTitleStyle
 import me.yui.yuihub.ui.modifier.shimmer
 import me.yui.yuihub.utils.JsonInstant
 
@@ -67,24 +70,27 @@ fun ChainOfThoughtScope.ChatMessageServerToolStep(tool: UIMessagePart.ServerTool
     ChainOfThoughtStep(
         icon = {
             if (loading) {
-                DotLoading(size = 10.dp)
+                DotLoading(
+                    size = 8.dp,
+                    color = flowRowMetaColor(),
+                    modifier = Modifier.fillMaxSize(),
+                )
             } else {
                 Icon(
                     imageVector = HugeIcons.Tools,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = LocalContentColor.current.copy(alpha = 0.7f),
+                    modifier = Modifier.fillMaxSize(),
+                    tint = flowRowMetaColor(),
                 )
             }
         },
         label = {
             Text(
                 text = stringResource(R.string.chat_message_tool_call_generic, tool.toolName),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.shimmer(isLoading = loading),
-                maxLines = 2,
+                style = flowRowTitleStyle(),
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.shimmer(isLoading = loading),
             )
         },
     )
@@ -137,25 +143,26 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
         icon = {
             if (loading) {
                 DotLoading(
-                    size = 10.dp
+                    size = 8.dp,
+                    color = flowRowMetaColor(),
+                    modifier = Modifier.fillMaxSize(),
                 )
             } else {
                 Icon(
                     imageVector = renderer.icon(context),
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = LocalContentColor.current.copy(alpha = 0.7f)
+                    modifier = Modifier.fillMaxSize(),
+                    tint = flowRowMetaColor(),
                 )
             }
         },
         label = {
             Text(
                 text = renderer.title(context),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.shimmer(isLoading = loading),
-                maxLines = 2,
+                style = flowRowTitleStyle(),
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.shimmer(isLoading = loading),
             )
         },
         extra = if (isPending && onToolApproval != null) {
@@ -218,7 +225,7 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
                         Text(
                             text = stringResource(R.string.chat_message_tool_denied) +
                                 if (reason.isNotBlank()) ": $reason" else "",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = flowRowMetaStyle(),
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
@@ -296,13 +303,17 @@ private fun ChainOfThoughtScope.AskUserToolStep(
         onExpandedChange = { expanded = it },
         icon = {
             if (loading) {
-                DotLoading(size = 10.dp)
+                DotLoading(
+                    size = 8.dp,
+                    color = flowRowMetaColor(),
+                    modifier = Modifier.fillMaxSize(),
+                )
             } else {
                 Icon(
                     imageVector = HugeIcons.BubbleChatQuestion,
                     contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = LocalContentColor.current.copy(alpha = 0.7f)
+                    modifier = Modifier.fillMaxSize(),
+                    tint = flowRowMetaColor(),
                 )
             }
         },
@@ -312,11 +323,10 @@ private fun ChainOfThoughtScope.AskUserToolStep(
                     R.string.chat_message_tool_ask_questions,
                     questions.size
                 ),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.shimmer(isLoading = loading),
-                maxLines = 2,
+                style = flowRowTitleStyle(),
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.shimmer(isLoading = loading),
             )
         },
         content = {
@@ -328,8 +338,7 @@ private fun ChainOfThoughtScope.AskUserToolStep(
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             text = q.question,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            style = flowRowMetaStyle(),
                         )
 
                         if (isPending && onToolAnswer != null) {

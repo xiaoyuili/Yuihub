@@ -17,6 +17,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -93,6 +94,10 @@ import me.yui.yuihub.ui.components.ui.AutoAIIcon
 import me.yui.yuihub.ui.components.ui.BitmapComposer
 import me.yui.yuihub.ui.components.ui.ChainOfThought
 import me.yui.yuihub.ui.components.ui.ChainOfThoughtScope
+import me.yui.yuihub.ui.components.ui.FlowRowSeparator
+import me.yui.yuihub.ui.components.ui.flowRowMetaColor
+import me.yui.yuihub.ui.components.ui.flowRowMetaStyle
+import me.yui.yuihub.ui.components.ui.flowRowTitleStyle
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalSettings
 import com.dokar.sonner.rememberToasterState
@@ -677,24 +682,25 @@ private fun ChainOfThoughtScope.ExportedReasoningStep(
             Icon(
                 painter = painterResource(R.drawable.deepthink),
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.secondary
+                modifier = Modifier.fillMaxSize(),
+                tint = flowRowMetaColor(),
             )
         },
         label = {
             Text(
                 text = stringResource(R.string.deep_thinking),
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.secondary
+                style = flowRowTitleStyle(),
             )
         },
         extra = if (duration > 0.seconds) {
             {
-                Text(
-                    text = duration.toString(DurationUnit.SECONDS, 1),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FlowRowSeparator()
+                    Text(
+                        text = duration.toString(DurationUnit.SECONDS, 1),
+                        style = flowRowMetaStyle(),
+                    )
+                }
             }
         } else {
             null
@@ -752,16 +758,15 @@ private fun ChainOfThoughtScope.ExportedToolStep(
                     else -> HugeIcons.Wrench01
                 },
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.secondary
+                modifier = Modifier.fillMaxSize(),
+                tint = flowRowMetaColor(),
             )
         },
         label = {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.secondary,
-                maxLines = 2,
+                style = flowRowTitleStyle(),
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         },

@@ -10,6 +10,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
@@ -52,7 +52,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastAll
 import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.util.fastForEachIndexed
 import androidx.core.content.FileProvider
@@ -134,7 +133,7 @@ fun ChatMessage(
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = if (message.role == MessageRole.USER) Alignment.End else Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (!message.parts.isEmptyUIMessage()) {
             Row(
@@ -191,7 +190,9 @@ fun ChatMessage(
             exit = slideOutVertically { it / 2 } + fadeOut()
         ) {
             Column(
-                modifier = Modifier.animateContentSize()
+                modifier = Modifier
+                    .animateContentSize()
+                    .padding(top = 8.dp)
             ) {
                 ChatMessageActionButtons(
                     message = message,
@@ -318,14 +319,9 @@ private fun MessagePartsBlock(
         when (block) {
             is MessagePartBlock.ThinkingBlock -> {
                 if (block.steps.isNotEmpty()) {
-                    val isReasoningOnlyBlock = block.steps.fastAll { it is ThinkingStep.ReasoningStep }
                     ChainOfThought(
                         modifier = Modifier.animateContentSize(),
                         steps = block.steps,
-                        collapsedAdaptiveWidth = isReasoningOnlyBlock,
-                        cardColors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.displaySetting.bubbleOpacity),
-                        ),
                     ) { step ->
                         when (step) {
                             is ThinkingStep.ReasoningStep -> {
@@ -334,7 +330,6 @@ private fun MessagePartsBlock(
                                         reasoning = step.reasoning,
                                         model = model,
                                         assistant = assistant,
-                                        collapsedAdaptiveWidth = isReasoningOnlyBlock,
                                     )
                                 }
                             }
@@ -365,31 +360,35 @@ private fun MessagePartsBlock(
                     is UIMessagePart.Text -> {
                         val textContent = @Composable {
                             if (role == MessageRole.USER) {
-                                Surface(
-                                    modifier = Modifier.animateContentSize(),
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = settings.displaySetting.bubbleOpacity),
-                                    onClick = { onUserMessageClick?.invoke() },
-                                ) {
-                                    Column(modifier = Modifier.padding(8.dp)) {
-                                        MarkdownBlock(
-                                            content = part.text.replaceRegexes(
-                                                assistant = assistant,
-                                                scope = AssistantAffectScope.USER,
-                                                visual = true,
-                                            ),
-                                            onClickCitation = handleClickCitation
-                                        )
+                                BoxWithConstraints {
+                                    Surface(
+                                        modifier = Modifier
+                                            .animateContentSize()
+                                            .widthIn(max = maxWidth * 0.82f),
+                                        shape = RoundedCornerShape(22.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = settings.displaySetting.bubbleOpacity),
+                                        onClick = { onUserMessageClick?.invoke() },
+                                    ) {
+                                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                            MarkdownBlock(
+                                                content = part.text.replaceRegexes(
+                                                    assistant = assistant,
+                                                    scope = AssistantAffectScope.USER,
+                                                    visual = true,
+                                                ),
+                                                onClickCitation = handleClickCitation
+                                            )
+                                        }
                                     }
                                 }
                             } else {
                                 if (settings.displaySetting.showAssistantBubble) {
                                     Surface(
                                         modifier = Modifier.animateContentSize(),
-                                        shape = RoundedCornerShape(16.dp),
+                                        shape = RoundedCornerShape(22.dp),
                                         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.displaySetting.bubbleOpacity),
                                     ) {
-                                        Column(modifier = Modifier.padding(8.dp)) {
+                                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
                                             MarkdownBlock(
                                                 content = part.text.replaceRegexes(
                                                     assistant = assistant,

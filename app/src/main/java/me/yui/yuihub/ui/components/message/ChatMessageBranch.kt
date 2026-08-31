@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -22,6 +21,8 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowLeft01
 import me.rerere.hugeicons.stroke.ArrowRight01
 import me.yui.yuihub.data.model.MessageNode
+import me.yui.yuihub.ui.components.ui.flowRowMetaColor
+import me.yui.yuihub.ui.components.ui.flowRowMetaStyle
 
 @Composable
 fun ChatMessageBranchSelector(
@@ -35,7 +36,7 @@ fun ChatMessageBranchSelector(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         if (node.messages.size > 1) {
-            val actionColor = MaterialTheme.colorScheme.onSurfaceVariant
+            val actionColor = flowRowMetaColor()
 
             Icon(
                 imageVector = HugeIcons.ArrowLeft01,
@@ -56,15 +57,14 @@ fun ChatMessageBranchSelector(
                             }
                         }
                     )
-                    .padding(8.dp)
+                    .padding(6.dp)
                     .size(16.dp),
                 tint = actionColor
             )
 
             Text(
                 text = "${node.selectIndex + 1}/${node.messages.size}",
-                style = MaterialTheme.typography.bodySmall,
-                color = actionColor
+                style = flowRowMetaStyle(),
             )
 
             Icon(
@@ -86,7 +86,7 @@ fun ChatMessageBranchSelector(
                             }
                         }
                     )
-                    .padding(8.dp)
+                    .padding(6.dp)
                     .size(16.dp),
                 tint = actionColor
             )

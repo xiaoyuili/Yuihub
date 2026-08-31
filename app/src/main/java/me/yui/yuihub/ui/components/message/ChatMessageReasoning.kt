@@ -8,16 +8,15 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Size
@@ -35,7 +35,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import me.rerere.ai.provider.Model
@@ -48,6 +50,10 @@ import me.yui.yuihub.data.model.AssistantAffectScope
 import me.yui.yuihub.data.model.replaceRegexes
 import me.yui.yuihub.ui.components.richtext.MarkdownBlock
 import me.yui.yuihub.ui.components.ui.ChainOfThoughtScope
+import me.yui.yuihub.ui.components.ui.FlowRowSeparator
+import me.yui.yuihub.ui.components.ui.flowRowMetaColor
+import me.yui.yuihub.ui.components.ui.flowRowMetaStyle
+import me.yui.yuihub.ui.components.ui.flowRowTitleStyle
 import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.modifier.shimmer
 import me.yui.yuihub.utils.extractThinkingTitle
@@ -130,8 +136,8 @@ private fun ReasoningContent(
     loading: Boolean,
 ) {
     val isPreview = expandState == ReasoningCardState.Preview
-    val reasoningTextStyle = MaterialTheme.typography.bodySmall.copy(
-        fontFamily = LocalTextStyle.current.fontFamily,
+    val reasoningTextStyle = flowRowMetaStyle().copy(
+        lineHeight = 20.sp * LocalSettings.current.displaySetting.fontSizeRatio,
     )
     Column(
         modifier = Modifier
@@ -196,12 +202,10 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
     model: Model?,
     assistant: Assistant?,
     fadeHeight: Float = 64f,
-    collapsedAdaptiveWidth: Boolean = false,
 ) {
     val (state, loading) = rememberReasoningState(reasoning)
     val thinkingTitle = reasoning.reasoning.extractThinkingTitle()
     val showThinkingTitle = loading && thinkingTitle != null
-    val chatFontFamily = LocalTextStyle.current.fontFamily
 
     ControlledChainOfThoughtStep(
         expanded = state.expandState == ReasoningCardState.Expanded,
@@ -210,8 +214,8 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
             Icon(
                 imageVector = HugeIcons.Idea01,
                 contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.fillMaxSize(),
+                tint = flowRowMetaColor(),
             )
         },
         label = {
@@ -223,23 +227,30 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
                         R.string.deep_thinking_seconds,
                         state.duration.toDouble(DurationUnit.SECONDS).toFloat()
                     ),
-                    style = MaterialTheme.typography.titleSmall.copy(fontFamily = chatFontFamily),
-                    color = MaterialTheme.colorScheme.secondary,
+                    style = flowRowTitleStyle(),
+                    // 生成中用品牌色强调「正在思考」，落定后回到中性层级（对齐 Harness 的
+                    // turnStatus 与 settled ReasoningRow）。
+                    color = if (loading) MaterialTheme.colorScheme.secondary else Color.Unspecified,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.shimmer(isLoading = loading),
                 )
             }
         },
-        extra = {
-            if (showThinkingTitle && state.duration > 0.seconds) {
-                Text(
-                    text = state.duration.toString(DurationUnit.SECONDS, 1),
-                    style = MaterialTheme.typography.labelSmall.copy(fontFamily = chatFontFamily),
-                    color = MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.shimmer(isLoading = loading),
-                )
+        extra = if (showThinkingTitle && state.duration > 0.seconds) {
+            {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FlowRowSeparator()
+                    Text(
+                        text = state.duration.toString(DurationUnit.SECONDS, 1),
+                        style = flowRowMetaStyle(),
+                        modifier = Modifier.shimmer(isLoading = loading),
+                    )
+                }
             }
+        } else {
+            null
         },
-        collapsedAdaptiveWidth = collapsedAdaptiveWidth,
         contentVisible = state.expandState != ReasoningCardState.Collapsed,
         content = {
             ReasoningContent(
@@ -257,7 +268,6 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
 
 @Composable
 private fun ReasoningTitle(title: String) {
-    val chatFontFamily = LocalTextStyle.current.fontFamily
     AnimatedContent(
         targetState = title,
         transitionSpec = {
@@ -268,11 +278,11 @@ private fun ReasoningTitle(title: String) {
     ) {
         Text(
             text = it,
-            style = MaterialTheme.typography.titleSmall.copy(fontFamily = chatFontFamily),
+            style = flowRowTitleStyle(),
             color = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier
-                .padding(horizontal = 4.dp)
-                .shimmer(true),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.shimmer(true),
         )
     }
 }

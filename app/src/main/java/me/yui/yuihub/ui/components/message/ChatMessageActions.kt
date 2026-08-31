@@ -57,6 +57,8 @@ import me.rerere.hugeicons.stroke.WebDesign01
 import me.yui.yuihub.R
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.ui.components.ui.RikkaConfirmDialog
+import me.yui.yuihub.ui.components.ui.flowRowMetaColor
+import me.yui.yuihub.ui.components.ui.flowRowMetaStyle
 import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.context.LocalTTSState
 import me.yui.yuihub.utils.copyMessageToClipboard
@@ -93,7 +95,7 @@ fun ColumnScope.ChatMessageActionButtons(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        val actionIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+        val actionIconColor = flowRowMetaColor()
 
         Icon(
             imageVector = HugeIcons.Copy01,
@@ -101,7 +103,7 @@ fun ColumnScope.ChatMessageActionButtons(
             modifier = Modifier
                 .clip(CircleShape)
                 .clickable { context.copyMessageToClipboard(message) }
-                .padding(8.dp)
+                .padding(6.dp)
                 .size(16.dp),
             tint = actionIconColor
         )
@@ -118,7 +120,7 @@ fun ColumnScope.ChatMessageActionButtons(
                         onRegenerate()
                     }
                 }
-                .padding(8.dp)
+                .padding(6.dp)
                 .size(16.dp),
             tint = actionIconColor
         )
@@ -152,7 +154,7 @@ fun ColumnScope.ChatMessageActionButtons(
                             }
                         }
                     )
-                    .padding(8.dp)
+                    .padding(6.dp)
                     .size(16.dp),
                 tint = if (isAvailable) actionIconColor else actionIconColor.copy(alpha = 0.38f)
             )
@@ -171,7 +173,7 @@ fun ColumnScope.ChatMessageActionButtons(
                                 showTranslateDialog = true
                             }
                         )
-                        .padding(8.dp)
+                        .padding(6.dp)
                         .size(16.dp),
                     tint = actionIconColor
                 )
@@ -190,7 +192,7 @@ fun ColumnScope.ChatMessageActionButtons(
                         onOpenActionSheet()
                     }
                 )
-                .padding(8.dp)
+                .padding(6.dp)
                 .size(16.dp),
             tint = actionIconColor
         )
@@ -203,8 +205,7 @@ fun ColumnScope.ChatMessageActionButtons(
         if (settings.displaySetting.showDateTimeInMessage) {
             Text(
                 text = message.createdAt.toJavaLocalDateTime().toMessageTimeString(),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                style = flowRowMetaStyle(),
                 maxLines = 1,
             )
         }
