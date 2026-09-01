@@ -55,6 +55,7 @@ import me.rerere.hugeicons.stroke.Clipboard
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Eraser
 import me.rerere.hugeicons.stroke.GlobalSearch
+import me.rerere.hugeicons.stroke.Image03
 import me.rerere.hugeicons.stroke.MagicWand01
 import me.rerere.hugeicons.stroke.Message02
 import me.rerere.hugeicons.stroke.QuillWrite01
@@ -285,6 +286,40 @@ object ClipboardToolUI : ToolUIRenderer {
             ACTION_WRITE -> stringResource(R.string.chat_message_tool_clipboard_write)
             else -> stringResource(R.string.chat_message_tool_call_generic, toolName)
         }
+}
+
+/**
+ * 视觉识别: 标题显示图片来源, 摘要显示识图结果
+ */
+object VisionToolUI : ToolUIRenderer {
+    override val toolName: String = "vision_analyze"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.Image03
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val image = context.arguments.getStringContent("image").orEmpty()
+        return if (image.isBlank()) {
+            stringResource(R.string.chat_message_tool_vision_analyze)
+        } else {
+            stringResource(R.string.chat_message_tool_vision_analyze_named, image)
+        }
+    }
+
+    override fun hasSummary(context: ToolUIContext): Boolean =
+        !context.content.getStringContent("result").isNullOrBlank()
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        val result = context.content.getStringContent("result") ?: return
+        Text(
+            text = result,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 /**

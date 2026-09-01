@@ -649,6 +649,8 @@
   <string name="setting_model_page_chat_model_desc">전역 기본 채팅 모델</string>
   <string name="setting_model_page_compress_model">모델 압축</string>
   <string name="setting_model_page_compress_model_desc">대화 기록 압축용 모델</string>
+  <string name="setting_model_page_vision_model">비전 모델</string>
+  <string name="setting_model_page_vision_model_desc">채팅 모델이 이미지를 인식하지 못할 때 사용하는 모델입니다. 설정하면 vision_analyze 도구가 활성화됩니다</string>
   <string name="setting_model_page_compress_prompt_vars">변수: {content}, {target_tokens}, {additional_context}</string>
   <string name="setting_model_page_prompt">프롬프트</string>
   <string name="setting_model_page_reset_to_default">기본값으로 재설정</string>
@@ -1016,6 +1018,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="chat_message_tool_recent_chats">최근 채팅 보기</string>
   <string name="chat_message_tool_spawn_agent">하위 에이전트 실행</string>
   <string name="chat_message_tool_spawn_agent_named">하위 에이전트: %1$s</string>
+  <string name="chat_message_tool_vision_analyze">이미지 분석</string>
+  <string name="chat_message_tool_vision_analyze_named">이미지 분석: %1$s</string>
   <string name="chat_message_tool_conversation_search">검색 기록: %1$s</string>
   <string name="assistant_page_local_tools_screen_time_title">화면 시간</string>
   <string name="assistant_page_local_tools_screen_time_desc">AI가 앱 화면 사용 시간을 읽을 수 있도록 합니다.</string>

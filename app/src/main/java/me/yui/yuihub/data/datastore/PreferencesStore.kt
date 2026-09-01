@@ -80,6 +80,7 @@ class SettingsStore(
         val FAST_MODEL = stringPreferencesKey("fast_model")
         val FAST_MODEL_REASONING_LEVEL = stringPreferencesKey("fast_model_reasoning_level")
         val IMAGE_GENERATION_MODEL = stringPreferencesKey("image_generation_model")
+        val VISION_MODEL = stringPreferencesKey("vision_model")
         val TITLE_PROMPT = stringPreferencesKey("title_prompt")
         val COMPRESS_MODEL = stringPreferencesKey("compress_model")
         val COMPRESS_PROMPT = stringPreferencesKey("compress_prompt")
@@ -139,6 +140,7 @@ class SettingsStore(
                     ?.let { value -> ReasoningLevel.entries.find { it.name == value } }
                     ?: ReasoningLevel.AUTO,
                 imageGenerationModelId = preferences[IMAGE_GENERATION_MODEL]?.let { Uuid.parse(it) } ?: Uuid.random(),
+                visionModelId = preferences[VISION_MODEL]?.let { Uuid.parse(it) },
                 titlePrompt = preferences[TITLE_PROMPT] ?: DEFAULT_TITLE_PROMPT,
                 compressModelId = preferences[COMPRESS_MODEL]?.let { Uuid.parse(it) } ?: DEFAULT_AUTO_MODEL_ID,
                 compressPrompt = preferences[COMPRESS_PROMPT] ?: DEFAULT_COMPRESS_PROMPT,
@@ -269,6 +271,11 @@ class SettingsStore(
             preferences[FAST_MODEL] = settings.fastModelId.toString()
             preferences[FAST_MODEL_REASONING_LEVEL] = settings.fastModelReasoningLevel.name
             preferences[IMAGE_GENERATION_MODEL] = settings.imageGenerationModelId.toString()
+            if (settings.visionModelId != null) {
+                preferences[VISION_MODEL] = settings.visionModelId.toString()
+            } else {
+                preferences.remove(VISION_MODEL)
+            }
             preferences[TITLE_PROMPT] = settings.titlePrompt
             preferences[COMPRESS_MODEL] = settings.compressModelId.toString()
             preferences[COMPRESS_PROMPT] = settings.compressPrompt
@@ -382,6 +389,7 @@ data class Settings(
     val fastModelId: Uuid = Uuid.random(),
     val fastModelReasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
     val imageGenerationModelId: Uuid = Uuid.random(),
+    val visionModelId: Uuid? = null,
     val titlePrompt: String = DEFAULT_TITLE_PROMPT,
     val compressModelId: Uuid = Uuid.random(),
     val compressPrompt: String = DEFAULT_COMPRESS_PROMPT,

@@ -34,6 +34,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.BuiltInTools
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderManager
@@ -61,6 +62,7 @@ import me.yui.yuihub.data.ai.tools.createSkillManageTools
 import me.yui.yuihub.data.ai.tools.createSkillTools
 import me.yui.yuihub.data.ai.tools.createWorkspaceTools
 import me.yui.yuihub.data.ai.tools.createSubagentTool
+import me.yui.yuihub.data.ai.tools.createVisionTool
 import me.yui.yuihub.data.files.SkillManager
 import me.yui.yuihub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.yui.yuihub.data.ai.transformers.DocumentAsPromptTransformer
@@ -756,6 +758,7 @@ class ChatService(
                 }
             )
         }
+        createVisionToolIfReady(settings, assistant, conversation)?.let(::add)
         }
         return tools
     }
@@ -815,6 +818,30 @@ class ChatService(
         conversationRepo.recordTokenUsage(parentConversationId.toString(), latest)
         val answer = latest.lastOrNull { it.role == MessageRole.ASSISTANT }?.toText()?.trim().orEmpty()
         return answer.ifBlank { "Child agent '$description' finished with no text output." }
+    }
+
+    /**
+     * 聊天模型无视觉能力且用户配置了视觉模型时，提供 vision_analyze 工具。
+     * 主 agent 与子 agent 共用 buildAgentTools，子代理自动继承。
+     */
+    private suspend fun createVisionToolIfReady(
+        settings: Settings,
+        assistant: Assistant,
+        conversation: Conversation,
+    ): Tool? {
+        val chatModel = settings.findModelById(assistant.chatModelId ?: settings.chatModelId) ?: return null
+        if (Modality.IMAGE in chatModel.inputModalities) return null
+        val visionModel = settings.findModelById(settings.visionModelId) ?: return null
+        if (Modality.IMAGE !in visionModel.inputModalities) return null
+        val provider = visionModel.findProvider(settings.providers) ?: return null
+        return createVisionTool(
+            visionModel = visionModel,
+            provider = provider,
+            providerManager = providerManager,
+            workspaceId = assistant.workspaceId?.toString(),
+            workspaceRepository = workspaceRepository,
+            filesManager = filesManager,
+        )
     }
 
     private suspend fun createWorkspaceToolsIfReady(workspaceId: String?, cwd: String? = null): List<Tool> {

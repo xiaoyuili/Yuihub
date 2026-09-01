@@ -671,6 +671,8 @@
   <string name="setting_model_page_fast_model">Fast Model</string>
     <string name="setting_model_page_fast_model_desc">Uses this model for title generation, automatic compression summaries and background tasks like memory extraction.</string>
   <string name="setting_model_page_compress_model_desc">Model for compressing conversation history</string>
+  <string name="setting_model_page_vision_model">Vision Model</string>
+  <string name="setting_model_page_vision_model_desc">Vision model for analyzing images when the chat model cannot see them; required for the vision_analyze tool</string>
   <string name="setting_model_page_compress_prompt_vars">Variables: {content}, {target_tokens}, {additional_context}</string>
   <string name="setting_model_page_prompt">Prompt</string>
   <string name="setting_model_page_reset_to_default">Reset to default</string>
@@ -1077,6 +1079,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="chat_message_tool_recent_chats">View recent chats</string>
   <string name="chat_message_tool_spawn_agent">Spawn subagent</string>
   <string name="chat_message_tool_spawn_agent_named">Subagent: %1$s</string>
+  <string name="chat_message_tool_vision_analyze">Vision analyze</string>
+  <string name="chat_message_tool_vision_analyze_named">Vision analyze: %1$s</string>
   <string name="chat_message_tool_conversation_search">Search history: %1$s</string>
   <string name="assistant_page_local_tools_screen_time_title">Screen Time</string>
   <string name="assistant_page_local_tools_screen_time_desc">Let the AI read your app screen usage time</string>

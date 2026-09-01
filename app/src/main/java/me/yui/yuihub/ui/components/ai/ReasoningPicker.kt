@@ -13,9 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -176,7 +177,10 @@ fun ReasoningLevelPanel(
     }
 }
 
-// 弹窗形态（设置页/助手页等中部按钮用）：锚定按钮的下拉菜单
+// 弹窗形态（设置页/助手页等中部按钮用）：底部抽屉 + 滑块。
+// 旧版用 DropdownMenu 锚定按钮，宽度随内容收缩，在设置页会遮挡卡片、
+// 被屏幕边缘裁切；改用 ModalBottomSheet 全宽展示，滑块交互不变
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ReasoningLevelPopup(
     expanded: Boolean,
@@ -191,62 +195,57 @@ private fun ReasoningLevelPopup(
         sliderValue = currentIndex.toFloat()
     }
 
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismissRequest,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.reasoning_picker_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
-
-            val iconColor by animateColorAsState(
-                if (reasoningLevel.isEnabled) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurface
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Icon(
-                    imageVector = when (reasoningLevel) {
-                        ReasoningLevel.OFF -> HugeIcons.Idea
-                        ReasoningLevel.AUTO -> HugeIcons.Idea01
-                        ReasoningLevel.LOW -> ReasoningLow
-                        ReasoningLevel.MEDIUM -> ReasoningMedium
-                        ReasoningLevel.HIGH -> ReasoningHigh
-                        ReasoningLevel.XHIGH -> ReasoningHigh
-                        ReasoningLevel.MAX -> ReasoningHigh
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(24.dp),
-                    tint = iconColor,
-                )
-                Text(
-                    text = reasoningLevel.label(),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-
-            ReasoningSlider(
-                value = sliderValue,
-                onValueChange = { sliderValue = it },
-                onValueChangeFinished = {
-                    val snappedIndex = sliderValue.roundToInt().coerceIn(0, levelCount - 1)
-                    sliderValue = snappedIndex.toFloat()
-                    onUpdateReasoningLevel(levels[snappedIndex])
-                },
+    if (expanded) {
+        ModalBottomSheet(onDismissRequest = onDismissRequest) {
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(44.dp),
-            )
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                val iconColor by animateColorAsState(
+                    if (reasoningLevel.isEnabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = when (reasoningLevel) {
+                            ReasoningLevel.OFF -> HugeIcons.Idea
+                            ReasoningLevel.AUTO -> HugeIcons.Idea01
+                            ReasoningLevel.LOW -> ReasoningLow
+                            ReasoningLevel.MEDIUM -> ReasoningMedium
+                            ReasoningLevel.HIGH -> ReasoningHigh
+                            ReasoningLevel.XHIGH -> ReasoningHigh
+                            ReasoningLevel.MAX -> ReasoningHigh
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = iconColor,
+                    )
+                    Text(
+                        text = reasoningLevel.label(),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+
+                ReasoningSlider(
+                    value = sliderValue,
+                    onValueChange = { sliderValue = it },
+                    onValueChangeFinished = {
+                        val snappedIndex = sliderValue.roundToInt().coerceIn(0, levelCount - 1)
+                        sliderValue = snappedIndex.toFloat()
+                        onUpdateReasoningLevel(levels[snappedIndex])
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                )
+            }
         }
     }
 }

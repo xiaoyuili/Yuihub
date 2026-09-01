@@ -649,6 +649,8 @@
   <string name="setting_model_page_chat_model_desc">Глобальная модель чата по умолчанию</string>
   <string name="setting_model_page_compress_model">Сжать модель</string>
   <string name="setting_model_page_compress_model_desc">Модель для сжатия истории разговоров</string>
+  <string name="setting_model_page_vision_model">Визуальная модель</string>
+  <string name="setting_model_page_vision_model_desc">Модель для анализа изображений, когда модель чата не поддерживает зрение; после настройки включается инструмент vision_analyze</string>
   <string name="setting_model_page_compress_prompt_vars">Переменные: {content}, {target_tokens}, {additional_context}</string>
   <string name="setting_model_page_prompt">Промпт</string>
   <string name="setting_model_page_reset_to_default">Сбросить до значения по умолчанию</string>
@@ -1016,6 +1018,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="chat_message_tool_recent_chats">Посмотреть недавние чаты</string>
   <string name="chat_message_tool_spawn_agent">Запустить субагента</string>
   <string name="chat_message_tool_spawn_agent_named">Субагент: %1$s</string>
+  <string name="chat_message_tool_vision_analyze">Анализ изображения</string>
+  <string name="chat_message_tool_vision_analyze_named">Анализ изображения: %1$s</string>
   <string name="chat_message_tool_conversation_search">История поиска: %1$s</string>
   <string name="assistant_page_local_tools_screen_time_title">Экранное время</string>
   <string name="assistant_page_local_tools_screen_time_desc">Позвольте ИИ прочитать время использования экрана вашего приложения</string>

@@ -649,6 +649,8 @@
   <string name="setting_model_page_chat_model_desc">全域預設聊天模型</string>
   <string name="setting_model_page_compress_model">壓縮模型</string>
   <string name="setting_model_page_compress_model_desc">用於壓縮對話歷程的模型</string>
+  <string name="setting_model_page_vision_model">視覺模型</string>
+  <string name="setting_model_page_vision_model_desc">聊天模型無視覺能力時用於識圖的模型；設定後自動啟用 vision_analyze 工具</string>
   <string name="setting_model_page_compress_prompt_vars">變數：{content}、{target_tokens}、{additional_context}</string>
   <string name="setting_model_page_prompt">提示詞</string>
   <string name="setting_model_page_reset_to_default">重置為預設值</string>
@@ -1036,6 +1038,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="chat_message_tool_recent_chats">查看最近聊天</string>
   <string name="chat_message_tool_spawn_agent">派生子智慧體</string>
   <string name="chat_message_tool_spawn_agent_named">子智慧體：%1$s</string>
+  <string name="chat_message_tool_vision_analyze">視覺識別</string>
+  <string name="chat_message_tool_vision_analyze_named">視覺識別：%1$s</string>
   <string name="chat_message_tool_conversation_search">搜尋歷史：%1$s</string>
   <string name="assistant_page_local_tools_screen_time_title">螢幕使用時間</string>
   <string name="assistant_page_local_tools_screen_time_desc">讓 AI 讀取您的應用程式螢幕使用時間</string>

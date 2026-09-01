@@ -649,6 +649,8 @@
   <string name="setting_model_page_chat_model_desc">グローバルデフォルトチャットモデル</string>
   <string name="setting_model_page_compress_model">モデルを圧縮</string>
   <string name="setting_model_page_compress_model_desc">会話履歴を圧縮するモデル</string>
+  <string name="setting_model_page_vision_model">ビジョンモデル</string>
+  <string name="setting_model_page_vision_model_desc">チャットモデルが画像を認識できない場合に使用するモデル。設定すると vision_analyze ツールが有効になります</string>
   <string name="setting_model_page_compress_prompt_vars">変数: {content}, {target_tokens}, {additional_context}</string>
   <string name="setting_model_page_prompt">プロンプト</string>
   <string name="setting_model_page_reset_to_default">デフォルトにリセット</string>
@@ -1016,6 +1018,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="chat_message_tool_recent_chats">最近のチャットを表示</string>
   <string name="chat_message_tool_spawn_agent">サブエージェントを起動</string>
   <string name="chat_message_tool_spawn_agent_named">サブエージェント: %1$s</string>
+  <string name="chat_message_tool_vision_analyze">画像認識</string>
+  <string name="chat_message_tool_vision_analyze_named">画像認識: %1$s</string>
   <string name="chat_message_tool_conversation_search">検索履歴: %1$s</string>
   <string name="assistant_page_local_tools_screen_time_title">スクリーンタイム</string>
   <string name="assistant_page_local_tools_screen_time_desc">AIにアプリの画面使用時間を読み取らせます</string>
