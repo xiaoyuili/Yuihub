@@ -160,7 +160,8 @@ class MemoryRepository(
             if (!embeddingService.isConfigured(config)) return@withContext
             val missing = memoryDAO.getMemoriesWithoutEmbedding(assistantId)
             missing.chunked(32).forEach { chunk ->
-                val vectors = embeddingService.embedTexts(config, chunk.map { it.content }) ?: return@withContext
+                // 失败只放弃当前 batch, 继续补齐剩余记忆
+                val vectors = embeddingService.embedTexts(config, chunk.map { it.content }) ?: return@forEach
                 vectors.forEachIndexed { index, vector ->
                     if (vector.isNotEmpty()) {
                         memoryDAO.updateEmbedding(chunk[index].id, vector.toJsonArray())

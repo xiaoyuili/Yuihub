@@ -253,7 +253,8 @@ val dataSourceModule = module {
         LocalBackupService(
             settingsStore = get(),
             json = get(),
-            context = get()
+            context = get(),
+            database = get()
         )
     }
 

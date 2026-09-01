@@ -382,7 +382,7 @@ class ChatService(
                     ?: settings.getCurrentAssistant()
                 val processedContent = preprocessUserInputParts(content, assistant)
 
-                // 自动压缩：发送前检查上下文占用，超过模型窗口 70% 时强制压缩历史（摘要由模型生成）
+                // 自动压缩：发送前检查上下文占用，超过模型窗口 80% 时强制压缩历史（摘要由模型生成）
                 if (answer) {
                     autoCompressIfNeeded(conversationId, assistant)
                 }
@@ -440,13 +440,16 @@ class ChatService(
         regenerateAssistantMsg: Boolean = true
     ) {
         val session = getOrCreateSession(conversationId)
-        session.getJob()?.cancel()
+        val previousJob = session.getJob()
+        previousJob?.cancel()
 
         val job = launchGenerationJob(
             conversationId = conversationId,
             keepAliveInBackground = message.role == MessageRole.USER || regenerateAssistantMsg,
         ) {
             try {
+                // 等被取消的旧 job 结束后再改状态, 避免两个协程并发 saveConversation 丢更新
+                runCatching { previousJob?.join() }
                 val conversation = session.state.value
 
                 if (message.role == MessageRole.USER) {
@@ -489,7 +492,8 @@ class ChatService(
         answer: String? = null,
     ) {
         val session = getOrCreateSession(conversationId)
-        session.getJob()?.cancel()
+        val previousJob = session.getJob()
+        previousJob?.cancel()
 
         val hasOtherPendingTools = session.state.value.messageNodes.any { node ->
             node.currentMessage.parts.any { part ->
@@ -502,6 +506,8 @@ class ChatService(
             keepAliveInBackground = !hasOtherPendingTools,
         ) {
             try {
+                // 等被取消的旧 job 结束后再改状态, 避免两个协程并发 saveConversation 丢更新
+                runCatching { previousJob?.join() }
                 val conversation = session.state.value
                 val newApprovalState = when {
                     answer != null -> ToolApprovalState.Answered(answer)
@@ -841,6 +847,7 @@ class ChatService(
             workspaceId = assistant.workspaceId?.toString(),
             workspaceRepository = workspaceRepository,
             filesManager = filesManager,
+            context = context,
         )
     }
 

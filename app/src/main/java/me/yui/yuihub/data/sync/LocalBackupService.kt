@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import me.yui.yuihub.data.db.AppDatabase
 import me.yui.yuihub.data.files.FileFolders
 import me.yui.yuihub.data.files.SkillPaths
 import me.yui.yuihub.data.datastore.Settings
@@ -39,6 +40,7 @@ class LocalBackupService(
     private val settingsStore: SettingsStore,
     private val json: Json,
     private val context: Context,
+    private val database: AppDatabase,
 ) {
     suspend fun prepareBackupFile(items: List<BackupItem>): File = withContext(Dispatchers.IO) {
         val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
@@ -58,6 +60,12 @@ class LocalBackupService(
             }
 
             if (items.contains(BackupItem.DATABASE)) {
+                // 先 checkpoint: WAL 里的未合并页写回主库, 否则热拷出的快照缺最新数据,
+                // 恢复后会丢最后一次会话的内容
+                runCatching {
+                    database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)")
+                        .use { it.moveToFirst() }
+                }
                 val dbFile = context.getDatabasePath("rikka_hub")
                 if (dbFile.exists()) {
                     addFileToZip(zipOut, dbFile, "rikka_hub.db")
@@ -158,6 +166,15 @@ class LocalBackupService(
         withContext(Dispatchers.IO) {
             Log.i(TAG, "restoreFromBackupFile: Starting restore from ${backupFile.absolutePath}")
 
+            // Room 连接全程持有 db 文件: 不先关库, 恢复后的文件会被旧连接的 WAL
+            // 状态覆盖回去, 轻则数据回退重则库损坏。关库后旧查询会失败, 因此恢复
+            // 完成后必须重启应用才能继续使用。
+            val needRestart = items.contains(BackupItem.DATABASE)
+            if (needRestart) {
+                Log.w(TAG, "restoreFromBackupFile: closing database for file restore")
+                database.close()
+            }
+
             ZipInputStream(FileInputStream(backupFile)).use { zipIn ->
                 var entry: ZipEntry?
                 while (zipIn.nextEntry.also { entry = it } != null) {
@@ -228,22 +245,28 @@ class LocalBackupService(
                                         }
 
                                         val targetFile = File(uploadFolder, fileName)
-                                        Log.i(
-                                            TAG,
-                                            "restoreFromBackupFile: Restoring file ${zipEntry.name} to ${targetFile.absolutePath}"
-                                        )
-
-                                        try {
-                                            FileOutputStream(targetFile).use { outputStream ->
-                                                zipIn.copyTo(outputStream)
-                                            }
+                                        // zip 条目名可含 ../, 不校验会写出上传目录之外(Zip-Slip)
+                                        val uploadRoot = uploadFolder.canonicalPath + File.separator
+                                        if (targetFile.canonicalFile.path.startsWith(uploadRoot)) {
                                             Log.i(
                                                 TAG,
-                                                "restoreFromBackupFile: Restored ${zipEntry.name} (${targetFile.length()} bytes)"
+                                                "restoreFromBackupFile: Restoring file ${zipEntry.name} to ${targetFile.absolutePath}"
                                             )
-                                        } catch (e: Exception) {
-                                            Log.e(TAG, "restoreFromBackupFile: Failed to restore file ${zipEntry.name}", e)
-                                            throw Exception("Failed to restore file ${zipEntry.name}: ${e.message}")
+
+                                            try {
+                                                FileOutputStream(targetFile).use { outputStream ->
+                                                    zipIn.copyTo(outputStream)
+                                                }
+                                                Log.i(
+                                                    TAG,
+                                                    "restoreFromBackupFile: Restored ${zipEntry.name} (${targetFile.length()} bytes)"
+                                                )
+                                            } catch (e: Exception) {
+                                                Log.e(TAG, "restoreFromBackupFile: Failed to restore file ${zipEntry.name}", e)
+                                                throw Exception("Failed to restore file ${zipEntry.name}: ${e.message}")
+                                            }
+                                        } else {
+                                            Log.w(TAG, "restoreFromBackupFile: Rejected path escape ${zipEntry.name}")
                                         }
                                     }
                                 } else if (items.contains(BackupItem.FILES) &&

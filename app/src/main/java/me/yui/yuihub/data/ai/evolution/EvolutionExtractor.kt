@@ -36,7 +36,8 @@ class EvolutionExtractor(
     private val consolidator: EvolutionConsolidator? = null,
 ) {
     private val runningAssistants = ConcurrentHashMap.newKeySet<String>()
-    private val pendingAssistants = ConcurrentHashMap.newKeySet<String>()
+    // 记录运行期间最后触发的会话，结束后用它重跑一次，避免连续对话丢事实
+    private val pendingAssistants = ConcurrentHashMap<String, Uuid>()
     // 每个助手上次整理时的条目分布签名，避免无变化时重复调用模型
     private val lastConsolidatedSignature = ConcurrentHashMap<String, String>()
 
@@ -55,14 +56,16 @@ class EvolutionExtractor(
 
         val assistantId = assistant.id.toString()
         if (!runningAssistants.add(assistantId)) {
-            pendingAssistants.add(assistantId)
+            // 已有提取在跑：记下最后触发的会话（put 保证同助手后到者胜出），不直接丢弃
+            pendingAssistants[assistantId] = conversationId
             return
         }
         try {
             do {
-                pendingAssistants.remove(assistantId)
-                extractOnce(conversationId, assistantId, settings, assistant)
-            } while (pendingAssistants.contains(assistantId))
+                // 取出并清掉标记；若循环期间又有新触发，会重新 put 进来，循环自然重跑
+                val nextConversation = pendingAssistants.remove(assistantId) ?: conversationId
+                extractOnce(nextConversation, assistantId, settings, assistant)
+            } while (pendingAssistants.containsKey(assistantId))
         } finally {
             runningAssistants.remove(assistantId)
             pendingAssistants.remove(assistantId)

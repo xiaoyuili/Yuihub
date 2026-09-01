@@ -96,7 +96,9 @@ class EvolutionConsolidator(
         )
         val parsed = parse(result.message.toText().trim()) ?: return null
         val validMerged = parsed.merged.filter { !it.title.isNullOrBlank() && !it.content.isNullOrBlank() }
-        val absorbed = parsed.merged.flatMap { it.sources }.filter { id -> group.any { it.id == id } }
+        // 只吸收有效合并组引用的源: 无效组(标题/内容为空被过滤)的 sources 若也删,
+        // 旧条目会消失且没有新条目替代, 造成教训丢失
+        val absorbed = validMerged.flatMap { it.sources.orEmpty() }.filter { id -> group.any { it.id == id } }
         if (validMerged.isEmpty() || absorbed.isEmpty()) return null
         return MergeOutcome(
             merged = validMerged.map { MergedLesson(it.title!!.trim(), it.content!!.trim()) },
@@ -136,7 +138,7 @@ class EvolutionConsolidator(
     private data class ParsedMerged(
         val title: String? = null,
         val content: String? = null,
-        val sources: List<Int> = emptyList(),
+        val sources: List<Int>? = null,
     )
 
     private data class MergedLesson(

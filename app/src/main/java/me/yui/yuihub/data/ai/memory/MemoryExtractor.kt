@@ -44,9 +44,9 @@ class MemoryExtractor(
     private val scope: CoroutineScope,
 ) {
     // 每个记忆作用域（助手/全局）同一时间只跑一次提取；
-    // 运行期间再次触发则标记 pending，结束后重跑一次，避免连续对话丢事实
+    // 运行期间再次触发则记录最后触发的会话，结束后用它重跑一次，避免连续对话丢事实
     private val runningScopes = ConcurrentHashMap.newKeySet<String>()
-    private val pendingScopes = ConcurrentHashMap.newKeySet<String>()
+    private val pendingScopes = ConcurrentHashMap<String, Uuid>()
 
     fun launchExtraction(conversationId: Uuid) {
         // AppScope 默认主线程调度，全部提取工作在 IO 上执行，避免阻塞 UI
@@ -68,15 +68,16 @@ class MemoryExtractor(
         val memoryScopeId =
             if (assistant.useGlobalMemory) MemoryRepository.GLOBAL_MEMORY_ID else assistant.id.toString()
         if (!runningScopes.add(memoryScopeId)) {
-            // 已有提取在跑：标记待重跑，不直接丢弃
-            pendingScopes.add(memoryScopeId)
+            // 已有提取在跑：记下最后触发的会话（put 保证同 scope 后到者胜出），不直接丢弃
+            pendingScopes[memoryScopeId] = conversationId
             return
         }
         try {
             do {
-                pendingScopes.remove(memoryScopeId)
-                extractOnce(conversationId, memoryScopeId, settings, assistant)
-            } while (pendingScopes.contains(memoryScopeId))
+                // 取出并清掉标记；若循环期间又有新触发，会重新 put 进来，循环自然重跑
+                val nextConversation = pendingScopes.remove(memoryScopeId) ?: conversationId
+                extractOnce(nextConversation, memoryScopeId, settings, assistant)
+            } while (pendingScopes.containsKey(memoryScopeId))
         } finally {
             runningScopes.remove(memoryScopeId)
             pendingScopes.remove(memoryScopeId)
@@ -110,7 +111,7 @@ class MemoryExtractor(
         val operations = parseOperations(raw) ?: return
         if (operations.operations.isEmpty()) return
 
-        applyOperations(memoryScopeId, operations)
+        applyOperations(memoryScopeId, existing, operations)
         memoryRepository.trimMemories(memoryScopeId)
         // 补齐新增/更新记忆的语义向量（已配置 embedding 时）
         memoryRepository.refreshEmbeddings(memoryScopeId, settings.embeddingConfig)
@@ -179,7 +180,11 @@ class MemoryExtractor(
         return runCatching { json.decodeFromString<MemoryOperations>(jsonText) }.getOrNull()
     }
 
-    private suspend fun applyOperations(memoryScopeId: String, operations: MemoryOperations) {
+    private suspend fun applyOperations(
+        memoryScopeId: String,
+        existing: List<AssistantMemory>,
+        operations: MemoryOperations,
+    ) {
         for (op in operations.operations) {
             when (op.action) {
                 "add" -> {
@@ -190,12 +195,15 @@ class MemoryExtractor(
                 "update" -> {
                     val id = op.id ?: continue
                     val content = op.content?.trim()?.takeIf { it.isNotBlank() } ?: continue
+                    // 只操作当前 scope 的记忆，防止模型幻觉出的 id 改到其他助手/全局记忆
+                    if (existing.none { it.id == id }) continue
                     runCatching { memoryRepository.updateContent(id, content) }
                         .onFailure { Log.w(TAG, "update memory #$id failed", it) }
                 }
 
                 "delete" -> {
                     val id = op.id ?: continue
+                    if (existing.none { it.id == id }) continue
                     memoryRepository.deleteMemory(id)
                 }
             }

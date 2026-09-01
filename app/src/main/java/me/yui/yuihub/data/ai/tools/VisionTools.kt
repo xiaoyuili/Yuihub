@@ -1,5 +1,6 @@
 package me.yui.yuihub.data.ai.tools
 
+import android.content.Context
 import android.util.Log
 import androidx.core.net.toUri
 import kotlinx.serialization.json.buildJsonObject
@@ -40,6 +41,7 @@ fun createVisionTool(
     workspaceId: String?,
     workspaceRepository: WorkspaceRepository,
     filesManager: FilesManager,
+    context: Context,
 ): Tool = Tool(
     name = VISION_TOOL_NAME,
     description = """
@@ -82,7 +84,12 @@ fun createVisionTool(
         }
         val prompt = obj["prompt"]?.jsonPrimitive?.contentOrNull.orEmpty().trim()
 
-        val bytes = resolveImageBytes(image, workspaceId, workspaceRepository)
+        val bytes = resolveImageBytes(
+            source = image,
+            workspaceId = workspaceId,
+            workspaceRepository = workspaceRepository,
+            privateRoots = listOf(context.filesDir, context.cacheDir).map { it.canonicalFile.path },
+        )
         val uri = filesManager.createChatFilesByByteArrays(listOf(bytes)).first()
         val message = UIMessage(
             role = MessageRole.USER,
@@ -119,16 +126,22 @@ private suspend fun resolveImageBytes(
     source: String,
     workspaceId: String?,
     workspaceRepository: WorkspaceRepository,
+    privateRoots: List<String>,
 ): ByteArray {
     if (source.startsWith("http://") || source.startsWith("https://")) {
         return downloadImage(source)
     }
+    // 宿主文件仅限应用私有目录: 免审批工具若能读任意路径, 模型可以把 rikka_hub.db
+    // 等敏感文件当图片发给视觉模型(即外发到第三方 provider)
     val hostFile = if (source.startsWith("file://")) {
         source.toUri().path?.let(::File)
     } else {
         File(source)
     }
-    if (hostFile != null && hostFile.isFile) {
+    if (hostFile != null && privateRoots.any { root ->
+            hostFile.canonicalFile.path == root || hostFile.canonicalFile.path.startsWith("$root/")
+        }
+    ) {
         return readHostImage(hostFile)
     }
     if (workspaceId != null && source.startsWith("/")) {
@@ -138,6 +151,10 @@ private suspend fun resolveImageBytes(
 }
 
 private fun readHostImage(file: File): ByteArray {
+    // 先查大小再读: 大文件直接 readBytes 会 OOM
+    require(file.length() <= MAX_IMAGE_BYTES) {
+        "Image too large: ${file.name} (${file.length() / 1024 / 1024}MB, max ${MAX_IMAGE_BYTES / 1024 / 1024}MB)"
+    }
     val bytes = file.readBytes()
     require(bytes.size <= MAX_IMAGE_BYTES) {
         "Image too large: ${file.name} (${bytes.size / 1024 / 1024}MB, max ${MAX_IMAGE_BYTES / 1024 / 1024}MB)"

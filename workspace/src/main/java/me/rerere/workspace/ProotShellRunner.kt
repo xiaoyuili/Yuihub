@@ -51,7 +51,10 @@ class ProotShellRunner(
         }
 
         context.tempDir.mkdirs()
-        patcher.patch(context.linuxDir)
+        // /etc/hosts、/etc/group 等补丁是读-改-写, 并发命令交错执行会写坏文件, 串行化
+        synchronized(patcher) {
+            patcher.patch(context.linuxDir)
+        }
         val process = ProcessBuilder(buildCommand(context, proot))
             .directory(context.filesDir)
             .redirectErrorStream(false)

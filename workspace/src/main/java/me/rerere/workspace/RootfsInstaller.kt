@@ -28,21 +28,36 @@ class RootfsInstaller(
         val archive = File(tempDir, "rootfs.${format.extension}")
         val stagingDir = File(tempDir, "rootfs-staging")
         val linuxDir = manager.linuxDir(root)
+        // 旧 rootfs 先改名让位而不是直接删: rename staging 失败时能回滚, 否则会出现
+        // 旧已删新未就位的中间态
+        val backupDir = File(tempDir, "rootfs-backup")
 
         try {
             stagingDir.deleteRecursively()
             stagingDir.mkdirs()
             download(url, archive, onProgress)
             extractTar(archive, stagingDir, format, onProgress)
-            linuxDir.deleteRecursively()
-            require(stagingDir.renameTo(linuxDir)) {
-                "Failed to move rootfs into workspace"
+            val hadExistingRootfs = linuxDir.exists()
+            if (hadExistingRootfs) {
+                backupDir.deleteRecursively()
+                if (!linuxDir.renameTo(backupDir)) {
+                    error("Failed to back up existing rootfs before install")
+                }
+            }
+            if (!stagingDir.renameTo(linuxDir)) {
+                // 回滚: 还原旧 rootfs, 安装失败但原环境不受损
+                if (hadExistingRootfs) {
+                    backupDir.renameTo(linuxDir)
+                }
+                error("Failed to move rootfs into workspace")
             }
             patcher.patch(linuxDir)
+            backupDir.deleteRecursively()
             onProgress(RootfsInstallProgress(stage = RootfsInstallStage.INSTALLED))
         } finally {
             archive.delete()
             stagingDir.deleteRecursively()
+            backupDir.deleteRecursively()
         }
     }
 
