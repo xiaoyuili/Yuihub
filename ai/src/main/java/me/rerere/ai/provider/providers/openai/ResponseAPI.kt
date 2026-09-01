@@ -213,6 +213,11 @@ class ResponseAPI(
             put("stream", stream)
             put("store", false)
 
+            // OpenAI 官方前缀缓存路由优化：同一会话的请求聚到同一缓存域
+            if (host == "api.openai.com") {
+                params.sessionId?.let { put("prompt_cache_key", it) }
+            }
+
             if (isModelAllowTemperature(params.model)) {
                 if (params.temperature != null) put("temperature", params.temperature)
                 if (params.topP != null) put("top_p", params.topP)

@@ -2,6 +2,7 @@ package me.yui.yuihub.data.ai.memory
 
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -13,10 +14,8 @@ import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.datastore.getAssistantById
-import me.yui.yuihub.data.datastore.getCurrentChatModel
+import me.yui.yuihub.data.datastore.getFastModelOrDefault
 import me.yui.yuihub.data.datastore.findModelById
-import me.yui.yuihub.data.event.AppEvent
-import me.yui.yuihub.data.event.AppEventBus
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantMemory
 import me.yui.yuihub.data.repository.ConversationRepository
@@ -43,7 +42,6 @@ class MemoryExtractor(
     private val providerManager: ProviderManager,
     private val json: Json,
     private val scope: CoroutineScope,
-    private val eventBus: AppEventBus,
 ) {
     // 每个记忆作用域（助手/全局）同一时间只跑一次提取；
     // 运行期间再次触发则标记 pending，结束后重跑一次，避免连续对话丢事实
@@ -51,7 +49,8 @@ class MemoryExtractor(
     private val pendingScopes = ConcurrentHashMap.newKeySet<String>()
 
     fun launchExtraction(conversationId: Uuid) {
-        scope.launch {
+        // AppScope 默认主线程调度，全部提取工作在 IO 上执行，避免阻塞 UI
+        scope.launch(Dispatchers.IO) {
             runCatching {
                 extract(conversationId)
             }.onFailure {
@@ -92,7 +91,7 @@ class MemoryExtractor(
     ) {
         val conversation = conversationRepository.getConversationById(conversationId) ?: return
         // 提取模型：快模型优先，回退当前聊天模型（零额外配置）
-        val model = settings.findModelById(settings.fastModelId) ?: settings.getCurrentChatModel() ?: return
+        val model = settings.getFastModelOrDefault() ?: return
         val provider = model.findProvider(settings.providers) ?: return
 
         val recentMessages = conversation.currentMessages.takeLast(6)
@@ -115,7 +114,6 @@ class MemoryExtractor(
         memoryRepository.trimMemories(memoryScopeId)
         // 补齐新增/更新记忆的语义向量（已配置 embedding 时）
         memoryRepository.refreshEmbeddings(memoryScopeId, settings.embeddingConfig)
-        eventBus.emit(AppEvent.MemoryUpdated(operations.operations.size))
         Log.i(TAG, "extracted ${operations.operations.size} memory operations for scope=$memoryScopeId")
     }
 

@@ -55,6 +55,7 @@ import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
+import me.rerere.ai.util.parseContextLength
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
@@ -153,6 +154,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                         modelId = modelObject["name"]!!.jsonPrimitive.content.substringAfter("/"),
                         displayName = modelObject["displayName"]!!.jsonPrimitive.content,
                         type = if ("generateContent" in supportedGenerationMethods) ModelType.CHAT else ModelType.EMBEDDING,
+                        contextLength = parseContextLength(modelObject),
                     )
                 }
             } else {

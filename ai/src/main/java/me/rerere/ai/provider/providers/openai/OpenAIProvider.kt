@@ -28,6 +28,7 @@ import me.rerere.ai.ui.StreamChunk
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
+import me.rerere.ai.util.parseContextLength
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.toHeaders
@@ -80,6 +81,8 @@ class OpenAIProvider(
                 Model(
                     modelId = id,
                     displayName = id,
+                    // OpenAI 官方 /models 无上下文字段，兼容服务常见私有字段宽松解析
+                    contextLength = parseContextLength(modelObj),
                 )
             }
         }

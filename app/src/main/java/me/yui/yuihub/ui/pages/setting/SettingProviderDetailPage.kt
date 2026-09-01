@@ -1,6 +1,7 @@
 package me.yui.yuihub.ui.pages.setting
 
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.Package01
 import me.rerere.hugeicons.stroke.Connect
 import me.rerere.hugeicons.stroke.ArrowDown01
@@ -11,6 +12,7 @@ import me.rerere.hugeicons.stroke.Share01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Cancel01
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +56,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.SegmentedButton
@@ -78,6 +81,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -126,6 +130,8 @@ import me.yui.yuihub.ui.pages.setting.components.isUsingDefaultBaseUrl
 import me.yui.yuihub.ui.pages.setting.components.resetBaseUrlToDefault
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.ui.theme.extendColors
+import me.yui.yuihub.utils.formatContextLength
+import me.yui.yuihub.utils.parseContextLengthInput
 import me.yui.yuihub.utils.UiState
 import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
@@ -622,6 +628,13 @@ private fun ModelSettingsForm(
                                 }
                             )
                         }
+
+                        ContextLengthSetting(
+                            contextLength = model.contextLength,
+                            onUpdate = {
+                                onModelChange(model.copy(contextLength = it))
+                            },
+                        )
                     }
                 }
 
@@ -696,11 +709,13 @@ private fun AddModelButton(
                 val inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId)
                 val outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId)
                 val abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId)
+                val contextLength = ModelRegistry.MODEL_CONTEXT_LENGTH.getData(model.modelId)
                 onAddModel(
                     model.copy(
                         inputModalities = inputModalities,
                         outputModalities = outputModalities,
-                        abilities = abilities
+                        abilities = abilities,
+                        contextLength = contextLength,
                     )
                 )
             },
@@ -1567,4 +1582,121 @@ private fun ProviderOverrideSettings(
             }
         }
     }
+}
+
+
+@Composable
+private fun ContextLengthSetting(
+    contextLength: Int?,
+    onUpdate: (Int?) -> Unit,
+) {
+    var showDialog by remember { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.setting_provider_page_context_length),
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Box {
+            OutlinedTextField(
+                value = formatContextLength(contextLength),
+                onValueChange = {},
+                readOnly = true,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text(stringResource(R.string.setting_provider_page_context_length_placeholder)) },
+                trailingIcon = {
+                    Icon(
+                        imageVector = HugeIcons.PencilEdit01,
+                        contentDescription = stringResource(R.string.setting_provider_page_context_length),
+                    )
+                },
+                enabled = false,
+                colors = OutlinedTextFieldDefaults.colors(
+                    disabledTrailingIconColor = MaterialTheme.colorScheme.primary,
+                ),
+            )
+            // 透明点击层：点击任意处打开配置弹窗
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(MaterialTheme.shapes.extraSmall)
+                    .clickable { showDialog = true },
+            )
+        }
+    }
+
+    if (showDialog) {
+        ContextLengthDialog(
+            initialValue = contextLength,
+            onConfirm = {
+                onUpdate(it)
+                showDialog = false
+            },
+            onDismiss = { showDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun ContextLengthDialog(
+    initialValue: Int?,
+    onConfirm: (Int?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current
+    var text by remember { mutableStateOf(initialValue?.toString() ?: "") }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.setting_provider_page_context_length)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = {
+                        text = it
+                        error = null
+                    },
+                    label = { Text(stringResource(R.string.setting_provider_page_context_length)) },
+                    placeholder = { Text("256K / 1M") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = error != null,
+                )
+                if (error != null) {
+                    Text(
+                        text = error.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.setting_provider_page_context_length_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val parsed = if (text.isBlank()) null else parseContextLengthInput(text)
+                    if (text.isNotBlank() && parsed == null) {
+                        error = context.getString(R.string.setting_provider_page_context_length_invalid)
+                    } else {
+                        onConfirm(parsed)
+                    }
+                }
+            ) {
+                Text(stringResource(R.string.assistant_page_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.assistant_page_cancel))
+            }
+        },
+    )
 }

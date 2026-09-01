@@ -27,7 +27,7 @@ fun createConversationTools(
     Tool(
         name = "recent_chats",
         description = """
-            List the user's recent conversations with you to understand their preferences and ongoing topics.
+            List the user's recent conversations with THIS assistant only (not other assistants).
             Returns conversation titles and the date of last activity, ordered by pinned first then most recently updated.
             Use this when you need quick context about what the user has been discussing lately.
             Only titles and dates are returned; use `conversation_search` to look up the actual content.
@@ -66,7 +66,7 @@ fun createConversationTools(
     Tool(
         name = "conversation_search",
         description = """
-            Full-text search across the user's past conversations to recall specific information they mentioned before.
+            Full-text search across THIS assistant's past conversations only (not other assistants).
             Use focused keywords. Run multiple searches with different keywords if needed.
             Each result includes the conversation title, a snippet with matched keywords wrapped in [brackets], and the date.
         """.trimIndent(),
@@ -93,7 +93,7 @@ fun createConversationTools(
                 ?: error("query is required")
             val limit = (it.jsonObject["limit"]?.jsonPrimitive?.intOrNull ?: 15).coerceIn(1, 50)
             val results = conversationRepo
-                .searchMessages(query, MessageSearchSort.RELEVANCE)
+                .searchMessages(query, MessageSearchSort.RELEVANCE, assistantId)
                 .take(limit)
             val payload = buildJsonArray {
                 results.forEach { result ->

@@ -31,9 +31,9 @@ enum class BackupItem {
 /**
  * 本地备份：将选中的内容打成 zip（导出到本地文件 / 从本地文件恢复）。
  *
- * SETTINGS 对应 settings.json——供应商、MCP、技能启用、模型参数等所有在设置中
- * 操作过的内容；DATABASE 对应 Room 数据库（聊天记录等）；FILES 对应上传附件、
- * 技能与字体文件。
+ * SETTINGS 对应 settings.json——供应商、MCP、技能启用、自进化开关、模型参数等。
+ * DATABASE 对应 Room 数据库（聊天记录、记忆、自进化方法、token 账本等）。
+ * FILES 对应上传附件、技能、字体、工具输出。
  */
 class LocalBackupService(
     private val settingsStore: SettingsStore,
@@ -110,6 +110,19 @@ class LocalBackupService(
                     }
                 } else {
                     Log.w(TAG, "prepareBackupFile: Fonts folder does not exist or is not a directory")
+                }
+
+                val toolOutputsFolder = File(context.filesDir, FileFolders.TOOL_OUTPUTS)
+                if (toolOutputsFolder.exists() && toolOutputsFolder.isDirectory) {
+                    Log.i(TAG, "prepareBackupFile: Backing up tool outputs from ${toolOutputsFolder.absolutePath}")
+                    addDirectoryToZip(
+                        zipOut = zipOut,
+                        rootDir = toolOutputsFolder,
+                        currentDir = toolOutputsFolder,
+                        entryPrefix = "${FileFolders.TOOL_OUTPUTS}/"
+                    )
+                } else {
+                    Log.w(TAG, "prepareBackupFile: Tool outputs folder does not exist or is not a directory")
                 }
             }
         }
@@ -252,6 +265,14 @@ class LocalBackupService(
                                             "restoreFromBackupFile: Restored ${zipEntry.name} (${targetFile.length()} bytes)"
                                         )
                                     }
+                                } else if (items.contains(BackupItem.FILES) &&
+                                    zipEntry.name.startsWith("${FileFolders.TOOL_OUTPUTS}/")
+                                ) {
+                                    restorePrefixedDirectoryEntry(
+                                        zipIn = zipIn,
+                                        entryName = zipEntry.name,
+                                        folderName = FileFolders.TOOL_OUTPUTS,
+                                    )
                                 } else {
                                     Log.i(TAG, "restoreFromBackupFile: Skipping entry ${zipEntry.name}")
                                 }
@@ -325,6 +346,31 @@ class LocalBackupService(
             Log.e(TAG, "restoreFromBackupFile: Failed to restore skill file $entryName", e)
             throw Exception("Failed to restore skill file $entryName: ${e.message}")
         }
+    }
+
+    private fun restorePrefixedDirectoryEntry(
+        zipIn: ZipInputStream,
+        entryName: String,
+        folderName: String,
+    ) {
+        val relativePath = entryName.substringAfter("$folderName/")
+        if (relativePath.isBlank() || relativePath.contains("..")) {
+            Log.w(TAG, "restoreFromBackupFile: Invalid entry $entryName")
+            return
+        }
+        val root = File(context.filesDir, folderName).apply { mkdirs() }
+        val targetFile = File(root, relativePath)
+        if (!targetFile.canonicalPath.startsWith(root.canonicalPath + File.separator) &&
+            targetFile.canonicalPath != root.canonicalPath
+        ) {
+            Log.w(TAG, "restoreFromBackupFile: Rejected path escape $entryName")
+            return
+        }
+        targetFile.parentFile?.mkdirs()
+        FileOutputStream(targetFile).use { outputStream ->
+            zipIn.copyTo(outputStream)
+        }
+        Log.i(TAG, "restoreFromBackupFile: Restored $entryName (${targetFile.length()} bytes)")
     }
 
     private fun addVirtualFileToZip(zipOut: ZipOutputStream, name: String, content: String) {

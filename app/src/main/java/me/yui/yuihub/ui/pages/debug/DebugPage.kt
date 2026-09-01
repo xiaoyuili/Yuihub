@@ -45,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dokar.sonner.ToastType
 import kotlinx.coroutines.launch
-import me.rerere.common.android.Logging
 import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.ui.components.ui.UIAvatar
 import me.yui.yuihub.ui.components.nav.BackButton
@@ -76,7 +75,7 @@ fun DebugPage(vm: DebugVM = koinViewModel()) {
             )
         }
     ) { contentPadding ->
-        val state = rememberPagerState { 3 }
+        val state = rememberPagerState { 2 }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -107,17 +106,6 @@ fun DebugPage(vm: DebugVM = koinViewModel()) {
                         Text("Colors")
                     }
                 )
-                Tab(
-                    selected = state.currentPage == 2,
-                    onClick = {
-                        scope.launch {
-                            state.animateScrollToPage(2)
-                        }
-                    },
-                    text = {
-                        Text("Logging")
-                    }
-                )
             }
             HorizontalPager(
                 state = state,
@@ -128,7 +116,6 @@ fun DebugPage(vm: DebugVM = koinViewModel()) {
                 when (page) {
                     0 -> MainPage(vm)
                     1 -> ColorsPage()
-                    2 -> Box {}
                 }
             }
         }

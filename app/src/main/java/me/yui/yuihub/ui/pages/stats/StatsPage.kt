@@ -1,7 +1,10 @@
 package me.yui.yuihub.ui.pages.stats
 
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.AiBrain01
+import me.rerere.hugeicons.stroke.ChartColumn
 import me.rerere.hugeicons.stroke.Rocket01
+import me.rerere.hugeicons.stroke.TransactionHistory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
@@ -32,9 +36,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.yui.yuihub.R
@@ -45,7 +52,6 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import kotlin.math.roundToLong
 
 @Composable
 fun StatsPage(
@@ -84,17 +90,10 @@ fun StatsPage(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 item {
-                    StatsCard(title = stringResource(R.string.stats_page_current_conversation)) {
-                        Text(
-                            text = stats.conversationTitle.ifBlank {
-                                stringResource(R.string.stats_page_current_conversation)
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(Modifier.height(4.dp))
+                    StatsCard(
+                        title = stringResource(R.string.stats_page_current_conversation),
+                        icon = HugeIcons.AiBrain01,
+                    ) {
                         StatGrid(
                             items = listOf(
                                 stringResource(R.string.stats_page_input_tokens) to formatTokens(stats.currentPromptTokens),
@@ -112,7 +111,10 @@ fun StatsPage(
                 }
 
                 item {
-                    StatsCard(title = stringResource(R.string.stats_page_history_token_stats)) {
+                    StatsCard(
+                        title = stringResource(R.string.stats_page_history_token_stats),
+                        icon = HugeIcons.TransactionHistory,
+                    ) {
                         StatGrid(
                             items = listOf(
                                 stringResource(R.string.stats_page_input_tokens) to formatTokens(stats.totalPromptTokens),
@@ -126,7 +128,10 @@ fun StatsPage(
                 }
 
                 item {
-                    StatsCard(title = stringResource(R.string.stats_page_daily_token_usage)) {
+                    StatsCard(
+                        title = stringResource(R.string.stats_page_daily_token_usage),
+                        icon = HugeIcons.ChartColumn,
+                    ) {
                         DailyTokenBars(tokensPerDay = stats.tokensPerDay)
                     }
                 }
@@ -155,6 +160,7 @@ fun StatsPage(
                             Text(
                                 text = formatCount(stats.launchCount.toLong()),
                                 style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
                             )
                         }
                     }
@@ -167,6 +173,7 @@ fun StatsPage(
 @Composable
 private fun StatsCard(
     title: String,
+    icon: ImageVector,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
@@ -177,7 +184,22 @@ private fun StatsCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
             content()
         }
     }
@@ -185,26 +207,29 @@ private fun StatsCard(
 
 @Composable
 private fun StatGrid(items: List<Pair<String, String>>) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        items.chunked(2).forEach { rowItems ->
+    Column {
+        items.chunked(2).forEachIndexed { index, rowItems ->
+            if (index > 0) {
+                HorizontalDivider(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                )
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 rowItems.forEach { (label, value) ->
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = label,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
                         )
                         Text(
                             text = value,
-                            style = MaterialTheme.typography.titleSmall,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
                         )
                     }
                 }
@@ -216,19 +241,42 @@ private fun StatGrid(items: List<Pair<String, String>>) {
     }
 }
 
+private data class TokenBucket(
+    val start: LocalDate,
+    val end: LocalDate,
+    val tokens: Long,
+)
+
+// 近 7 天逐日柱状，避免 30 天图把高峰挤到角落
+private fun tokenBuckets(
+    tokensPerDay: Map<LocalDate, Long>,
+    today: LocalDate = LocalDate.now(),
+): List<TokenBucket> {
+    val days = 7
+    return (0 until days).map { index ->
+        val day = today.minusDays((days - 1 - index).toLong())
+        TokenBucket(day, day, tokensPerDay[day] ?: 0L)
+    }
+}
+
 @Composable
 private fun DailyTokenBars(tokensPerDay: Map<LocalDate, Long>) {
-    val today = LocalDate.now()
-    val days = (29 downTo 0).map { today.minusDays(it.toLong()) }
-    val values = days.map { tokensPerDay[it] ?: 0L }
-    val maxValue = values.maxOrNull()?.coerceAtLeast(1L) ?: 1L
-    val chartHeight = 120.dp
+    val buckets = tokenBuckets(tokensPerDay)
+    val maxValue = buckets.maxOf { it.tokens }.coerceAtLeast(1L)
+    val chartHeight = 96.dp
+    val dateFormat = DateTimeFormatter.ofPattern("MM/dd")
+    val primary = MaterialTheme.colorScheme.primary
+    val emptyBar = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
 
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Bottom,
+        ) {
             Column(
                 modifier = Modifier
-                    .width(46.dp)
+                    .width(36.dp)
                     .height(chartHeight),
                 verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.End,
@@ -236,68 +284,84 @@ private fun DailyTokenBars(tokensPerDay: Map<LocalDate, Long>) {
                 Text(
                     text = formatAxisTokens(maxValue),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = labelColor,
                 )
                 Text(
                     text = formatAxisTokens(maxValue / 2),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = labelColor,
                 )
                 Text(
                     text = "0",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = labelColor,
                 )
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(8.dp))
             Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(chartHeight),
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                values.forEach { value ->
-                    val fraction = value.toFloat() / maxValue.toFloat()
-                    val barHeight = (chartHeight * fraction).coerceAtLeast(3.dp)
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 1.5.dp)
-                            .height(barHeight)
-                            .clip(
-                                RoundedCornerShape(
-                                    topStart = 3.dp,
-                                    topEnd = 3.dp,
-                                    bottomStart = 0.dp,
-                                    bottomEnd = 0.dp,
-                                )
-                            )
-                            .background(
-                                MaterialTheme.colorScheme.primary.copy(
-                                    alpha = if (value > 0) 0.75f else 0.15f
-                                )
-                            ),
-                    )
+                buckets.forEach { bucket ->
+                    val fraction = bucket.tokens.toFloat() / maxValue.toFloat()
+                    val barHeight = if (bucket.tokens > 0) {
+                        (chartHeight * fraction).coerceAtLeast(8.dp)
+                    } else {
+                        6.dp
+                    }
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            text = if (bucket.tokens > 0) formatTokens(bucket.tokens) else " ",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            color = if (bucket.tokens > 0) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                labelColor
+                            },
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .widthIn(max = 28.dp)
+                                .fillMaxWidth()
+                                .height(barHeight)
+                                .clip(RoundedCornerShape(7.dp))
+                                .background(
+                                    if (bucket.tokens > 0) {
+                                        Brush.verticalGradient(
+                                            listOf(primary, primary.copy(alpha = 0.45f))
+                                        )
+                                    } else {
+                                        Brush.verticalGradient(listOf(emptyBar, emptyBar))
+                                    }
+                                ),
+                        )
+                    }
                 }
             }
         }
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 52.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .padding(start = 44.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(
-                text = days.first().format(DateTimeFormatter.ofPattern("MM/dd")),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = days.last().format(DateTimeFormatter.ofPattern("MM/dd")),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            buckets.forEach { bucket ->
+                Text(
+                    text = bucket.end.format(dateFormat),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = labelColor,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }

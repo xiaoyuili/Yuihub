@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import me.yui.yuihub.data.ai.evolution.EvolutionConsolidator
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
@@ -22,7 +23,9 @@ import me.yui.yuihub.data.files.SkillMetadata
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantMemory
 import me.yui.yuihub.data.model.Avatar
+import me.yui.yuihub.data.model.EvolutionLesson
 import me.yui.yuihub.data.model.Tag
+import me.yui.yuihub.data.repository.EvolutionRepository
 import me.yui.yuihub.data.repository.MemoryRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import kotlin.uuid.Uuid
@@ -33,9 +36,11 @@ class AssistantDetailVM(
     private val id: String,
     private val settingsStore: SettingsStore,
     private val memoryRepository: MemoryRepository,
+    private val evolutionRepository: EvolutionRepository,
     private val filesManager: FilesManager,
     private val skillManager: SkillManager,
     private val workspaceRepository: WorkspaceRepository,
+    private val evolutionConsolidator: EvolutionConsolidator,
 ) : ViewModel() {
     private val assistantId = Uuid.parse(id)
 
@@ -74,6 +79,12 @@ class AssistantDetailVM(
                 memoryRepository.getMemoriesOfAssistantFlow(assistantId.toString())
             }
         }
+        .stateIn(
+            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
+        )
+
+    val lessons = evolutionRepository
+        .getLessonsFlow(assistantId.toString())
         .stateIn(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
         )
@@ -201,6 +212,46 @@ class AssistantDetailVM(
     fun deleteMemory(memory: AssistantMemory) {
         viewModelScope.launch {
             memoryRepository.deleteMemory(id = memory.id)
+        }
+    }
+
+    fun addLesson(kind: String, title: String, content: String) {
+        viewModelScope.launch {
+            evolutionRepository.addLesson(assistantId.toString(), kind, title, content)
+            autoConsolidate(kind)
+        }
+    }
+
+    // 手动新增跨过阈值时也自动整理，不依赖用户点按钮
+    private suspend fun autoConsolidate(kind: String) {
+        val count = evolutionRepository.getLessons(assistantId.toString()).count { it.kind == kind }
+        if (count >= EvolutionConsolidator.MIN_LESSONS_TO_CONSOLIDATE) {
+            runCatching {
+                evolutionConsolidator.consolidate(assistantId.toString(), settings.value)
+            }
+        }
+    }
+
+    fun updateLesson(lesson: EvolutionLesson) {
+        viewModelScope.launch {
+            evolutionRepository.updateLesson(lesson.id, lesson.title, lesson.content, lesson.kind)
+        }
+    }
+
+    fun deleteLesson(lesson: EvolutionLesson) {
+        viewModelScope.launch {
+            evolutionRepository.deleteLesson(lesson.id)
+        }
+    }
+
+    // 手动触发自我整理：同类方法合并成更通用的一条并删除被吸收的旧条目
+    fun consolidateLessons(onResult: (Int, Int) -> Unit) {
+        viewModelScope.launch {
+            val result = evolutionConsolidator.consolidate(
+                assistantId = assistantId.toString(),
+                settings = settings.value,
+            )
+            onResult(result.created, result.removed)
         }
     }
 

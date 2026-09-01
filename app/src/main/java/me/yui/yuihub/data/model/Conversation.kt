@@ -12,6 +12,20 @@ import me.yui.yuihub.data.datastore.DEFAULT_ASSISTANT_ID
 import java.time.Instant
 import kotlin.uuid.Uuid
 
+/**
+ * 一次自动压缩后的对话摘要，独立于消息节点存储，
+ * 在聊天页顶部渲染为专属摘要卡片。
+ */
+@Serializable
+data class CompressionSummary(
+    val id: Uuid = Uuid.random(),
+    val content: String = "",
+    // 本次压缩覆盖的消息节点数
+    val messageCount: Int = 0,
+    @Serializable(with = InstantSerializer::class)
+    val createdAt: Instant = Instant.now(),
+)
+
 @Serializable
 data class Conversation(
     val id: Uuid = Uuid.random(),
@@ -31,7 +45,9 @@ data class Conversation(
     // 所属文件夹（助手内分组），null 表示未归入任何文件夹
     val folderId: Uuid? = null,
     @Transient
-    val newConversation: Boolean = false
+    val newConversation: Boolean = false,
+    // 自动压缩产生的历史摘要（按时间序递增，最新在后）
+    val compressionSummaries: List<CompressionSummary> = emptyList(),
 ) {
     val files: List<Uri>
         get() = messageNodes

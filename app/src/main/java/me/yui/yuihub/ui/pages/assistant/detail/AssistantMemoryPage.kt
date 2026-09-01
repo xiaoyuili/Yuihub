@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -120,6 +121,60 @@ fun AssistantMemoryPage(id: String) {
 
     if (showEmbeddingConfig) {
         EmbeddingConfigDialog(onDismiss = { showEmbeddingConfig = false })
+    }
+}
+
+@Composable
+private fun MemoryStorageBanner(
+    assistant: Assistant,
+    onUpdateAssistant: (Assistant) -> Unit,
+) {
+    val global = assistant.useGlobalMemory
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.memory_page_storage_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        text = if (global) {
+                            stringResource(R.string.memory_page_storage_global_desc)
+                        } else {
+                            stringResource(R.string.memory_page_storage_private_desc)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = global,
+                    onCheckedChange = { onUpdateAssistant(assistant.copy(useGlobalMemory = it)) },
+                    enabled = assistant.enableMemory,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = !global,
+                    onClick = { onUpdateAssistant(assistant.copy(useGlobalMemory = false)) },
+                    label = { Text(stringResource(R.string.memory_page_storage_private)) },
+                    enabled = assistant.enableMemory,
+                )
+                FilterChip(
+                    selected = global,
+                    onClick = { onUpdateAssistant(assistant.copy(useGlobalMemory = true)) },
+                    label = { Text(stringResource(R.string.memory_page_storage_global)) },
+                    enabled = assistant.enableMemory,
+                )
+            }
+        }
     }
 }
 
@@ -323,6 +378,11 @@ private fun AssistantMemoryContent(
             .imePadding(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        MemoryStorageBanner(
+            assistant = assistant,
+            onUpdateAssistant = onUpdateAssistant,
+        )
+
         CardGroup {
             item(
                 headlineContent = { Text(stringResource(R.string.assistant_page_memory)) },
@@ -341,27 +401,6 @@ private fun AssistantMemoryContent(
                                 )
                             )
                         }
-                    )
-                }
-            )
-            item(
-                headlineContent = { Text(stringResource(R.string.assistant_page_global_memory)) },
-                supportingContent = {
-                    Text(
-                        text = stringResource(R.string.assistant_page_global_memory_desc),
-                    )
-                },
-                trailingContent = {
-                    Switch(
-                        checked = assistant.useGlobalMemory,
-                        onCheckedChange = {
-                            onUpdateAssistant(
-                                assistant.copy(
-                                    useGlobalMemory = it
-                                )
-                            )
-                        },
-                        enabled = assistant.enableMemory
                     )
                 }
             )

@@ -17,8 +17,10 @@ import me.yui.yuihub.data.db.fts.MessageSearchSort
 import me.yui.yuihub.data.db.dao.ConversationDAO
 import me.yui.yuihub.data.db.dao.FavoriteDAO
 import me.yui.yuihub.data.db.dao.MessageNodeDAO
+import me.yui.yuihub.data.db.dao.TokenLedgerDAO
 import me.yui.yuihub.data.db.entity.ConversationEntity
 import me.yui.yuihub.data.db.entity.MessageNodeEntity
+import me.yui.yuihub.data.db.entity.TokenLedgerEntity
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.MessageNode
@@ -30,6 +32,7 @@ class ConversationRepository(
     private val conversationDAO: ConversationDAO,
     private val messageNodeDAO: MessageNodeDAO,
     private val favoriteDAO: FavoriteDAO,
+    private val tokenLedgerDAO: TokenLedgerDAO,
     private val database: AppDatabase,
     private val filesManager: FilesManager,
     private val messageFtsManager: MessageFtsManager,
@@ -325,7 +328,8 @@ class ConversationRepository(
     suspend fun searchMessages(
         keyword: String,
         sort: MessageSearchSort = MessageSearchSort.RELEVANCE,
-    ) = messageFtsManager.search(keyword, sort)
+        assistantId: Uuid? = null,
+    ) = messageFtsManager.search(keyword, sort, assistantId?.toString())
 
     suspend fun rebuildAllIndexes(onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }) {
         messageFtsManager.deleteAll()
@@ -476,6 +480,27 @@ class ConversationRepository(
             )
         }
         messageNodeDAO.insertAll(entities)
+        recordTokenUsage(conversationId, nodes.flatMap { it.messages })
+    }
+
+    // 按消息 id 幂等记账；删除对话不清空，历史统计独立累积
+    suspend fun recordTokenUsage(conversationId: String, messages: List<UIMessage>) {
+        val now = System.currentTimeMillis()
+        messages.forEach { message ->
+            val usage = message.usage ?: return@forEach
+            if (usage.promptTokens == 0 && usage.completionTokens == 0 && usage.cachedTokens == 0) return@forEach
+            tokenLedgerDAO.insertIgnore(
+                TokenLedgerEntity(
+                    messageId = message.id.toString(),
+                    conversationId = conversationId,
+                    day = message.createdAt.date.toString(),
+                    promptTokens = usage.promptTokens.toLong(),
+                    completionTokens = usage.completionTokens.toLong(),
+                    cachedTokens = usage.cachedTokens.toLong(),
+                    createdAt = now,
+                )
+            )
+        }
     }
 }
 

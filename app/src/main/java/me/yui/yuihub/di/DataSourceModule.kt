@@ -16,7 +16,6 @@ import me.rerere.ai.provider.ProviderManager
 import me.rerere.common.http.AcceptLanguageBuilder
 import me.yui.yuihub.BuildConfig
 import me.yui.yuihub.data.ai.AIRequestInterceptor
-import me.yui.yuihub.data.ai.RequestLoggingInterceptor
 import me.yui.yuihub.data.ai.transformers.AssistantTemplateLoader
 import me.yui.yuihub.data.ai.GenerationHandler
 import me.yui.yuihub.data.ai.transformers.TemplateTransformer
@@ -34,6 +33,8 @@ import me.yui.yuihub.data.network.SettingsProxySelector
 import me.yui.yuihub.data.network.SettingsProxyAuthenticator
 import me.yui.yuihub.data.network.SettingsSocks5Authenticator
 import me.yui.yuihub.AppScope
+import me.yui.yuihub.data.ai.evolution.EvolutionConsolidator
+import me.yui.yuihub.data.ai.evolution.EvolutionExtractor
 import me.yui.yuihub.data.ai.memory.EmbeddingService
 import me.yui.yuihub.data.ai.memory.MemoryExtractor
 import me.yui.yuihub.data.sync.LocalBackupService
@@ -149,6 +150,14 @@ val dataSourceModule = module {
     }
 
     single {
+        get<AppDatabase>().tokenLedgerDao()
+    }
+
+    single {
+        get<AppDatabase>().evolutionLessonDao()
+    }
+
+    single {
         MessageFtsManager(get())
     }
 
@@ -227,7 +236,6 @@ val dataSourceModule = module {
                     chain.proceed(request)
                 }
             }
-            .addNetworkInterceptor(RequestLoggingInterceptor())
             .addInterceptor(AIRequestInterceptor())
             .addInterceptor(HttpLoggingInterceptor().apply {
                 redactHeader("Proxy-Authorization")
@@ -264,7 +272,26 @@ val dataSourceModule = module {
             providerManager = get(),
             json = get(),
             scope = get<AppScope>(),
-            eventBus = get(),
+        )
+    }
+
+    single {
+        EvolutionConsolidator(
+            evolutionRepository = get(),
+            providerManager = get(),
+            json = get(),
+        )
+    }
+
+    single {
+        EvolutionExtractor(
+            evolutionRepository = get(),
+            conversationRepository = get(),
+            settingsStore = get(),
+            providerManager = get(),
+            json = get(),
+            scope = get<AppScope>(),
+            consolidator = get(),
         )
     }
 

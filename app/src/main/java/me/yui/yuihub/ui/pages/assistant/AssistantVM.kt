@@ -13,11 +13,13 @@ import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.data.repository.ConversationRepository
+import me.yui.yuihub.data.repository.EvolutionRepository
 import me.yui.yuihub.data.repository.MemoryRepository
 
 class AssistantVM(
     private val settingsStore: SettingsStore,
     private val memoryRepository: MemoryRepository,
+    private val evolutionRepository: EvolutionRepository,
     private val conversationRepo: ConversationRepository,
     private val filesManager: FilesManager,
 ) : ViewModel() {
@@ -52,6 +54,7 @@ class AssistantVM(
                 )
             )
             memoryRepository.deleteMemoriesOfAssistant(assistant.id.toString())
+            evolutionRepository.deleteByAssistant(assistant.id.toString())
             conversationRepo.deleteConversationOfAssistant(assistant.id)
         }
     }

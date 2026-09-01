@@ -45,9 +45,11 @@ val viewModelModule = module {
             id = it.get(),
             settingsStore = get(),
             memoryRepository = get(),
+            evolutionRepository = get(),
             filesManager = get(),
             skillManager = get(),
             workspaceRepository = get(),
+            evolutionConsolidator = get(),
         )
     }
     viewModel<ShareHandlerVM> {
@@ -71,5 +73,12 @@ val viewModelModule = module {
     }
     viewModelOf(::FavoriteVM)
     viewModelOf(::SearchVM)
-    viewModelOf(::StatsVM)
+    viewModel<StatsVM> {
+        StatsVM(
+            messageNodeDAO = get(),
+            tokenLedgerDAO = get(),
+            settingsStore = get(),
+            conversationId = it.getOrNull(),
+        )
+    }
 }

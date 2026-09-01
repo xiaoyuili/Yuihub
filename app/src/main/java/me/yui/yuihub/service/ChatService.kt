@@ -26,6 +26,9 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.yui.yuihub.data.ai.prompts.COMPACTION_CHECKPOINT_PREAMBLE
+import me.yui.yuihub.data.ai.prompts.COMPACTION_SUMMARY_CLOSE
+import me.yui.yuihub.data.ai.prompts.COMPACTION_SUMMARY_OPEN
 import kotlinx.serialization.json.jsonObject
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
@@ -48,6 +51,7 @@ import me.yui.yuihub.R
 import me.yui.yuihub.data.ai.GenerationChunk
 import me.yui.yuihub.data.ai.GenerationHandler
 import me.yui.yuihub.data.ai.mcp.McpManager
+import me.yui.yuihub.data.ai.evolution.EvolutionExtractor
 import me.yui.yuihub.data.ai.memory.MemoryExtractor
 import me.yui.yuihub.data.ai.tools.createConversationTools
 import me.yui.yuihub.data.ai.tools.local.LocalTools
@@ -56,6 +60,7 @@ import me.yui.yuihub.data.ai.tools.createMcpManageTools
 import me.yui.yuihub.data.ai.tools.createSkillManageTools
 import me.yui.yuihub.data.ai.tools.createSkillTools
 import me.yui.yuihub.data.ai.tools.createWorkspaceTools
+import me.yui.yuihub.data.ai.tools.createSubagentTool
 import me.yui.yuihub.data.files.SkillManager
 import me.yui.yuihub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.yui.yuihub.data.ai.transformers.DocumentAsPromptTransformer
@@ -68,24 +73,34 @@ import me.yui.yuihub.data.ai.transformers.TimeReminderTransformer
 import me.yui.yuihub.data.ai.transformers.WorkspaceReminderTransformer
 import me.yui.yuihub.data.event.AppEvent
 import me.yui.yuihub.data.event.AppEventBus
+import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.datastore.findModelById
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.datastore.getAssistantById
 import me.yui.yuihub.data.datastore.getCurrentAssistant
 import me.yui.yuihub.data.datastore.getCurrentChatModel
+import me.yui.yuihub.data.datastore.getFastModelOrDefault
 import me.yui.yuihub.data.files.FilesManager
-import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantAffectScope
+import me.yui.yuihub.data.model.CompressionSummary
+import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.data.model.replaceRegexes
 import me.yui.yuihub.data.model.toMessageNode
 import me.yui.yuihub.data.repository.ConversationRepository
+import me.yui.yuihub.data.repository.EvolutionRepository
 import me.yui.yuihub.data.repository.FolderRepository
 import me.yui.yuihub.data.repository.MemoryRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
+import me.yui.yuihub.utils.AUTO_COMPRESS_RETAIN_RATIO
+import me.yui.yuihub.utils.AUTO_COMPRESS_TARGET_TOKENS
+import me.yui.yuihub.utils.AUTO_COMPRESS_THRESHOLD_RATIO
+import me.yui.yuihub.utils.JsonInstant
 import me.yui.yuihub.utils.applyPlaceholders
+import me.yui.yuihub.utils.effectiveContextLength
+import me.yui.yuihub.utils.estimateTokenCount
 import me.rerere.workspace.WorkspaceShellStatus
 import java.time.Instant
 import java.util.Locale
@@ -160,6 +175,8 @@ class ChatService(
     private val conversationRepo: ConversationRepository,
     private val memoryRepository: MemoryRepository,
     private val memoryExtractor: MemoryExtractor,
+    private val evolutionRepository: EvolutionRepository,
+    private val evolutionExtractor: EvolutionExtractor,
     private val generationHandler: GenerationHandler,
     private val templateTransformer: TemplateTransformer,
     private val providerManager: ProviderManager,
@@ -363,9 +380,14 @@ class ChatService(
                     ?: settings.getCurrentAssistant()
                 val processedContent = preprocessUserInputParts(content, assistant)
 
+                // 自动压缩：发送前检查上下文占用，超过模型窗口 70% 时强制压缩历史（摘要由模型生成）
+                if (answer) {
+                    autoCompressIfNeeded(conversationId, assistant)
+                }
+
                 // 添加消息到列表
-                val newConversation = currentConversation.copy(
-                    messageNodes = currentConversation.messageNodes + UIMessage(
+                val newConversation = session.state.value.copy(
+                    messageNodes = session.state.value.messageNodes + UIMessage(
                         role = MessageRole.USER,
                         parts = processedContent,
                     ).toMessageNode(),
@@ -380,6 +402,7 @@ class ChatService(
                 _generationDoneFlow.emit(conversationId)
                 if (answer) {
                     memoryExtractor.launchExtraction(conversationId)
+                    evolutionExtractor.launchExtraction(conversationId)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -445,6 +468,7 @@ class ChatService(
 
                 _generationDoneFlow.emit(conversationId)
                 memoryExtractor.launchExtraction(conversationId)
+                evolutionExtractor.launchExtraction(conversationId)
             } catch (e: Exception) {
                 addError(e, conversationId, title = context.getString(R.string.error_title_regenerate_message))
             }
@@ -519,6 +543,7 @@ class ChatService(
                 _generationDoneFlow.emit(conversationId)
                 if (!hasPendingTools) {
                     memoryExtractor.launchExtraction(conversationId)
+                    evolutionExtractor.launchExtraction(conversationId)
                 }
             } catch (e: Exception) {
                 addError(e, conversationId, title = context.getString(R.string.error_title_tool_approval))
@@ -599,9 +624,14 @@ class ChatService(
                         embeddingConfig = settings.embeddingConfig,
                     ).also { selected ->
                         if (selected.isNotEmpty()) {
-                            appScope.launch { memoryRepository.markAccessed(selected) }
+                            appScope.launch(Dispatchers.IO) { memoryRepository.markAccessed(selected) }
                         }
                     }
+                },
+                evolutionLessons = if (!assistant.enableEvolution) {
+                    emptyList()
+                } else {
+                    evolutionRepository.selectForPrompt(assistant.id.toString())
                 },
                 inputTransformers = buildList {
                     addAll(inputTransformers)
@@ -609,57 +639,14 @@ class ChatService(
                     add(workspaceReminderTransformer)
                 },
                 outputTransformers = outputTransformers,
-                tools = buildList {
-                    if (useExternalWebSearch) {
-                        addAll(createSearchTools(settings))
-                    }
-                    addAll(localTools.getTools(assistant.localTools))
-                    if (assistant.enableRecentChatsReference) {
-                        addAll(createConversationTools(conversationRepo, assistant.id))
-                    }
-                    addAll(createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), conversation.workspaceCwd))
-                    if (assistant.enabledSkills.isNotEmpty()) {
-                        addAll(
-                            createSkillTools(
-                                enabledSkills = assistant.enabledSkills,
-                                allSkills = skillManager.listSkills(),
-                            )
-                        )
-                    }
-                    // 管理工具不受 enabledSkills 门控：否则模型无法创建出第一个技能
-                    addAll(createSkillManageTools(skillManager))
-                    addAll(createMcpManageTools(mcpManager, settingsStore))
-                    mcpManager.getAllAvailableTools().also { allTools ->
-                        val invalidNames = allTools
-                            .map { it.second }
-                            .distinct()
-                            .filter { name -> name.isEmpty() || !name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' } }
-                        if (invalidNames.isNotEmpty()) {
-                            addError(
-                                error = IllegalStateException(
-                                    context.getString(
-                                        R.string.error_mcp_invalid_server_name,
-                                        invalidNames.joinToString(", ")
-                                    )
-                                ),
-                                conversationId = conversationId,
-                            )
-                            return
-                        }
-                    }.forEach { (serverId, serverName, tool) ->
-                        add(
-                            Tool(
-                                name = "mcp__${serverName}__${tool.name}",
-                                description = tool.description ?: "",
-                                parameters = { tool.inputSchema },
-                                needsApproval = { tool.needsApproval },
-                                execute = {
-                                    mcpManager.callTool(serverId, tool.name, it.jsonObject)
-                                },
-                            )
-                        )
-                    }
-                },
+                tools = buildAgentTools(
+                    settings = settings,
+                    assistant = assistant,
+                    conversation = conversation,
+                    useExternalWebSearch = useExternalWebSearch,
+                    allowSubagent = true,
+                    parentConversationId = conversationId,
+                ),
             ).onCompletion {
                 // 可能被取消了，或者意外结束，兜底更新
                 val updatedConversation = getConversationFlow(conversationId).value.copy(
@@ -712,6 +699,122 @@ class ChatService(
                 generateTitle(conversationId, finalConversation)
             }
         }
+    }
+
+    private suspend fun buildAgentTools(
+        settings: Settings,
+        assistant: Assistant,
+        conversation: Conversation,
+        useExternalWebSearch: Boolean,
+        allowSubagent: Boolean,
+        parentConversationId: Uuid,
+    ): List<Tool> {
+        val tools = buildList {
+        if (useExternalWebSearch) {
+            addAll(createSearchTools(settings))
+        }
+        addAll(localTools.getTools(assistant.localTools))
+        if (assistant.enableRecentChatsReference) {
+            addAll(createConversationTools(conversationRepo, assistant.id))
+        }
+        addAll(createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), conversation.workspaceCwd))
+        if (assistant.enabledSkills.isNotEmpty()) {
+            addAll(
+                createSkillTools(
+                    enabledSkills = assistant.enabledSkills,
+                    allSkills = skillManager.listSkills(),
+                )
+            )
+        }
+        addAll(createSkillManageTools(skillManager))
+        addAll(createMcpManageTools(mcpManager, settingsStore))
+        mcpManager.getAllAvailableTools().forEach { (serverId, serverName, tool) ->
+            add(
+                Tool(
+                    name = "mcp__${serverName}__${tool.name}",
+                    description = tool.description ?: "",
+                    parameters = { tool.inputSchema },
+                    needsApproval = { tool.needsApproval },
+                    execute = {
+                        mcpManager.callTool(serverId, tool.name, it.jsonObject)
+                    },
+                )
+            )
+        }
+        if (allowSubagent) {
+            add(
+                createSubagentTool { description, prompt ->
+                    runChildAgent(
+                        parentConversationId = parentConversationId,
+                        settings = settings,
+                        assistant = assistant,
+                        conversation = conversation,
+                        useExternalWebSearch = useExternalWebSearch,
+                        description = description,
+                        prompt = prompt,
+                    )
+                }
+            )
+        }
+        }
+        return tools
+    }
+
+    // harness spawn-in-process：子 agent 空会话、继承 workspace/model/tools，禁止再派生子 agent
+    private suspend fun runChildAgent(
+        parentConversationId: Uuid,
+        settings: Settings,
+        assistant: Assistant,
+        conversation: Conversation,
+        useExternalWebSearch: Boolean,
+        description: String,
+        prompt: String,
+    ): String {
+        val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId)
+            ?: error("Model not found for child agent")
+        val childId = Uuid.random()
+        val childMessages = listOf(UIMessage.user(prompt))
+        val childTools = buildAgentTools(
+            settings = settings,
+            assistant = assistant,
+            conversation = conversation,
+            useExternalWebSearch = useExternalWebSearch,
+            allowSubagent = false,
+            parentConversationId = parentConversationId,
+        ).filter { it.name != "ask_user" }.map { it.copy(needsApproval = { false }) }
+        var latest = childMessages
+        generationHandler.generateText(
+            settings = settings,
+            model = model,
+            messages = childMessages,
+            assistant = assistant.copy(streamOutput = false),
+            conversationId = childId,
+            conversationSystemPrompt = conversation.customSystemPrompt,
+            conversationModeInjectionIds = conversation.modeInjectionIds,
+            conversationLorebookIds = conversation.lorebookIds,
+            workspaceCwd = conversation.workspaceCwd,
+            memories = emptyList(),
+            evolutionLessons = if (!assistant.enableEvolution) {
+                emptyList()
+            } else {
+                evolutionRepository.selectForPrompt(assistant.id.toString())
+            },
+            inputTransformers = buildList {
+                addAll(inputTransformers)
+                add(templateTransformer)
+                add(workspaceReminderTransformer)
+            },
+            outputTransformers = outputTransformers,
+            tools = childTools,
+            maxSteps = 32,
+        ).collect { chunk ->
+            when (chunk) {
+                is GenerationChunk.Messages -> latest = chunk.messages
+            }
+        }
+        conversationRepo.recordTokenUsage(parentConversationId.toString(), latest)
+        val answer = latest.lastOrNull { it.role == MessageRole.ASSISTANT }?.toText()?.trim().orEmpty()
+        return answer.ifBlank { "Child agent '$description' finished with no text output." }
     }
 
     private suspend fun createWorkspaceToolsIfReady(workspaceId: String?, cwd: String? = null): List<Tool> {
@@ -823,8 +926,7 @@ class ChatService(
 
         runCatching {
             val settings = settingsStore.settingsFlow.first()
-            val model = settings.findModelById(settings.fastModelId)
-                ?: return@runCatching
+            val model = settings.getFastModelOrDefault() ?: return@runCatching
             val provider = model.findProvider(settings.providers) ?: return@runCatching
 
             val providerHandler = providerManager.getProviderByType(provider)
@@ -859,89 +961,150 @@ class ChatService(
         }
     }
 
-    // ---- 压缩对话历史 ----
+    // ---- 自动压缩对话历史 ----
 
-    suspend fun compressConversation(
+    /**
+     * agent/pre-step：发送前用占用估算（真实 usage 优先，缺失时本地估算）对比模型窗口，
+     * 达到 AUTO_COMPRESS_THRESHOLD_RATIO 时把早期历史压缩为检查点摘要（对齐 deepseek-harness
+     * compaction-basic）：摘要以 <compressed-summary> user 消息形式替换早期历史（是替换不是追加），
+     * 保留尾部 AUTO_COMPRESS_RETAIN_RATIO 窗口原文；新摘要与旧检查点合并为单一摘要（harness 合并规则）。
+     * 失败静默（不影响发送）。
+     */
+    private suspend fun autoCompressIfNeeded(conversationId: Uuid, assistant: Assistant) {
+        val conversation = conversationRepo.getConversationById(conversationId) ?: return
+        if (conversation.messageNodes.size <= 2) return
+
+        val settings = settingsStore.settingsFlow.first()
+        val model = settings.findModelById(assistant.chatModelId)
+            ?: settings.getCurrentChatModel()
+            ?: return
+        val window = model.effectiveContextLength()
+        val threshold = (window * AUTO_COMPRESS_THRESHOLD_RATIO).toInt()
+        val usedTokens = estimateConversationTokens(conversation, model)
+        if (usedTokens < threshold) return
+
+        Log.i(TAG, "autoCompressIfNeeded: $usedTokens / $window tokens >= threshold $threshold, compacting conversation $conversationId")
+        compressToSummary(conversationId, conversation, settings, window)
+    }
+
+    /**
+     * 压缩实现（对齐 harness compaction-basic）：
+     * 1. 保留策略 token 驱动：从尾部往前累加，预算 = 窗口 × retainRatio（至少留 2 条）；
+     * 2. 其余历史分块并行摘要，与旧摘要（prior checkpoint）合并为单一新摘要；
+     * 3. 消息流替换为 [检查点行] + 尾部保留原文；检查点行是 user 角色的 <compressed-summary> 消息，
+     *    模型把它当既有背景不复述；UI 渲染为流程行（可见可回溯，类似 harness 的 compaction 事件）。
+     */
+    private suspend fun compressToSummary(
         conversationId: Uuid,
         conversation: Conversation,
-        additionalPrompt: String,
-        targetTokens: Int,
-        keepRecentMessages: Int = 32
-    ): Result<Unit> = runCatching {
-        val settings = settingsStore.settingsFlow.first()
-        val model = settings.findModelById(settings.compressModelId)
-            ?: settings.getCurrentChatModel()
-            ?: throw IllegalStateException("No model available for compression")
-        val provider = model.findProvider(settings.providers)
-            ?: throw IllegalStateException("Provider not found")
+        settings: Settings,
+        windowTokens: Int,
+    ): String {
+        return runCatching {
+            val model = settings.getFastModelOrDefault() ?: return@runCatching ""
+            val provider = model.findProvider(settings.providers) ?: return@runCatching ""
+            val providerHandler = providerManager.getProviderByType(provider)
 
-        val providerHandler = providerManager.getProviderByType(provider)
+            val maxMessagesPerChunk = 256
+            val allNodes = conversation.messageNodes
+            val allMessages = conversation.currentMessages
 
-        val maxMessagesPerChunk = 256
-        val allMessages = conversation.currentMessages
-
-        // Split messages into those to compress and those to keep
-        val messagesToCompress: List<UIMessage>
-        val messagesToKeep: List<UIMessage>
-
-        if (keepRecentMessages > 0 && allMessages.size > keepRecentMessages) {
-            messagesToCompress = allMessages.dropLast(keepRecentMessages)
-            messagesToKeep = allMessages.takeLast(keepRecentMessages)
-        } else if (keepRecentMessages > 0) {
-            // Not enough messages to compress while keeping recent ones
-            throw IllegalStateException(context.getString(R.string.chat_page_compress_not_enough_messages))
-        } else {
-            messagesToCompress = allMessages
-            messagesToKeep = emptyList()
-        }
-
-        fun splitMessages(messages: List<UIMessage>): List<List<UIMessage>> {
-            if (messages.size <= maxMessagesPerChunk) return listOf(messages)
-            val mid = messages.size / 2
-            val left = splitMessages(messages.subList(0, mid))
-            val right = splitMessages(messages.subList(mid, messages.size))
-            return left + right
-        }
-
-        suspend fun compressMessages(messages: List<UIMessage>): String {
-            val contentToCompress = messages.joinToString("\n\n") { it.summaryAsText(maxLength = 2000) }
-            val prompt = settings.compressPrompt.applyPlaceholders(
-                "content" to contentToCompress,
-                "target_tokens" to targetTokens.toString(),
-                "additional_context" to if (additionalPrompt.isNotBlank()) {
-                    "Additional instructions from user: $additionalPrompt"
-                } else "",
-                "locale" to Locale.getDefault().displayName
-            )
-
-            val result = providerHandler.generateText(
-                providerSetting = provider,
-                messages = listOf(UIMessage.user(prompt)),
-                params = backgroundTextGenerationParams(model),
-            )
-
-            return result.message.toText().trim().takeIf { it.isNotBlank() }
-                ?: throw IllegalStateException("Failed to generate compressed summary")
-        }
-
-        val compressedSummaries = coroutineScope {
-            splitMessages(messagesToCompress)
-                .map { chunk -> async { compressMessages(chunk) } }
-                .awaitAll()
-        }
-
-        // Create new conversation with compressed history as multiple user messages + kept messages
-        val newMessageNodes = buildList {
-            compressedSummaries.forEach { summary ->
-                add(UIMessage.user(summary).toMessageNode())
+            // 保留策略（harness retainRatio）：从尾部往前累加，预算 = 窗口 × retainRatio，至少留 2 条
+            val keepBudget = (windowTokens * AUTO_COMPRESS_RETAIN_RATIO).toInt()
+            var keepCount = 0
+            var keepTokens = 0
+            for (message in allMessages.asReversed()) {
+                val msgTokens = estimateTokenCount(listOf(message))
+                if (keepCount >= 2 && keepTokens + msgTokens > keepBudget) break
+                keepTokens += msgTokens
+                keepCount++
             }
-            addAll(messagesToKeep.map { it.toMessageNode() })
-        }
-        val newConversation = conversation.copy(
-            messageNodes = newMessageNodes,
-        )
+            val nodesToKeep = allNodes.takeLast(keepCount)
+            val nodesToCompress = allNodes.drop(nodesToKeep.size)
+            if (nodesToCompress.isEmpty()) return@runCatching ""
+            val messagesToCompress = nodesToCompress.map { it.currentMessage }
 
-        saveConversation(conversationId, newConversation)
+            // 旧检查点作为 prior checkpoint 参与合并（harness：合并重写而非追加）
+            val priorSummary = conversation.compressionSummaries.lastOrNull()?.content.orEmpty()
+            val priorContext = if (priorSummary.isNotBlank()) {
+                "PRIOR CHECKPOINT (merge this with the new conversation into one consolidated checkpoint):\n$priorSummary"
+            } else ""
+
+            fun splitMessages(messages: List<UIMessage>): List<List<UIMessage>> {
+                if (messages.size <= maxMessagesPerChunk) return listOf(messages)
+                val mid = messages.size / 2
+                val left = splitMessages(messages.subList(0, mid))
+                val right = splitMessages(messages.subList(mid, messages.size))
+                return left + right
+            }
+
+            suspend fun compressMessages(messages: List<UIMessage>): String {
+                val contentToCompress = messages.joinToString("\n\n") { it.summaryAsText(maxLength = 2000) }
+                val prompt = settings.compressPrompt.applyPlaceholders(
+                    "content" to contentToCompress,
+                    "target_tokens" to AUTO_COMPRESS_TARGET_TOKENS.toString(),
+                    "additional_context" to priorContext,
+                    "locale" to Locale.getDefault().displayName
+                )
+                val result = providerHandler.generateText(
+                    providerSetting = provider,
+                    messages = listOf(UIMessage.user(prompt)),
+                    params = backgroundTextGenerationParams(model),
+                )
+                return result.message.toText().trim().takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("Failed to generate compressed summary")
+            }
+
+            val summaries = coroutineScope {
+                splitMessages(messagesToCompress)
+                    .map { chunk -> async { compressMessages(chunk) } }
+                    .awaitAll()
+            }
+            val combined = summaries.joinToString("\n\n")
+
+            // 检查点行：user 角色 <compressed-summary> 消息（模型侧），UI 渲染为可见的压缩流程行
+            val checkpointText = buildString {
+                appendLine(COMPACTION_CHECKPOINT_PREAMBLE)
+                appendLine()
+                append(COMPACTION_SUMMARY_OPEN)
+                appendLine()
+                append(combined)
+                appendLine()
+                append(COMPACTION_SUMMARY_CLOSE)
+            }
+            val checkpointNode = UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text(checkpointText)),
+            ).toMessageNode()
+
+            val newConversation = conversation.copy(
+                messageNodes = listOf(checkpointNode) + nodesToKeep,
+                compressionSummaries = listOf(
+                    CompressionSummary(
+                        content = combined,
+                        messageCount = messagesToCompress.size + conversation.compressionSummaries.sumOf { it.messageCount },
+                    )
+                ),
+            )
+            saveConversation(conversationId, newConversation)
+            Log.i(
+                TAG,
+                "compressToSummary: compacted ${messagesToCompress.size} messages into a single checkpoint " +
+                    "(retained ${nodesToKeep.size} messages verbatim)"
+            )
+            combined
+        }.getOrDefault("")
+    }
+
+    // 会话占用估算：优先真实 usage，缺失时本地估算
+    private fun estimateConversationTokens(conversation: Conversation, model: Model?): Int {
+        val usageTokens = conversation.messageNodes.asReversed()
+            .map { it.currentMessage }
+            .firstOrNull { it.role == MessageRole.ASSISTANT }
+            ?.usage
+            ?.promptTokens
+            ?: 0
+        return if (usageTokens > 0) usageTokens else estimateTokenCount(conversation.currentMessages)
     }
 
     // ---- 对话状态更新 ----

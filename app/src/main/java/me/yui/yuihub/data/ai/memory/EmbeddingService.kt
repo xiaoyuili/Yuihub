@@ -10,6 +10,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -37,32 +39,34 @@ class EmbeddingService(
 
     suspend fun embedTexts(config: EmbeddingConfig, texts: List<String>): List<FloatArray>? {
         if (!isConfigured(config) || texts.isEmpty()) return null
-        return runCatching {
-            val base = config.url.trimEnd('/')
-            val endpoint = if (base.endsWith("/embeddings")) base else "$base/embeddings"
-            val body = buildJsonObject {
-                put("model", config.model)
-                put("input", buildJsonArray { texts.forEach { add(it) } })
-            }
-            val response = client.post(endpoint) {
-                timeout {
-                    requestTimeoutMillis = 10_000
-                    connectTimeoutMillis = 5_000
+        return withContext(Dispatchers.Default) {
+            runCatching {
+                val base = config.url.trimEnd('/')
+                val endpoint = if (base.endsWith("/embeddings")) base else "$base/embeddings"
+                val body = buildJsonObject {
+                    put("model", config.model)
+                    put("input", buildJsonArray { texts.forEach { add(it) } })
                 }
-                header(HttpHeaders.Authorization, "Bearer ${config.apiKey}")
-                contentType(ContentType.Application.Json)
-                setBody(body.toString())
-            }
-            if (!response.status.isSuccess()) return null
-            val element = json.parseToJsonElement(response.bodyAsText())
-            val data = element.jsonObject["data"]?.jsonArray ?: return null
-            data.mapNotNull { item ->
-                item.jsonObject["embedding"]?.jsonArray
-                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.toFloatOrNull() }
-                    ?.toFloatArray()
-                    ?.takeIf { it.isNotEmpty() }
-            }.takeIf { it.size == texts.size }
-        }.getOrNull()
+                val response = client.post(endpoint) {
+                    timeout {
+                        requestTimeoutMillis = 10_000
+                        connectTimeoutMillis = 5_000
+                    }
+                    header(HttpHeaders.Authorization, "Bearer ${config.apiKey}")
+                    contentType(ContentType.Application.Json)
+                    setBody(body.toString())
+                }
+                if (!response.status.isSuccess()) return@withContext null
+                val element = json.parseToJsonElement(response.bodyAsText())
+                val data = element.jsonObject["data"]?.jsonArray ?: return@withContext null
+                data.mapNotNull { item ->
+                    item.jsonObject["embedding"]?.jsonArray
+                        ?.mapNotNull { it.jsonPrimitive.contentOrNull?.toFloatOrNull() }
+                        ?.toFloatArray()
+                        ?.takeIf { it.isNotEmpty() }
+                }.takeIf { it.size == texts.size }
+            }.getOrNull()
+        }
     }
 
     suspend fun embedText(config: EmbeddingConfig, text: String): FloatArray? =

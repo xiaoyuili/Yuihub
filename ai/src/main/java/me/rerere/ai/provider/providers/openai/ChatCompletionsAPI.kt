@@ -246,6 +246,11 @@ class ChatCompletionsAPI(
 
             put("stream", stream)
             if (stream) {
+
+            // OpenAI 官方前缀缓存路由优化：同一会话的请求聚到同一缓存域
+            if (host == "api.openai.com") {
+                params.sessionId?.let { put("prompt_cache_key", it) }
+            }
                 if (host != "api.mistral.ai") { // mistral 不支持 stream_options
                     put("stream_options", buildJsonObject {
                         put("include_usage", true)

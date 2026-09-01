@@ -7,26 +7,32 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import me.rerere.ai.core.TokenUsage
 import me.yui.yuihub.data.db.dao.ConversationDAO
+import me.yui.yuihub.data.db.dao.EvolutionLessonDAO
 import me.yui.yuihub.data.db.dao.FavoriteDAO
 import me.yui.yuihub.data.db.dao.FolderDAO
 import me.yui.yuihub.data.db.dao.GenMediaDAO
 import me.yui.yuihub.data.db.dao.ManagedFileDAO
 import me.yui.yuihub.data.db.dao.MemoryDAO
 import me.yui.yuihub.data.db.dao.MessageNodeDAO
+import me.yui.yuihub.data.db.dao.TokenLedgerDAO
 import me.yui.yuihub.data.db.dao.WorkspaceDAO
 import me.yui.yuihub.data.db.entity.ConversationEntity
+import me.yui.yuihub.data.db.entity.EvolutionLessonEntity
 import me.yui.yuihub.data.db.entity.FavoriteEntity
 import me.yui.yuihub.data.db.entity.FolderEntity
 import me.yui.yuihub.data.db.entity.GenMediaEntity
 import me.yui.yuihub.data.db.entity.ManagedFileEntity
 import me.yui.yuihub.data.db.entity.MemoryEntity
 import me.yui.yuihub.data.db.entity.MessageNodeEntity
+import me.yui.yuihub.data.db.entity.TokenLedgerEntity
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.yui.yuihub.data.db.migrations.Migration_16_17
 import me.yui.yuihub.data.db.migrations.Migration_22_23
 import me.yui.yuihub.data.db.migrations.Migration_25_26
 import me.yui.yuihub.data.db.migrations.Migration_26_27
 import me.yui.yuihub.data.db.migrations.Migration_27_28
+import me.yui.yuihub.data.db.migrations.Migration_28_29
+import me.yui.yuihub.data.db.migrations.Migration_29_30
 import me.yui.yuihub.data.db.migrations.Migration_8_9
 import me.yui.yuihub.utils.JsonInstant
 
@@ -40,8 +46,10 @@ import me.yui.yuihub.utils.JsonInstant
         FavoriteEntity::class,
         WorkspaceEntity::class,
         FolderEntity::class,
+        TokenLedgerEntity::class,
+        EvolutionLessonEntity::class,
     ],
-    version = 28,
+    version = 30,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -65,6 +73,8 @@ import me.yui.yuihub.utils.JsonInstant
         AutoMigration(from = 25, to = 26, spec = Migration_25_26::class),
         AutoMigration(from = 26, to = 27, spec = Migration_26_27::class),
         AutoMigration(from = 27, to = 28, spec = Migration_27_28::class),
+        AutoMigration(from = 28, to = 29, spec = Migration_28_29::class),
+        AutoMigration(from = 29, to = 30, spec = Migration_29_30::class),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -84,6 +94,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun workspaceDao(): WorkspaceDAO
 
     abstract fun folderDao(): FolderDAO
+
+    abstract fun tokenLedgerDao(): TokenLedgerDAO
+
+    abstract fun evolutionLessonDao(): EvolutionLessonDAO
 }
 
 object TokenUsageConverter {

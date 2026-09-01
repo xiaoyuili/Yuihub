@@ -353,8 +353,8 @@ private fun MessagePartsBlock(
                                         modifier = Modifier
                                             .animateContentSize()
                                             .widthIn(max = maxWidth * 0.82f),
-                                        shape = RoundedCornerShape(22.dp),
-                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = settings.displaySetting.bubbleOpacity),
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = settings.displaySetting.bubbleOpacity),
                                         onClick = { onUserMessageClick?.invoke() },
                                     ) {
                                         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {

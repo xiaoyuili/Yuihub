@@ -58,6 +58,7 @@ import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
+import me.rerere.ai.util.parseContextLength
 import me.rerere.ai.util.encodeBase64
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
@@ -268,6 +269,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                 Model(
                     modelId = id,
                     displayName = displayName,
+                    contextLength = parseContextLength(modelObj),
                 )
             }
         }

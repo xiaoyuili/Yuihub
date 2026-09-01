@@ -99,6 +99,7 @@ object ToolUIRegistry {
         CalendarQueryToolUI,
         CalendarCreateToolUI,
         UseSkillToolUI,
+        SpawnAgentToolUI,
         RecentChatsToolUI,
         ConversationSearchToolUI,
         EditFileToolUI,

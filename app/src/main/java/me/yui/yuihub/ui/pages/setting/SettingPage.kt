@@ -37,7 +37,6 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.AiMagic
 import me.rerere.hugeicons.stroke.Alert01
 import me.rerere.hugeicons.stroke.Book03
-import me.rerere.hugeicons.stroke.Bookshelf01
 import me.rerere.hugeicons.stroke.Brain02
 import me.rerere.hugeicons.stroke.Clapping01
 import me.rerere.hugeicons.stroke.Database02
@@ -208,12 +207,6 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         leadingContent = { Icon(HugeIcons.Clapping01, null) },
                         supportingContent = { Text(stringResource(R.string.setting_page_about_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_about)) },
-                    )
-                    item(
-                        onClick = { navController.navigate(Screen.Log) },
-                        leadingContent = { Icon(HugeIcons.Bookshelf01, null) },
-                        supportingContent = { Text(stringResource(R.string.setting_page_request_logs_desc)) },
-                        headlineContent = { Text(stringResource(R.string.setting_page_request_logs)) },
                     )
                     item(
                         onClick = {

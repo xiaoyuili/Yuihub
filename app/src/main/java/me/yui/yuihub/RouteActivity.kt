@@ -58,7 +58,6 @@ import coil3.svg.SvgDecoder
 import com.dokar.sonner.Toaster
 import com.dokar.sonner.rememberToasterState
 import kotlinx.serialization.Serializable
-import kotlin.time.Duration.Companion.milliseconds
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.DatabaseMigrationTracker
 import me.yui.yuihub.data.db.MigrationState
@@ -75,6 +74,7 @@ import me.yui.yuihub.ui.hooks.readStringPreference
 import me.yui.yuihub.ui.pages.assistant.AssistantPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantBasicPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantDetailPage
+import me.yui.yuihub.ui.pages.assistant.detail.AssistantEvolutionPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantExtensionsPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantLocalToolPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantMemoryPage
@@ -95,7 +95,6 @@ import me.rerere.workspace.WorkspaceStorageArea
 import me.yui.yuihub.ui.pages.favorite.FavoritePage
 import me.yui.yuihub.ui.pages.history.HistoryPage
 import me.yui.yuihub.ui.pages.imggen.ImageGenPage
-import me.yui.yuihub.ui.pages.log.LogPage
 import me.yui.yuihub.ui.pages.search.SearchPage
 import me.yui.yuihub.ui.pages.setting.SettingAboutPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesPage
@@ -234,13 +233,6 @@ class RouteActivity : ComponentActivity() {
             eventBus.events.collect { event ->
                 when (event) {
                     is AppEvent.OpenUsageAccessSettings -> this@RouteActivity.openUsageAccessSettings()
-                    is AppEvent.MemoryUpdated -> {
-                        toastState.show(
-                            message = getString(R.string.memory_updated_toast, event.count),
-                            type = com.dokar.sonner.ToastType.Success,
-                            duration = 1500.milliseconds,
-                        )
-                    }
                     is AppEvent.ChatGenerationUpdate -> Unit // 由 ChatNotificationManager 消费
                     is AppEvent.ChatGenerationEnded -> Unit // 由 ChatNotificationManager 消费
                 }
@@ -363,6 +355,10 @@ class RouteActivity : ComponentActivity() {
                                 AssistantLocalToolPage(key.id)
                             }
 
+                            entry<Screen.AssistantEvolution> { key ->
+                                AssistantEvolutionPage(key.id)
+                            }
+
                             entry<Screen.AssistantInjections> { key ->
                                 AssistantExtensionsPage(key.id)
                             }
@@ -447,10 +443,6 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.Debug> {
                                 DebugPage()
-                            }
-
-                            entry<Screen.Log> {
-                                LogPage()
                             }
 
                             entry<Screen.Extensions> {
@@ -587,6 +579,9 @@ sealed interface Screen : NavKey {
     data class AssistantLocalTool(val id: String) : Screen
 
     @Serializable
+    data class AssistantEvolution(val id: String) : Screen
+
+    @Serializable
     data class AssistantInjections(val id: String) : Screen
 
     @Serializable
@@ -648,9 +643,6 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Debug : Screen
-
-    @Serializable
-    data object Log : Screen
 
     @Serializable
     data object Extensions : Screen

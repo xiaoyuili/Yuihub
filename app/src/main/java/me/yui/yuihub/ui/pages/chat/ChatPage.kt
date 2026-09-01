@@ -51,6 +51,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.BuiltInTools
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
@@ -71,6 +72,7 @@ import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.service.ChatError
 import me.yui.yuihub.ui.components.ai.ChatAttachmentPickerActions
 import me.yui.yuihub.ui.components.ai.ChatInput
+import me.yui.yuihub.ui.components.ai.ContextUsage
 import me.yui.yuihub.ui.components.ai.FilesPicker
 import me.yui.yuihub.ui.components.ai.SearchMode
 import me.yui.yuihub.ui.components.ai.completion.WorkspaceCompletionProvider
@@ -81,7 +83,10 @@ import me.yui.yuihub.ui.context.Navigator
 import me.yui.yuihub.ui.hooks.ChatInputState
 import me.yui.yuihub.ui.hooks.EditStateContent
 import me.yui.yuihub.ui.hooks.useEditState
+import me.yui.yuihub.utils.DEFAULT_CONTEXT_LENGTH
 import me.yui.yuihub.utils.base64Decode
+import me.yui.yuihub.utils.effectiveContextLength
+import me.yui.yuihub.utils.estimateTokenCount
 import me.yui.yuihub.utils.navigateToChatPage
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -421,6 +426,20 @@ private fun ChatPageContent(
                     onMoreClick = {
                         showFilesSheet = true
                     },
+                    contextUsage = run {
+                        val used = conversation.messageNodes.asReversed()
+                            .map { it.currentMessage }
+                            .firstOrNull { it.role == MessageRole.ASSISTANT }
+                            ?.usage
+                            ?.promptTokens
+                            ?: 0
+                        val estimated = if (used > 0) used else estimateTokenCount(conversation.currentMessages)
+                        ContextUsage(
+                            usedTokens = estimated,
+                            windowTokens = currentChatModel?.effectiveContextLength()
+                                ?: DEFAULT_CONTEXT_LENGTH,
+                        )
+                    },
                 )
             },
             containerColor = Color.Transparent,
@@ -517,11 +536,9 @@ private fun ChatFilesPickerSheet(
     onDismiss: () -> Unit,
 ) {
     var showInjectionSheet by remember { mutableStateOf(false) }
-    var showCompressDialog by remember { mutableStateOf(false) }
 
     fun dismissAll() {
         showInjectionSheet = false
-        showCompressDialog = false
         onDismiss()
     }
 
@@ -537,9 +554,6 @@ private fun ChatFilesPickerSheet(
             conversation = conversation,
             state = inputState,
             assistant = assistant,
-            onCompressContext = { additionalPrompt, targetTokens, keepRecentMessages ->
-                vm.handleCompressContext(additionalPrompt, targetTokens, keepRecentMessages)
-            },
             onUpdateAssistant = {
                 vm.updateSettings(
                     setting.copy(
@@ -559,8 +573,6 @@ private fun ChatFilesPickerSheet(
             },
             showInjectionSheet = showInjectionSheet,
             onShowInjectionSheetChange = { showInjectionSheet = it },
-            showCompressDialog = showCompressDialog,
-            onShowCompressDialogChange = { showCompressDialog = it },
             onDismiss = { dismissAll() },
             onTakePic = attachmentPickerActions.onTakePicture,
             onPickImage = attachmentPickerActions.onPickImage,

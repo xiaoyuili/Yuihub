@@ -30,6 +30,11 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -69,6 +74,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import androidx.compose.ui.window.DialogProperties
 import com.dokar.sonner.ToastType
 import dev.chrisbanes.haze.HazeInput
@@ -101,6 +108,8 @@ import me.yui.yuihub.ui.components.ui.KeepScreenOn
 import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.hooks.ChatInputState
+import me.yui.yuihub.utils.AUTO_COMPRESS_THRESHOLD_RATIO
+import me.yui.yuihub.utils.formatContextLength
 import org.koin.compose.koinInject
 import kotlin.time.Duration.Companion.seconds
 
@@ -118,6 +127,7 @@ fun ChatInput(
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateSearchService: (Int) -> Unit,
     onMoreClick: () -> Unit,
+    contextUsage: ContextUsage? = null,
     onCancelClick: () -> Unit,
     onSendClick: () -> Unit,
     onLongSendClick: () -> Unit,
@@ -219,7 +229,8 @@ fun ChatInput(
                             modifier = Modifier
                                 .weight(1f)
                                 .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             // Model Picker
                             ModelSelectorButton(
@@ -265,6 +276,13 @@ fun ChatInput(
                                     onShowExternalPopup = {
                                         showReasoningPanel = !showReasoningPanel
                                     },
+                                )
+                            }
+
+                            contextUsage?.let { usage ->
+                                ContextUsageRingButton(
+                                    usedTokens = usage.usedTokens,
+                                    windowTokens = usage.windowTokens,
                                 )
                             }
 
@@ -700,5 +718,97 @@ private fun FullScreenEditor(
                 }
             }
         }
+    }
+}
+
+
+data class ContextUsage(
+    val usedTokens: Int,
+    val windowTokens: Int,
+)
+
+// 上下文占用圆环：显示占用比例（无文字），点击弹悬浮窗显示具体用量
+@Composable
+private fun ContextUsageRingButton(
+    usedTokens: Int,
+    windowTokens: Int,
+) {
+    var showPopup by remember { mutableStateOf(false) }
+    val fraction = if (windowTokens > 0) {
+        (usedTokens.toFloat() / windowTokens).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val ringColor = if (windowTokens > 0 && fraction >= AUTO_COMPRESS_THRESHOLD_RATIO) {
+        MaterialTheme.colorScheme.error
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .clickable { showPopup = true },
+        contentAlignment = Alignment.Center,
+    ) {
+        // 轨道：空闲时也清晰可见；弧线为主色，超阈值变红
+        val trackColor = MaterialTheme.colorScheme.outlineVariant
+        Canvas(modifier = Modifier.size(25.dp)) {
+            val stroke = 2.5.dp.toPx()
+            val inset = stroke / 2
+            val arcSize = Size(size.width - stroke, size.height - stroke)
+            val topLeft = Offset(inset, inset)
+            drawArc(
+                color = trackColor,
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+            if (fraction > 0f) {
+                drawArc(
+                    color = ringColor,
+                    startAngle = -90f,
+                    sweepAngle = 360f * fraction,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+            }
+        }
+        val percent = (fraction * 100f).roundToInt()
+        Text(
+            text = percent.toString(),
+            fontSize = when {
+                percent >= 100 -> 7.sp
+                percent >= 10 -> 8.sp
+                else -> 9.sp
+            },
+            lineHeight = 9.sp,
+            color = if (windowTokens > 0 && fraction >= AUTO_COMPRESS_THRESHOLD_RATIO) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+
+    DropdownMenu(
+        expanded = showPopup,
+        onDismissRequest = { showPopup = false },
+    ) {
+        Text(
+            text = stringResource(
+                R.string.chat_context_usage_tooltip,
+                formatContextLength(usedTokens),
+                formatContextLength(windowTokens),
+            ),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }

@@ -38,6 +38,9 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -61,6 +64,7 @@ import me.rerere.hugeicons.stroke.Calendar03
 import me.rerere.hugeicons.stroke.CalendarAdd01
 import me.rerere.hugeicons.stroke.SmartPhone01
 import me.rerere.hugeicons.stroke.Time02
+import me.rerere.hugeicons.stroke.Share01
 import me.rerere.hugeicons.stroke.VolumeHigh
 import me.yui.yuihub.R
 import me.yui.yuihub.data.event.AppEvent
@@ -286,6 +290,37 @@ object ClipboardToolUI : ToolUIRenderer {
 /**
  * 技能调用: 标题显示技能名与路径
  */
+object SpawnAgentToolUI : ToolUIRenderer {
+    override val toolName: String = "spawn_agent"
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.Share01
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val description = context.arguments.getStringContent("description").orEmpty()
+        return if (description.isBlank()) {
+            stringResource(R.string.chat_message_tool_spawn_agent)
+        } else {
+            stringResource(R.string.chat_message_tool_spawn_agent_named, description)
+        }
+    }
+
+    override fun hasSummary(context: ToolUIContext): Boolean =
+        !context.content.getStringContent("result").isNullOrBlank()
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        val result = context.content.getStringContent("result") ?: return
+        Text(
+            text = result,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
 object UseSkillToolUI : ToolUIRenderer {
     override val toolName: String = "use_skill"
 

@@ -42,22 +42,8 @@ interface MessageNodeDAO {
 
     // 使用 @RawQuery 绕过 Room 编译期校验，以便使用 json_each() 虚拟表
     @RawQuery
-    suspend fun getTokenStatsRaw(query: SupportSQLiteQuery): MessageTokenStats
-
-    @RawQuery
     suspend fun getUsageStatsRaw(query: SupportSQLiteQuery): MessageUsageStats
-
-    @RawQuery
-    suspend fun getTokenUsagePerDayRaw(query: SupportSQLiteQuery): List<MessageDayTokens>
 }
-
-data class MessageTokenStats(
-    val totalMessages: Int = 0,
-    val assistantMessages: Int = 0,
-    val promptTokens: Long = 0,
-    val completionTokens: Long = 0,
-    val cachedTokens: Long = 0,
-)
 
 data class MessageUsageStats(
     val totalMessages: Int = 0,
@@ -69,7 +55,6 @@ data class MessageUsageStats(
 
 data class MessageDayTokens(val day: String, val tokens: Long)
 
-// SQLite json_each() 展开 messages JSON 数组，json_extract() 提取字段并聚合
 private val USAGE_SELECT =
     "COUNT(*) AS totalMessages, " +
         "COALESCE(SUM(CASE WHEN json_extract(j.value, '$.role') = 'assistant' THEN 1 ELSE 0 END), 0) AS assistantMessages, " +
@@ -77,32 +62,11 @@ private val USAGE_SELECT =
         "COALESCE(SUM(CAST(json_extract(j.value, '$.usage.completionTokens') AS INTEGER)), 0) AS completionTokens, " +
         "COALESCE(SUM(CAST(json_extract(j.value, '$.usage.cachedTokens') AS INTEGER)), 0) AS cachedTokens "
 
-private val TOKEN_STATS_SQL = SimpleSQLiteQuery(
-    "SELECT $USAGE_SELECT FROM message_node mn, json_each(mn.messages) j"
-)
-
-suspend fun MessageNodeDAO.getTokenStats(): MessageTokenStats = getTokenStatsRaw(TOKEN_STATS_SQL)
-
 suspend fun MessageNodeDAO.getConversationUsageStats(conversationId: String): MessageUsageStats =
     getUsageStatsRaw(
         SimpleSQLiteQuery(
             "SELECT $USAGE_SELECT FROM message_node mn, json_each(mn.messages) j " +
                 "WHERE mn.conversation_id = ?",
             arrayOf(conversationId)
-        )
-    )
-
-// 按 createdAt 日期聚合每日 token 消耗（输入 + 输出 + 缓存）
-suspend fun MessageNodeDAO.getTokenUsagePerDay(startDate: String): List<MessageDayTokens> =
-    getTokenUsagePerDayRaw(
-        SimpleSQLiteQuery(
-            "SELECT substr(json_extract(j.value, '$.createdAt'), 1, 10) AS day, " +
-                "COALESCE(SUM(CAST(json_extract(j.value, '$.usage.promptTokens') AS INTEGER) + " +
-                "CAST(json_extract(j.value, '$.usage.completionTokens') AS INTEGER) + " +
-                "CAST(json_extract(j.value, '$.usage.cachedTokens') AS INTEGER)), 0) AS tokens " +
-                "FROM message_node mn, json_each(mn.messages) j " +
-                "WHERE json_extract(j.value, '$.createdAt') >= ? " +
-                "GROUP BY day",
-            arrayOf(startDate)
         )
     )

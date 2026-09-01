@@ -1,6 +1,7 @@
 package me.yui.yuihub.ui.pages.chat
 
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.File01
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.ArrowDown01
 import me.rerere.hugeicons.stroke.ArrowUp01
@@ -47,11 +48,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Card
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -94,13 +97,17 @@ import me.yui.yuihub.data.datastore.getAssistantById
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.service.ChatError
+import me.yui.yuihub.data.ai.prompts.compactionCheckpointBody
+import me.yui.yuihub.data.ai.prompts.isCompactionCheckpoint
 import me.yui.yuihub.ui.components.message.ChatMessage
+import me.yui.yuihub.ui.components.message.CompactionRow
 import me.yui.yuihub.ui.components.ui.ErrorCardsDisplay
 import me.yui.yuihub.ui.components.ui.ListSelectableItem
 import me.yui.yuihub.ui.components.ui.RabbitLoadingIndicator
 import me.yui.yuihub.ui.components.ui.Tooltip
 import me.yui.yuihub.ui.hooks.ImeLazyListAutoScroller
 import me.yui.yuihub.ui.theme.ChatFontProvider
+import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
 import kotlin.math.roundToInt
 import kotlin.uuid.Uuid
@@ -307,6 +314,14 @@ private fun ChatListNormal(
                 items = conversation.messageNodes,
                 key = { index, item -> item.id },
             ) { index, node ->
+                if (node.currentMessage.isCompactionCheckpoint()) {
+                    // 自动压缩检查点：渲染为可见的「上下文压缩」流程行（harness 式）
+                    CompactionRow(
+                        title = stringResource(R.string.tool_ui_compress_context_title),
+                        summary = compactionCheckpointBody(node.currentMessage.toText()),
+                    )
+                    return@itemsIndexed
+                }
                 Column {
                     ListSelectableItem(
                         key = node.id,
@@ -795,3 +810,4 @@ private fun BoxScope.MessageJumper(
         }
     }
 }
+

@@ -44,6 +44,7 @@ import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantMemory
+import me.yui.yuihub.data.model.EvolutionLesson
 import me.yui.yuihub.data.repository.MemoryRepository
 import java.io.File
 import java.io.IOException
@@ -83,6 +84,7 @@ class GenerationHandler(
         outputTransformers: List<OutputMessageTransformer> = emptyList(),
         assistant: Assistant,
         memories: List<AssistantMemory>? = null,
+        evolutionLessons: List<EvolutionLesson> = emptyList(),
         tools: List<Tool> = emptyList(),
         maxSteps: Int = 256,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
@@ -163,6 +165,7 @@ class GenerationHandler(
                     provider = provider,
                     tools = toolsInternal,
                     memories = memories ?: emptyList(),
+                    evolutionLessons = evolutionLessons,
                     stream = assistant.streamOutput,
                     processingStatus = processingStatus,
                     conversationSystemPrompt = conversationSystemPrompt,
@@ -363,6 +366,7 @@ class GenerationHandler(
         provider: ProviderSetting,
         tools: List<Tool>,
         memories: List<AssistantMemory>,
+        evolutionLessons: List<EvolutionLesson> = emptyList(),
         stream: Boolean,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         conversationSystemPrompt: String? = null,
@@ -383,15 +387,14 @@ class GenerationHandler(
                     append(effectiveSystemPrompt)
                 }
 
-                // 记忆
-                if (assistant.enableMemory) {
-                    appendLine()
-                    append(buildMemoryPrompt(memories = memories))
-                }
                 // 工具prompt
                 tools.forEach { tool ->
                     appendLine()
                     append(tool.systemPrompt(model, messages))
+                }
+                if (tools.isNotEmpty()) {
+                    appendLine()
+                    append(AGENT_TOOL_STYLE_PROMPT)
                 }
             }
             if (system.isNotBlank()) {
@@ -408,7 +411,8 @@ class GenerationHandler(
             conversationLorebookIds = conversationLorebookIds,
             processingStatus = processingStatus,
             workspaceCwd = workspaceCwd,
-        )
+        ).prependMemories(memories.takeIf { assistant.enableMemory })
+            .prependEvolutionLessons(evolutionLessons.takeIf { assistant.enableEvolution })
 
         var messages: List<UIMessage> = messages
         val params = TextGenerationParams(
@@ -595,4 +599,46 @@ class GenerationHandler(
         ) + nonTextParts
     }
 
+}
+
+// 记忆按相关性每轮检索、内容会变化，因此不放进 system（会重写整个缓存前缀），
+// 而是前置拼到最后一条 user 消息：动态内容留在会话尾部，system+历史保持稳定的缓存前缀。
+private fun List<UIMessage>.prependMemories(memories: List<AssistantMemory>?): List<UIMessage> {
+    if (memories.isNullOrEmpty()) return this
+    val block = buildMemoryPrompt(memories)
+    val index = indexOfLast { it.role == MessageRole.USER }
+    if (index < 0) return this
+    return toMutableList().also { list ->
+        val target = list[index]
+        val textIndex = target.parts.indexOfFirst { it is UIMessagePart.Text }
+        val parts = if (textIndex >= 0) {
+            target.parts.toMutableList().also { parts ->
+                val text = parts[textIndex] as UIMessagePart.Text
+                parts[textIndex] = text.copy(text = block + "\n\n" + text.text)
+            }
+        } else {
+            listOf(UIMessagePart.Text(block)) + target.parts
+        }
+        list[index] = target.copy(parts = parts)
+    }
+}
+
+private fun List<UIMessage>.prependEvolutionLessons(lessons: List<EvolutionLesson>?): List<UIMessage> {
+    if (lessons.isNullOrEmpty()) return this
+    val block = buildEvolutionPrompt(lessons)
+    val index = indexOfLast { it.role == MessageRole.USER }
+    if (index < 0) return this
+    return toMutableList().also { list ->
+        val target = list[index]
+        val textIndex = target.parts.indexOfFirst { it is UIMessagePart.Text }
+        val parts = if (textIndex >= 0) {
+            target.parts.toMutableList().also { parts ->
+                val text = parts[textIndex] as UIMessagePart.Text
+                parts[textIndex] = text.copy(text = block + "\n\n" + text.text)
+            }
+        } else {
+            listOf(UIMessagePart.Text(block)) + target.parts
+        }
+        list[index] = target.copy(parts = parts)
+    }
 }

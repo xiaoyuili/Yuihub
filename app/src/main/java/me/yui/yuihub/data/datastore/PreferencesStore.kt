@@ -502,6 +502,10 @@ fun Settings.getCurrentChatModel(): Model? {
     return findModelById(this.getCurrentAssistant().chatModelId ?: this.chatModelId)
 }
 
+// 快速/后台任务模型：未配置快模型时回退当前对话模型（标题、压缩摘要、记忆提取共用）
+fun Settings.getFastModelOrDefault(): Model? =
+    findModelById(fastModelId) ?: getCurrentChatModel()
+
 fun Settings.getCurrentAssistant(): Assistant {
     return this.assistants.find { it.id == assistantId } ?: this.assistants.first()
 }

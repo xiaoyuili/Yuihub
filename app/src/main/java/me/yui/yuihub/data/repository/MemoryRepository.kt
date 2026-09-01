@@ -1,7 +1,9 @@
 package me.yui.yuihub.data.repository
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.floatOrNull
@@ -104,9 +106,9 @@ class MemoryRepository(
         query: String,
         charBudget: Int = PROMPT_MEMORY_CHAR_BUDGET,
         embeddingConfig: EmbeddingConfig = EmbeddingConfig(),
-    ): List<AssistantMemory> {
+    ): List<AssistantMemory> = withContext(Dispatchers.Default) {
         val all = if (assistantId == GLOBAL_MEMORY_ID) getGlobalMemories() else getMemoriesOfAssistant(assistantId)
-        if (all.isEmpty()) return emptyList()
+        if (all.isEmpty()) return@withContext emptyList()
 
         val now = System.currentTimeMillis()
         val queryTokens = tokenize(query)
@@ -127,7 +129,7 @@ class MemoryRepository(
             selected += memory
             used += cost
         }
-        return selected
+        selected
     }
 
     private fun memoryScore(
@@ -153,18 +155,19 @@ class MemoryRepository(
     }
 
     // 批量补齐缺失的记忆向量（提取管道写入后调用）
-    suspend fun refreshEmbeddings(assistantId: String, config: EmbeddingConfig) {
-        if (!embeddingService.isConfigured(config)) return
-        val missing = memoryDAO.getMemoriesWithoutEmbedding(assistantId)
-        missing.chunked(32).forEach { chunk ->
-            val vectors = embeddingService.embedTexts(config, chunk.map { it.content }) ?: return
-            vectors.forEachIndexed { index, vector ->
-                if (vector.isNotEmpty()) {
-                    memoryDAO.updateEmbedding(chunk[index].id, vector.toJsonArray())
+    suspend fun refreshEmbeddings(assistantId: String, config: EmbeddingConfig) =
+        withContext(Dispatchers.Default) {
+            if (!embeddingService.isConfigured(config)) return@withContext
+            val missing = memoryDAO.getMemoriesWithoutEmbedding(assistantId)
+            missing.chunked(32).forEach { chunk ->
+                val vectors = embeddingService.embedTexts(config, chunk.map { it.content }) ?: return@withContext
+                vectors.forEachIndexed { index, vector ->
+                    if (vector.isNotEmpty()) {
+                        memoryDAO.updateEmbedding(chunk[index].id, vector.toJsonArray())
+                    }
                 }
             }
         }
-    }
 
     private fun cosineSimilarity(embeddingJson: String?, queryEmbedding: FloatArray?): Float {
         val a = queryEmbedding ?: return 0f
