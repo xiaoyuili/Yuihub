@@ -1,6 +1,8 @@
 package me.yui.yuihub.ui.components.ai
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -65,6 +67,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -122,6 +125,7 @@ fun ChatInput(
     enableSearch: Boolean,
     onUpdateSearchMode: (SearchMode) -> Unit,
     modifier: Modifier = Modifier,
+    dimmed: Boolean = false,
     completionProviders: List<ChatCompletionProvider> = emptyList(),
     onUpdateChatModel: (Model) -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
@@ -150,6 +154,13 @@ fun ChatInput(
         type = ModelType.CHAT,
     )
 
+    // 模糊关闭时滚动聊天列表：输入区域整体变半透明让出视野，停止后恢复
+    val inputAlpha by animateFloatAsState(
+        targetValue = if (dimmed) 0.35f else 1f,
+        animationSpec = tween(durationMillis = 200),
+        label = "chatInputDimAlpha",
+    )
+
     fun sendMessage() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
@@ -167,6 +178,7 @@ fun ChatInput(
     ) {
         Column(
             modifier = modifier
+                .graphicsLayer { alpha = inputAlpha }
                 .imePadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 8.dp)

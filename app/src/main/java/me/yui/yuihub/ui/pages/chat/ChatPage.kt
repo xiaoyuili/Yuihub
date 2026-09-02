@@ -332,6 +332,8 @@ private fun ChatPageContent(
                     loading = loadingJob != null,
                     settings = setting,
                     hazeState = hazeState,
+                    // 模糊关闭时滚动聊天列表，输入区域变半透明让出视野
+                    dimmed = !setting.displaySetting.enableBlurEffect && chatListState.isScrollInProgress,
                     completionProviders = completionProviders,
                     onCancelClick = {
                         vm.stopGeneration()

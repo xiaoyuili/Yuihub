@@ -31,8 +31,8 @@ android {
         applicationId = "me.yui.yuihub"
         minSdk = 26
         targetSdk = 37
-        versionCode = 184
-        versionName = "2.4.16-1"
+        versionCode = 185
+        versionName = "2.4.16-2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
