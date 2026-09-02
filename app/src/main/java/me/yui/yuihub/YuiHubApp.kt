@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import me.yui.yuihub.data.files.BuiltinSkillManager
 import me.yui.yuihub.data.files.FileFolders
 import java.io.File
 import kotlinx.coroutines.SupervisorJob
@@ -77,6 +78,15 @@ class YuiHubApp : Application() {
 
         // cleanup workspace temp dirs (proot + rootfs /tmp)
         cleanupWorkspaceTempDirs()
+
+        // extract builtin skills (first launch or version bump; deleted ones keep tombstones)
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching {
+                BuiltinSkillManager.extractBuiltinSkills(this@YuiHubApp)
+            }.onFailure {
+                Log.e(TAG, "extractBuiltinSkills failed", it)
+            }
+        }
 
         // check workspace integrity (mark workspaces with missing files as broken after backup restore)
         checkWorkspaceIntegrity()

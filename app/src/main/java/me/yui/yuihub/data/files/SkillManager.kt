@@ -59,6 +59,8 @@ class SkillManager(
         val skillDir = resolveSkillDir(name) ?: return@withContext false
         val deleted = skillDir.deleteRecursively()
         if (deleted) {
+            // 内置技能删除后留墓碑，防止下次启动自动恢复
+            BuiltinSkillManager.markDeleted(context, name)
             settingsStore.update { settings ->
                 settings.copy(
                     assistants = settings.assistants.map { assistant ->
