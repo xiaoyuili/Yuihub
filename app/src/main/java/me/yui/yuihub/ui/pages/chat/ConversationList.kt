@@ -252,6 +252,7 @@ private fun ConversationItem(
                 indication = LocalIndication.current,
                 onClick = { onClick(conversation) },
                 onLongClick = {
+                    // Also clear chat input focus when the drawer is permanently visible.
                     focusManager.clearFocus(force = true)
                     showDropdownMenu = true
                 }

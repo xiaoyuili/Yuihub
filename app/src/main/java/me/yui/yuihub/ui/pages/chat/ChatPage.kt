@@ -137,11 +137,13 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         }
     }
 
-    // Hide keyboard when drawer is open, and release focus when it closes
-    // so the file search field does not auto-open the IME next time.
+    // Clear input focus so popup transitions cannot reopen the keyboard.
     LaunchedEffect(drawerState.isOpen) {
-        focusManager.clearFocus(force = true)
-        softwareKeyboardController?.hide()
+        if (drawerState.isOpen) {
+            focusManager.clearFocus(force = true)
+            softwareKeyboardController?.hide()
+        }
+
     }
 
     val windowAdaptiveInfo = currentWindowDpSize()
