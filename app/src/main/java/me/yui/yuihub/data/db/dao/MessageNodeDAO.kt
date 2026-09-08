@@ -59,6 +59,10 @@ data class MessageUsageStats(
 
 data class MessageDayTokens(val day: String, val tokens: Long)
 
+// 在 json_each() 的参数内校验 JSON，避免损坏行导致整个统计查询失败。
+// 使用 CASE 而非依赖 WHERE 条件的求值顺序，无效 JSON 按空数组处理。
+private const val VALID_MESSAGES_JSON = "CASE WHEN json_valid(mn.messages) THEN mn.messages ELSE '[]' END"
+
 private val USAGE_SELECT =
     "COUNT(*) AS totalMessages, " +
         "COALESCE(SUM(CASE WHEN json_extract(j.value, '$.role') = 'assistant' THEN 1 ELSE 0 END), 0) AS assistantMessages, " +
@@ -69,7 +73,7 @@ private val USAGE_SELECT =
 suspend fun MessageNodeDAO.getConversationUsageStats(conversationId: String): MessageUsageStats =
     getUsageStatsRaw(
         SimpleSQLiteQuery(
-            "SELECT $USAGE_SELECT FROM message_node mn, json_each(mn.messages) j " +
+            "SELECT $USAGE_SELECT FROM message_node mn, json_each($VALID_MESSAGES_JSON) j " +
                 "WHERE mn.conversation_id = ?",
             arrayOf(conversationId)
         )
