@@ -361,6 +361,13 @@
   <string name="imggen_page_cancel_generation_title">取消生成</string>
   <string name="imggen_page_confirm">确定</string>
   <string name="imggen_page_delete">删除</string>
+  <string name="imggen_page_delete_images_title">删除图片</string>
+  <string name="imggen_page_delete_images_message">删除选定的图片（%1$d）？此操作无法撤销。</string>
+  <string name="imggen_page_delete_images_success">已删除 %1$d 张图片</string>
+  <string name="imggen_page_delete_images_failed">已删除：%1$d。失败：%2$d。请重试。</string>
+  <string name="imggen_page_deleting">删除中…</string>
+  <string name="imggen_page_selected_count">已选择：%1$d</string>
+  <string name="imggen_page_select_image">选择图片</string>
   <string name="imggen_page_gallery">相册</string>
   <string name="imggen_page_generate_image">生成图片</string>
   <string name="imggen_page_generation_count">生成数量</string>

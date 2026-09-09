@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,6 +37,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ContainedLoadingIndicator
 import androidx.compose.material3.FilterChip
@@ -167,7 +169,7 @@ fun ImageGenPage(
         ) { page ->
             when (page) {
                 0 -> ImageGenScreen(vm = vm)
-                1 -> ImageGalleryScreen(vm = vm)
+                1 -> ImageGalleryScreen(vm = vm, isActive = pagerState.currentPage == 1)
             }
         }
     }
@@ -519,6 +521,7 @@ private fun ReferenceImagesRow(
 @Composable
 private fun ImageGalleryScreen(
     vm: ImgGenVM,
+    isActive: Boolean,
 ) {
     val generatedImages = vm.generatedImages.collectAsLazyPagingItems()
     val context = LocalContext.current
@@ -527,8 +530,92 @@ private fun ImageGalleryScreen(
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
     val pullToRefreshState = rememberPullToRefreshState()
+    var selectionMode by remember { mutableStateOf(false) }
+    var selectedImages by remember { mutableStateOf<Map<Int, GeneratedImage>>(emptyMap()) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
 
-    PullToRefreshBox(
+    fun clearSelection() {
+        selectionMode = false
+        selectedImages = emptyMap()
+        showDeleteDialog = false
+    }
+
+    fun toggleSelection(image: GeneratedImage) {
+        if (!isDeleting) {
+            selectedImages = if (image.id in selectedImages) {
+                selectedImages - image.id
+            } else {
+                selectedImages + (image.id to image)
+            }
+        }
+    }
+
+    BackHandler(enabled = isActive && selectionMode) {
+        if (!isDeleting) clearSelection()
+    }
+    LaunchedEffect(isActive) {
+        if (!isActive && !isDeleting) clearSelection()
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text(stringResource(R.string.imggen_page_delete_images_title)) },
+            text = { Text(stringResource(R.string.imggen_page_delete_images_message, selectedImages.size)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    isDeleting = true
+                    val images = selectedImages.values.toList()
+                    scope.launch {
+                        try {
+                            val failed = vm.deleteImages(images)
+                            selectedImages = failed.associateBy { it.id }
+                            selectionMode = failed.isNotEmpty()
+                            toaster.show(
+                                message = if (failed.isEmpty()) context.getString(R.string.imggen_page_delete_images_success, images.size)
+                                else context.getString(
+                                    R.string.imggen_page_delete_images_failed,
+                                    images.size - failed.size,
+                                    failed.size
+                                ),
+                                type = if (failed.isEmpty()) ToastType.Success else ToastType.Error
+                            )
+                        } finally {
+                            isDeleting = false
+                        }
+                    }
+                }) { Text(stringResource(R.string.imggen_page_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text(stringResource(R.string.imggen_page_cancel)) }
+            }
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (selectionMode) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                TextButton(onClick = { clearSelection() }, enabled = !isDeleting) {
+                    Text(stringResource(R.string.imggen_page_cancel))
+                }
+                Text(
+                    if (isDeleting) stringResource(R.string.imggen_page_deleting)
+                    else stringResource(R.string.imggen_page_selected_count, selectedImages.size)
+                )
+                TextButton(
+                    onClick = { showDeleteDialog = true },
+                    enabled = selectedImages.isNotEmpty() && !isDeleting
+                ) { Text(stringResource(R.string.imggen_page_delete)) }
+            }
+        }
+
+        PullToRefreshBox(
         isRefreshing = false,
         onRefresh = { generatedImages.refresh() },
         state = pullToRefreshState
@@ -574,18 +661,41 @@ private fun ImageGalleryScreen(
                         var showPreview by remember { mutableStateOf(false) }
 
                         Card(
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth().combinedClickable(
+                                onClick = {
+                                    if (selectionMode) toggleSelection(it) else showPreview = true
+                                },
+                                onLongClick = {
+                                    if (!isDeleting) {
+                                        selectionMode = true
+                                        selectedImages = selectedImages + (it.id to it)
+                                    }
+                                },
+                                onLongClickLabel = stringResource(R.string.imggen_page_select_image)
+                            ),
+                            border = if (it.id in selectedImages) {
+                                BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                            } else null
                         ) {
                             Column {
-                                AsyncImage(
-                                    model = File(it.filePath),
-                                    contentDescription = null,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .aspectRatio(1f)
-                                        .clickable { showPreview = true },
-                                    contentScale = ContentScale.Crop
-                                )
+                                Box {
+                                    AsyncImage(
+                                        model = File(it.filePath),
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(1f),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    if (selectionMode) {
+                                        Checkbox(
+                                            checked = it.id in selectedImages,
+                                            onCheckedChange = { _ -> toggleSelection(it) },
+                                            enabled = !isDeleting,
+                                            modifier = Modifier.align(Alignment.TopEnd)
+                                        )
+                                    }
+                                }
 
                                 Column(
                                     modifier = Modifier
@@ -607,7 +717,7 @@ private fun ImageGalleryScreen(
                                         )
                                     }
 
-                                    Row {
+                                    if (!selectionMode) Row {
                                         IconButton(
                                             onClick = {
                                                 clipboardManager.setText(AnnotatedString(it.prompt))
@@ -670,11 +780,12 @@ private fun ImageGalleryScreen(
                             }
                         }
 
-                        if (showPreview) {
-                            ImagePreviewDialog(
-                                images = listOf(it.filePath),
-                                onDismissRequest = { showPreview = false }
-                            )
+                            if (showPreview) {
+                                ImagePreviewDialog(
+                                    images = listOf(it.filePath),
+                                    onDismissRequest = { showPreview = false }
+                                )
+                            }
                         }
                     }
                 }
