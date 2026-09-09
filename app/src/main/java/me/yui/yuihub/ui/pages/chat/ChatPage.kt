@@ -330,6 +330,7 @@ private fun ChatPageContent(
                 )
             },
             bottomBar = {
+                val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
                 ChatInput(
                     state = inputState,
                     loading = loadingJob != null,
@@ -372,6 +373,11 @@ private fun ChatPageContent(
                             )
                         )
                     },
+                    messageQueue = messageQueue,
+                    onRemoveQueuedMessage = vm::removeQueuedMessage,
+                    onBeginEditQueuedMessage = vm::beginEditQueuedMessage,
+                    onFinishEditQueuedMessage = vm::finishEditQueuedMessage,
+                    onResumeMessageQueue = vm::resumeMessageQueue,
                     onSendClick = {
                         if (currentChatModel == null) {
                             toaster.show("请先选择模型", type = ToastType.Error)

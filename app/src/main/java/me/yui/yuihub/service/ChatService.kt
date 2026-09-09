@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import androidx.core.net.toUri
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -89,6 +90,7 @@ import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantAffectScope
 import me.yui.yuihub.data.model.CompressionSummary
 import me.yui.yuihub.data.model.Conversation
+import me.yui.yuihub.data.model.localFileUrls
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.data.model.replaceRegexes
 import me.yui.yuihub.data.model.toMessageNode
@@ -242,7 +244,11 @@ class ChatService(
                     assistantId = settings.getCurrentAssistant().id
                 ),
                 scope = appScope,
-                onIdle = { removeSession(it) }
+                onIdle = { removeSession(it) },
+                onGenerationFinished = { id, cause ->
+                    if (cause != null) sessions[id]?.messageQueue?.pause()
+                    appScope.launch { dispatchNextQueuedMessage(id) }
+                },
             ).also {
                 _sessionsVersion.value++
                 Log.i(TAG, "createSession: $id (total: ${sessions.size + 1})")
@@ -320,15 +326,15 @@ class ChatService(
         keepAliveInBackground: Boolean = true,
         block: suspend () -> Unit,
     ): Job {
-        if (!keepAliveInBackground) return appScope.launch { block() }
+        if (!keepAliveInBackground) return appScope.launch(start = CoroutineStart.LAZY) { block() }
 
-        val generationId = Uuid.random()
-        val foregroundStarted = ChatGenerationForegroundService.acquire(
-            context = context,
-            generationId = generationId,
-            conversationId = conversationId,
-        )
-        return appScope.launch {
+        return appScope.launch(start = CoroutineStart.LAZY) {
+            val generationId = Uuid.random()
+            val foregroundStarted = ChatGenerationForegroundService.acquire(
+                context = context,
+                generationId = generationId,
+                conversationId = conversationId,
+            )
             try {
                 block()
             } finally {
@@ -362,19 +368,92 @@ class ChatService(
 
     // ---- 发送消息 ----
 
+    fun getMessageQueueFlow(conversationId: Uuid): StateFlow<MessageQueueState> =
+        getOrCreateSession(conversationId).messageQueue.state
+
+    fun removeQueuedMessage(conversationId: Uuid, messageId: Uuid) {
+        sessions[conversationId]?.messageQueue?.remove(messageId)?.let(::cleanupQueuedAttachments)
+        dispatchNextQueuedMessage(conversationId)
+    }
+
+    fun beginEditQueuedMessage(conversationId: Uuid, messageId: Uuid): QueuedMessage? =
+        sessions[conversationId]?.messageQueue?.beginEdit(messageId)
+
+    fun finishEditQueuedMessage(
+        conversationId: Uuid,
+        messageId: Uuid,
+        parts: List<UIMessagePart>? = null
+    ) {
+        sessions[conversationId]?.messageQueue?.finishEdit(messageId, parts)
+            ?.let(::cleanupQueuedAttachments)
+        dispatchNextQueuedMessage(conversationId)
+    }
+
+    private fun cleanupQueuedAttachments(previous: QueuedMessage) {
+        val candidates = previous.parts.localFileUrls()
+        if (candidates.isEmpty()) return
+        appScope.launch {
+            try {
+                // 未打开的会话及未选中的分支也可能引用同一附件。
+                val persistedReferences =
+                    candidates.filter { conversationRepo.hasFileReference(it) }.toSet()
+                // 数据库查询挂起期间队列可能已推进，删除前重新读取内存引用。
+                val currentSessions = sessions.values.toList()
+                val unusedFiles = unreferencedQueuedAttachmentUrls(
+                    previous = previous,
+                    conversations = currentSessions.map { it.state.value },
+                    pendingMessages = currentSessions.flatMap {
+                        it.messageQueue.state.value.messages + listOfNotNull(it.submittingMessage)
+                    },
+                ) - persistedReferences
+                if (unusedFiles.isNotEmpty()) {
+                    filesManager.deleteChatFiles(unusedFiles.map { it.toUri() })
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                // 无法确认引用时保留文件，避免误删。
+                Log.w(TAG, "Failed to clean queued attachments", e)
+            }
+        }
+    }
+
+    fun resumeMessageQueue(conversationId: Uuid) {
+        sessions[conversationId]?.messageQueue?.resume()
+        dispatchNextQueuedMessage(conversationId)
+    }
+
     fun sendMessage(conversationId: Uuid, content: List<UIMessagePart>, answer: Boolean = true) {
         if (content.isEmptyInputMessage()) return
-
         val session = getOrCreateSession(conversationId)
-        val previousJob = session.getJob()
-        previousJob?.cancel()
+        synchronized(session) {
+            if (session.messageQueue.state.value.messages.isEmpty()) session.messageQueue.resume()
+            session.messageQueue.enqueue(content, answer)
+            dispatchNextQueuedMessage(conversationId)
+        }
+    }
 
+    private fun dispatchNextQueuedMessage(conversationId: Uuid) {
+        val session = sessions[conversationId] ?: return
+        synchronized(session) {
+            // A pending tool approval is still part of the current turn.
+            if (session.getJob() != null || session.state.value.currentMessages.any { message ->
+                    message.parts.any { it is UIMessagePart.Tool && it.isPending }
+                }) return
+            val next = session.messageQueue.takeNext() ?: return
+            session.submittingMessage = next
+            sendQueuedMessage(session, next)
+        }
+    }
+
+    private fun sendQueuedMessage(session: ConversationSession, queued: QueuedMessage) {
+        val conversationId = session.id
+        val content = queued.parts
+        val answer = queued.answer
         val job = launchGenerationJob(
             conversationId = conversationId,
             keepAliveInBackground = answer,
         ) {
             try {
-                runCatching { previousJob?.join() }
                 finishInterruptedPendingTools(conversationId)
 
                 val currentConversation = session.state.value
@@ -396,6 +475,7 @@ class ChatService(
                     ).toMessageNode(),
                 )
                 saveConversation(conversationId, newConversation)
+                session.submittingMessage = null
 
                 // 开始补全
                 if (answer) {
@@ -409,7 +489,14 @@ class ChatService(
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                if (e is CancellationException) throw e
+                session.messageQueue.pause()
                 addError(e, conversationId, title = context.getString(R.string.error_title_send_message))
+            }
+        }
+        job.invokeOnCompletion {
+            synchronized(session) {
+                if (session.submittingMessage?.id == queued.id) session.submittingMessage = null
             }
         }
         session.setJob(job)
@@ -476,6 +563,8 @@ class ChatService(
                 memoryExtractor.launchExtraction(conversationId)
                 evolutionExtractor.launchExtraction(conversationId)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                session.messageQueue.pause()
                 addError(e, conversationId, title = context.getString(R.string.error_title_regenerate_message))
             }
         }

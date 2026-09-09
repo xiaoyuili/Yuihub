@@ -89,6 +89,7 @@ import dev.chrisbanes.haze.blur.material3.Material3
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import me.rerere.ai.provider.Model
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelType
 import me.rerere.hugeicons.HugeIcons
@@ -110,11 +111,14 @@ import me.yui.yuihub.ui.components.ai.completion.ChatCompletionProvider
 import me.yui.yuihub.ui.components.ui.KeepScreenOn
 import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.context.LocalToaster
+import me.yui.yuihub.service.MessageQueueState
+import me.yui.yuihub.service.QueuedMessage
 import me.yui.yuihub.ui.hooks.ChatInputState
 import me.yui.yuihub.utils.AUTO_COMPRESS_THRESHOLD_RATIO
 import me.yui.yuihub.utils.formatContextLength
 import org.koin.compose.koinInject
 import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.Uuid
 
 @Composable
 fun ChatInput(
@@ -135,6 +139,11 @@ fun ChatInput(
     onCancelClick: () -> Unit,
     onSendClick: () -> Unit,
     onLongSendClick: () -> Unit,
+    messageQueue: MessageQueueState = MessageQueueState(),
+    onRemoveQueuedMessage: (Uuid) -> Unit = {},
+    onBeginEditQueuedMessage: (Uuid) -> QueuedMessage? = { null },
+    onFinishEditQueuedMessage: (Uuid, List<UIMessagePart>?) -> Unit = { _, _ -> },
+    onResumeMessageQueue: () -> Unit = {},
 ) {
     val toaster = LocalToaster.current
     val assistant = settings.getCurrentAssistant()
@@ -164,13 +173,13 @@ fun ChatInput(
     fun sendMessage() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
-        if (loading) onCancelClick() else onSendClick()
+        if (loading && state.isEmpty()) onCancelClick() else onSendClick()
     }
 
     fun sendMessageWithoutAnswer() {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
-        if (loading) onCancelClick() else onLongSendClick()
+        if (loading && state.isEmpty()) onCancelClick() else onLongSendClick()
     }
 
     Surface(
@@ -220,6 +229,13 @@ fun ChatInput(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
+                    MessageQueuePanel(
+                        state = messageQueue,
+                        onRemove = onRemoveQueuedMessage,
+                        onBeginEdit = onBeginEditQueuedMessage,
+                        onFinishEdit = onFinishEditQueuedMessage,
+                        onResume = onResumeMessageQueue,
+                    )
                     if (state.messageContent.isNotEmpty()) {
                         MediaFileInputRow(state = state)
                     }
@@ -342,13 +358,14 @@ private fun SendButton(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val showStop = loading && empty
     val containerColor = when {
-        loading -> MaterialTheme.colorScheme.errorContainer
+        showStop -> MaterialTheme.colorScheme.errorContainer
         empty -> MaterialTheme.colorScheme.surfaceContainerHigh
         else -> MaterialTheme.colorScheme.primary
     }
     val contentColor = when {
-        loading -> MaterialTheme.colorScheme.onErrorContainer
+        showStop -> MaterialTheme.colorScheme.onErrorContainer
         empty -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         else -> MaterialTheme.colorScheme.onPrimary
     }
@@ -359,7 +376,7 @@ private fun SendButton(
             .testTag("chat_send_button")
             .clip(CircleShape)
             .combinedClickable(
-                enabled = loading || !empty,
+                enabled = showStop || !empty,
                 onClick = onClick,
                 onLongClick = onLongClick,
             )
@@ -372,20 +389,13 @@ private fun SendButton(
         )
         if (loading) {
             KeepScreenOn()
-            Icon(
-                imageVector = HugeIcons.Cancel01,
-                contentDescription = stringResource(R.string.stop),
-                tint = contentColor,
-                modifier = Modifier.size(18.dp)
-            )
-        } else {
-            Icon(
-                imageVector = HugeIcons.ArrowUp02,
-                contentDescription = stringResource(R.string.send),
-                tint = contentColor,
-                modifier = Modifier.size(18.dp)
-            )
         }
+        Icon(
+            imageVector = if (showStop) HugeIcons.Cancel01 else HugeIcons.ArrowUp02,
+            contentDescription = stringResource(if (showStop) R.string.stop else R.string.send),
+            tint = contentColor,
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 

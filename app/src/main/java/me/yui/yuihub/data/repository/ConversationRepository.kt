@@ -37,6 +37,9 @@ class ConversationRepository(
     private val filesManager: FilesManager,
     private val messageFtsManager: MessageFtsManager,
 ) {
+
+    suspend fun hasFileReference(fileUrl: String): Boolean =
+        messageNodeDAO.hasFileReference(JsonInstant.encodeToString(fileUrl))
     companion object {
         private const val PAGE_SIZE = 20
         private const val INITIAL_LOAD_SIZE = 40
