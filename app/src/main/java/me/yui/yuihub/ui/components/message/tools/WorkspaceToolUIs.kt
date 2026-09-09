@@ -348,6 +348,9 @@ object ShellToolUI : ToolUIRenderer {
         val cwd = context.arguments.getStringContent("cwd")
         val stdout = content.getStringContent("stdout").orEmpty()
         val stderr = content.getStringContent("stderr").orEmpty()
+        // 输出被截断时 GenerationHandler 会写入非 JSON 的说明文本, content 解析为空对象,
+        // 回退展示 rawText 避免详情空白
+        val truncatedFallback = stdout.isBlank() && stderr.isBlank() && !context.rawText.isNullOrBlank()
         Column(
             modifier = Modifier
                 .fillMaxHeight(0.8f)
@@ -372,6 +375,18 @@ object ShellToolUI : ToolUIRenderer {
                 language = "bash",
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (truncatedFallback) {
+                Text(
+                    text = stringResource(R.string.tool_ui_shell_truncated_notice),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                HighlightCodeBlock(
+                    code = context.rawText.orEmpty(),
+                    language = "plaintext",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             if (stdout.isNotEmpty()) {
                 Text(text = "stdout", style = MaterialTheme.typography.labelMedium)
                 HighlightCodeBlock(

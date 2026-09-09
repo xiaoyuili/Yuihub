@@ -11,6 +11,12 @@ class RootfsPatcher {
         val etcDir = File(linuxDir, "etc")
         if (!etcDir.isDirectory) return
 
+        // patch 是幂等读改写, 参数未变时重复执行纯属浪费;
+        // 每条 shell 命令都要走一次, 这里用 marker 记住已完成的参数集直接返回。
+        val marker = File(etcDir, PATCH_MARKER)
+        val signature = options.markerSignature()
+        if (marker.isFile && marker.readText() == signature) return
+
         ensureRootfsDns(etcDir, options.nameservers)
         ensureHosts(etcDir, options.hostname)
         ensureHostname(etcDir, options.hostname)
@@ -18,6 +24,7 @@ class RootfsPatcher {
         ensureGroupNames(etcDir, options.groupIds.ifEmpty { currentSupplementaryGroupIds() })
         ensureAptMirror(etcDir)
         ensureTempDirs(linuxDir)
+        marker.writeText(signature)
     }
 
     /**
@@ -205,6 +212,7 @@ class RootfsPatcher {
     }
 
     private companion object {
+        private const val PATCH_MARKER = ".yuihub-patched"
         private const val MAX_DNS_SERVERS = 3
         private const val DEFAULT_HOSTNAME = "localhost"
         private const val APT_MIRROR_HOST = "mirrors.tuna.tsinghua.edu.cn"
@@ -229,4 +237,8 @@ data class RootfsPatchOptions(
     val hostname: String = "localhost",
     val locale: String = "C.UTF-8",
     val groupIds: List<Long> = emptyList(),
-)
+) {
+    /** 参数摘要, 用于判断已 patch 的 rootfs 是否需要重新 patch */
+    internal fun markerSignature(): String =
+        "dns=${nameservers.sorted().joinToString(",")};host=$hostname;locale=$locale;groups=${groupIds.sorted().joinToString(",")}"
+}

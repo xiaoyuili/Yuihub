@@ -111,19 +111,20 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
 
     val renderer = remember(tool.toolName) { ToolUIRegistry.resolve(tool.toolName) }
     val context = remember(tool, loading) {
+        val rawText = tool.output.filterIsInstance<UIMessagePart.Text>()
+            .joinToString("\n") { it.text }
         ToolUIContext(
             tool = tool,
             arguments = tool.inputAsJson(),
             content = if (tool.isExecuted) {
                 runCatching {
-                    JsonInstant.parseToJsonElement(
-                        tool.output.filterIsInstance<UIMessagePart.Text>().joinToString("\n") { it.text }
-                    )
+                    JsonInstant.parseToJsonElement(rawText)
                 }.getOrElse { JsonObject(emptyMap()) }
             } else {
                 null
             },
             loading = loading,
+            rawText = rawText.ifBlank { null },
         )
     }
 

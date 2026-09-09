@@ -45,6 +45,8 @@ data class ToolUIContext(
     val content: JsonElement?,
     /** 该工具调用是否在生成中 */
     val loading: Boolean,
+    /** 输出文本原样拼接, 供 content 非预期格式 (如截断说明) 时回退展示 */
+    val rawText: String? = null,
 )
 
 /**

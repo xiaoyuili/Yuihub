@@ -1087,6 +1087,7 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="tool_ui_shell_default">Shell</string>
   <string name="tool_ui_shell_timeout">timeout</string>
   <string name="tool_ui_shell_exit">exit %s</string>
+  <string name="tool_ui_shell_truncated_notice">Output exceeded the inline limit; the full log was saved to /tool_outputs. The text below is the notice the model received.</string>
   <string name="tool_ui_delete_memory">Delete memory</string>
   <string name="tool_ui_file">file</string>
   <string name="workspace_page_name_duplicate">Name already exists</string>

@@ -1046,6 +1046,7 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="tool_ui_shell_default">Shell</string>
   <string name="tool_ui_shell_timeout">timeout</string>
   <string name="tool_ui_shell_exit">exit %s</string>
+  <string name="tool_ui_shell_truncated_notice">输出超出内联上限，完整日志已存到 /tool_outputs。下方是模型收到的说明文本。</string>
   <string name="tool_ui_delete_memory">删除记忆</string>
   <string name="tool_ui_file">文件</string>
   <string name="workspace_page_name_duplicate">名称已存在</string>

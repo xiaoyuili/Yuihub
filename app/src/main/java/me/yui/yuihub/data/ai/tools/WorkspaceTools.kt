@@ -13,6 +13,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.toMetadata
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.repository.WorkspaceRepository
+import me.rerere.workspace.WorkspaceStorageArea
 import me.yui.yuihub.utils.generateUnifiedDiff
 import me.rerere.workspace.MAX_OUTPUT_CHARS
 import me.rerere.workspace.WorkspaceCommandResult
@@ -307,6 +308,12 @@ private suspend fun WorkspaceRepository.readRootfsBuffer(
     require(size <= MAX_READ_FILE_BYTES) {
         "File is too large to read: $path (${size / 1024 / 1024}MB, max ${MAX_READ_FILE_BYTES / 1024 / 1024}MB). Use shell commands like head, tail, or grep to read parts of it."
     }
+    // /workspace 即宿主侧 filesDir, 直连文件 IO 免去 proot 进程启动
+    workspaceRelativePathInFilesArea(path)?.let { relative ->
+        return ByteArrayOutputStream(size.toInt()).also { out ->
+            exportFile(workspaceId, WorkspaceStorageArea.FILES, relative, out)
+        }
+    }
     return ByteArrayOutputStream(size.toInt()).also { exportRootfsFile(workspaceId, path, it) }
 }
 
@@ -335,6 +342,12 @@ private suspend fun WorkspaceRepository.writeTextInRootfs(
     text: String,
     overwrite: Boolean,
 ): WorkspaceFileEntry {
+    // /workspace 即宿主侧 filesDir, 直连文件 IO 免去 proot 进程启动与 stdin 传输
+    workspaceRelativePathInFilesArea(path)?.let { relative ->
+        require(relative.isNotBlank()) { "Path must point to a file inside /workspace" }
+        val entry = writeText(workspaceId, relative, text, overwrite)
+        return entry.toRootfsEntry()
+    }
     val pathArg = path.shellQuote()
     val result = runRootfsCommand(
         workspaceId = workspaceId,
@@ -466,3 +479,20 @@ private fun WorkspaceFileEntry.toJson() = buildJsonObject {
     put("sizeBytes", sizeBytes)
     put("updatedAt", updatedAt)
 }
+
+/**
+ * /workspace/<rest> → 相对 filesDir 的路径; 非 /workspace 路径返回 null。
+ * filesDir 与 Rootfs 内 /workspace 是同一目录 (bind mount), 可直连文件 IO。
+ */
+private fun workspaceRelativePathInFilesArea(path: String): String? {
+    val normalized = path.replace('\\', '/').trim().trimEnd('/')
+    if (normalized == WorkspaceManager.ROOTFS_WORKSPACE_DIR) return ""
+    val prefix = WorkspaceManager.ROOTFS_WORKSPACE_DIR + "/"
+    return normalized.takeIf { it.startsWith(prefix) }?.removePrefix(prefix)
+}
+
+/** filesDir 条目的 path 是相对 filesDir 的, 还原成 Rootfs 内绝对路径, 与 shell 返回格式一致 */
+private fun WorkspaceFileEntry.toRootfsEntry() = copy(
+    path = if (path.isBlank()) WorkspaceManager.ROOTFS_WORKSPACE_DIR
+    else WorkspaceManager.ROOTFS_WORKSPACE_DIR + "/" + path.trimStart('/'),
+)
