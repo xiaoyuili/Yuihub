@@ -170,6 +170,7 @@ class WorkspaceTerminalSessionManager internal constructor(
                     cwd = "",
                     mounts = workspace?.mountDirList().orEmpty(),
                 ),
+                shellCompatibilityMode = shellCompatibilityMode,
             )
         }.onFailure { error ->
             Log.e(TAG, "Failed to create terminal for workspace $root", error)

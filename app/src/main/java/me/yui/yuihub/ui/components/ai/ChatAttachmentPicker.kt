@@ -188,8 +188,7 @@ internal fun rememberChatAttachmentPickerActions(
     return ChatAttachmentPickerActions(
         onTakePicture = onTakePicture,
         onPickImage = {
-            imagePickerLauncher.launch(
-                )
+            imagePickerLauncher.launch("image/*")
         },
         onPickVideo = { videoPickerLauncher.launch("video/*") },
         onPickAudio = { audioPickerLauncher.launch("audio/*") },

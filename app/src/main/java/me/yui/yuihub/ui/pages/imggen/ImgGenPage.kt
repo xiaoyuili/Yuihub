@@ -414,8 +414,7 @@ private fun InputBar(
 
             IconButton(
                 onClick = {
-                    imagePickerLauncher.launch(
-                        )
+                    imagePickerLauncher.launch("image/*")
                 }
             ) {
                 Icon(

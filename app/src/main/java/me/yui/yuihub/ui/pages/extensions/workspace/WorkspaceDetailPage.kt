@@ -229,28 +229,25 @@ fun WorkspaceDetailPage(id: String) {
                     contentPadding = PaddingValues(),
                     onSelectArea = vm::selectArea,
                     onGoUp = vm::goUp,
+                    onResolveImage = { entry, area -> vm.resolveImageFile(entry, area) },
                     onOpen = { entry ->
                         when {
                             entry.isDirectory -> vm.open(entry)
 
-                            else -> when (entry.detectFileType()) {
-                                WorkspaceFileType.TEXT -> navController.navigate(
-                                    Screen.WorkspaceFileEditor(id, state.area.name, entry.path)
-                                )
-
-                                entry.name.substringAfterLast('.').equals("svg", ignoreCase = true) ->
+                            else -> when {
+                                entry.detectFileType() == WorkspaceFileType.TEXT ||
+                                    entry.name.substringAfterLast('.').equals("svg", ignoreCase = true) ->
                                     navController.navigate(
                                         Screen.WorkspaceFileEditor(id, state.area.name, entry.path)
                                     )
 
-
-                                WorkspaceFileType.IMAGE -> vm.exportToCacheFile(entry, context.cacheDir) { file ->
+                                entry.detectFileType() == WorkspaceFileType.IMAGE -> vm.exportToCacheFile(entry, context.cacheDir) { file ->
                                     // 传绝对路径 (而非 content:// URI): Coil 可直接加载,
                                     // 预览弹窗的保存按钮 saveMessageImage 只认 "/" 开头路径, content URI 会报错
                                     previewImageUri = file.absolutePath
                                 }
 
-                                WorkspaceFileType.OTHER -> vm.exportToCacheFile(entry, context.cacheDir) { file ->
+                                else -> vm.exportToCacheFile(entry, context.cacheDir) { file ->
                                     val uri = FileProvider.getUriForFile(
                                         context,
                                         "${context.packageName}.fileprovider",

@@ -241,11 +241,34 @@ private fun WorkspaceTerminalContent(
             }
             if (selectedTab != null) {
                 WorkspaceTerminalTabContent(
-                tab = selectedTab,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-            )
+                    tab = selectedTab,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = when {
+                            root == null || state.isCreating || state.readiness == WorkspaceTerminalReadiness.Loading -> {
+                                stringResource(R.string.workspace_terminal_loading)
+                            }
+                            state.readiness == WorkspaceTerminalReadiness.NotInstalled -> {
+                                stringResource(R.string.workspace_terminal_not_installed)
+                            }
+                            else -> stringResource(R.string.workspace_terminal_no_tabs)
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                    )
+                }
+            }
         }
     }
 }

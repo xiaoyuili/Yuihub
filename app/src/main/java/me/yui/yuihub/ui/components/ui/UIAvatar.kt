@@ -230,8 +230,7 @@ fun UIAvatar(
                     Button(
                         onClick = {
                             showPickOption = false
-                            imagePickerLauncher.launch(
-                                )
+                            imagePickerLauncher.launch("image/*")
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {

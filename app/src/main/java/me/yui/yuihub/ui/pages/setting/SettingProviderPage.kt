@@ -232,7 +232,7 @@ private fun ImportProviderButton(
     }
 
     val pickImageLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
+        ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
             handleImageQRCode(it, onAdd, toaster, context)
@@ -303,11 +303,7 @@ private fun ImportProviderButton(
                         OutlinedButton(
                             onClick = {
                                 showImportDialog = false
-                                pickImageLauncher.launch(
-                                    androidx.activity.result.PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                                    )
-                                )
+                                pickImageLauncher.launch("image/*")
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
