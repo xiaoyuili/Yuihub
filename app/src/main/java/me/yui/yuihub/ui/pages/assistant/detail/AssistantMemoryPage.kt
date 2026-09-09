@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -46,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -383,6 +385,46 @@ private fun AssistantMemoryContent(
             onUpdateAssistant = onUpdateAssistant,
         )
 
+        var showTimeReminderIntervalDialog by remember(assistant.id) { mutableStateOf(false) }
+        var timeReminderIntervalInput by remember(assistant.id) { mutableStateOf("") }
+
+        if (showTimeReminderIntervalDialog) {
+            val interval = timeReminderIntervalInput.toIntOrNull()?.takeIf { it > 0 }
+            AlertDialog(
+                onDismissRequest = { showTimeReminderIntervalDialog = false },
+                title = { Text(stringResource(R.string.assistant_page_time_reminder_interval)) },
+                text = {
+                    TextField(
+                        value = timeReminderIntervalInput,
+                        onValueChange = { timeReminderIntervalInput = it },
+                        label = { Text(stringResource(R.string.assistant_page_time_reminder_interval_label)) },
+                        supportingText = { Text(stringResource(R.string.assistant_page_time_reminder_interval_hint)) },
+                        isError = interval == null,
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = interval != null,
+                        onClick = {
+                            interval?.let {
+                                onUpdateAssistant(assistant.copy(timeReminderIntervalMinutes = it))
+                            }
+                            showTimeReminderIntervalDialog = false
+                        },
+                    ) {
+                        Text(stringResource(R.string.assistant_page_save))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showTimeReminderIntervalDialog = false }) {
+                        Text(stringResource(R.string.assistant_page_cancel))
+                    }
+                },
+            )
+        }
+
         CardGroup {
             item(
                 headlineContent = { Text(stringResource(R.string.assistant_page_memory)) },
@@ -444,6 +486,17 @@ private fun AssistantMemoryContent(
                     )
                 }
             )
+            if (assistant.enableTimeReminder) {
+                item(
+                    headlineContent = { Text(stringResource(R.string.assistant_page_time_reminder_interval)) },
+                    supportingContent = { Text(stringResource(R.string.assistant_page_time_reminder_interval_desc)) },
+                    trailingContent = { Text(stringResource(R.string.assistant_page_time_reminder_interval_value, assistant.timeReminderIntervalMinutes)) },
+                    onClick = {
+                        timeReminderIntervalInput = assistant.timeReminderIntervalMinutes.toString()
+                        showTimeReminderIntervalDialog = true
+                    },
+                )
+            }
         }
 
         OutlinedTextField(
