@@ -1,8 +1,10 @@
 package me.yui.yuihub.service
 
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +34,7 @@ class ConversationSession(
 
     // 生成任务（内聚在 session 中）
     private val _generationJob = MutableStateFlow<Job?>(null)
+    private val activeJobs = mutableSetOf<Job>()
     val generationJob: StateFlow<Job?> = _generationJob.asStateFlow()
     val isGenerating: Boolean get() = _generationJob.value?.isActive == true
     val isInUse: Boolean get() = refCount.get() > 0 || isGenerating
@@ -69,18 +72,33 @@ class ConversationSession(
         }
     }
 
-    fun setJob(job: Job?) {
-        _generationJob.value?.cancel()
+    @Synchronized
+    fun setJob(job: Job?, cancelPrevious: Boolean = true) {
+        val previous = _generationJob.value
         _generationJob.value = job
-        job?.invokeOnCompletion {
-            _generationJob.value = null
-            if (refCount.get() <= 0) {
-                scheduleIdleCheck()
+        if (cancelPrevious) previous?.cancel()
+        if (job != null) activeJobs.add(job)
+        job?.invokeOnCompletion { cause ->
+            synchronized(this) {
+                activeJobs.remove(job)
+                // Also propagate cancellation when a queued coroutine never entered its body.
+                if (!cancelPrevious && cause is CancellationException) previous?.cancel()
+                if (_generationJob.compareAndSet(job, null)) {
+                    if (refCount.get() <= 0) {
+                        scheduleIdleCheck()
+                    }
+                }
             }
         }
     }
 
     fun getJob(): Job? = _generationJob.value
+
+    @Synchronized
+    fun cancelJobs(): List<Job> = activeJobs.toList().also { jobs ->
+        // Cancel waiters first so a predecessor finishing cannot start the next approval.
+        jobs.asReversed().forEach { it.cancel() }
+    }
 
     private fun scheduleIdleCheck() {
         idleCheckJob?.cancel()
@@ -98,9 +116,21 @@ class ConversationSession(
     }
 
     fun cleanup() {
-        _generationJob.value?.cancel()
         _generationJob.value = null
+        cancelJobs()
         idleCheckJob?.cancel()
         idleCheckJob = null
+    }
+}
+
+/** Serialize approval saves without cancelling earlier decisions; stopping cancels the whole chain. */
+internal suspend fun afterPreviousGeneration(previous: Job?, block: suspend () -> Unit) {
+    try {
+        previous?.join()
+        block()
+    } catch (e: CancellationException) {
+        previous?.cancel()
+        withContext(NonCancellable) { previous?.join() }
+        throw e
     }
 }
