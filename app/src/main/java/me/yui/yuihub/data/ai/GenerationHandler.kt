@@ -6,7 +6,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
@@ -249,22 +251,36 @@ class GenerationHandler(
             }
 
             // Handle tools (execute approved tools, handle denied tools)
+            // 每完成一个工具立即 emit, 避免整批执行期间 UI 无变化让用户误以为卡住
             val executedTools = arrayListOf<UIMessagePart.Tool>()
+            suspend fun pushExecuted(updated: UIMessagePart.Tool) {
+                executedTools += updated
+                val lastMessage = messages.last()
+                val parts = lastMessage.parts.map { part ->
+                    if (part is UIMessagePart.Tool) {
+                        (executedTools.find { it.toolCallId == part.toolCallId } ?: part)
+                    } else part
+                }
+                messages = messages.dropLast(1) + lastMessage.copy(parts = parts)
+                emit(GenerationChunk.Messages(messages))
+            }
             toolsToProcess.forEach { tool ->
                 when (tool.approvalState) {
                     is ToolApprovalState.Denied -> {
                         // Tool was denied by user
                         val reason = (tool.approvalState as ToolApprovalState.Denied).reason
-                        executedTools += tool.copy(
-                            output = listOf(
-                                UIMessagePart.Text(
-                                    json.encodeToString(
-                                        buildJsonObject {
-                                            put(
-                                                "error",
-                                                JsonPrimitive("Tool execution denied by user. Reason: ${reason.ifBlank { "No reason provided" }}")
-                                            )
-                                        }
+                        pushExecuted(
+                            tool.copy(
+                                output = listOf(
+                                    UIMessagePart.Text(
+                                        json.encodeToString(
+                                            buildJsonObject {
+                                                put(
+                                                    "error",
+                                                    JsonPrimitive("Tool execution denied by user. Reason: ${reason.ifBlank { "No reason provided" }}")
+                                                )
+                                            }
+                                        )
                                     )
                                 )
                             )
@@ -274,9 +290,11 @@ class GenerationHandler(
                     is ToolApprovalState.Answered -> {
                         // Tool was answered by user (e.g., ask_user tool)
                         val answer = (tool.approvalState as ToolApprovalState.Answered).answer
-                        executedTools += tool.copy(
-                            output = listOf(
-                                UIMessagePart.Text(answer)
+                        pushExecuted(
+                            tool.copy(
+                                output = listOf(
+                                    UIMessagePart.Text(answer)
+                                )
                             )
                         )
                     }
@@ -296,28 +314,34 @@ class GenerationHandler(
                                 error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
                             }
                             Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
-                            val result = toolDef.execute(args)
+                            val result = withToolProgress(processingStatus, toolDef.name) {
+                                toolDef.execute(args)
+                            }
                             val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
-                            executedTools += tool.copy(
-                                output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
+                            pushExecuted(
+                                tool.copy(
+                                    output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
+                                )
                             )
                         }.onFailure {
                             // 取消必须向上传播，否则停止生成会被误报为工具执行错误
                             if (it is CancellationException) throw it
                             it.printStackTrace()
-                            executedTools += tool.copy(
-                                output = listOf(
-                                    UIMessagePart.Text(
-                                        json.encodeToString(
-                                            buildJsonObject {
-                                                put(
-                                                    "error",
-                                                    JsonPrimitive(buildString {
-                                                        append("[${it.javaClass.name}] ${it.message}")
-                                                        append("\n${it.stackTraceToString()}")
-                                                    })
-                                                )
-                                            }
+                            pushExecuted(
+                                tool.copy(
+                                    output = listOf(
+                                        UIMessagePart.Text(
+                                            json.encodeToString(
+                                                buildJsonObject {
+                                                    put(
+                                                        "error",
+                                                        JsonPrimitive(buildString {
+                                                            append("[${it.javaClass.name}] ${it.message}")
+                                                            append("\n${it.stackTraceToString()}")
+                                                        })
+                                                    )
+                                                }
+                                            )
                                         )
                                     )
                                 )
@@ -332,14 +356,7 @@ class GenerationHandler(
                 break
             }
 
-            // Update last message with executed tools (NOT create TOOL message)
-            val lastMessage = messages.last()
-            val updatedParts = lastMessage.parts.map { part ->
-                if (part is UIMessagePart.Tool) {
-                    executedTools.find { it.toolCallId == part.toolCallId } ?: part
-                } else part
-            }
-            messages = messages.dropLast(1) + lastMessage.copy(parts = updatedParts)
+            // 工具结果已在 pushExecuted 中逐个 emit 并更新 messages, 这里只需做输出转换
             emit(
                 GenerationChunk.Messages(
                     messages.transforms(
@@ -563,6 +580,49 @@ class GenerationHandler(
             else -> R.string.chat_generation_network_disconnected
         }
         return context.getString(messageRes)
+    }
+
+    /**
+     * 工具执行期间展示进度状态: 「执行 <工具名>…」并每秒刷新已用时,
+     * 长耗时工具不再让用户误以为卡住。结束后恢复原状态值。
+     */
+    private suspend fun <T> withToolProgress(
+        processingStatus: MutableStateFlow<String?>,
+        toolName: String,
+        block: suspend () -> T,
+    ): T {
+        if (processingStatus.value != null) {
+            return try {
+                block()
+            } finally {
+                // 保留调用方原有的重试提示, 不强行清空
+            }
+        }
+        val startedAt = System.currentTimeMillis()
+        return try {
+            coroutineScope {
+                val ticker = launch {
+                    while (true) {
+                        val elapsed = (System.currentTimeMillis() - startedAt) / 1_000
+                        processingStatus.value = context.getString(
+                            R.string.chat_generation_tool_running,
+                            toolName,
+                            elapsed,
+                        )
+                        delay(1_000)
+                    }
+                }
+                try {
+                    block()
+                } finally {
+                    ticker.cancel()
+                    processingStatus.value = null
+                }
+            }
+        } catch (e: CancellationException) {
+            processingStatus.value = null
+            throw e
+        }
     }
 
     private fun maybeTruncateToolOutput(
