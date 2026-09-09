@@ -35,8 +35,10 @@ class HostShellRunner : WorkspaceShellRunner {
         if (File("/system/bin/sh").exists()) "/system/bin/sh" else "/bin/sh"
 }
 
-// 单个流保留的最大字符数, 防止命令疯狂输出导致 OOM 或撑爆 LLM 上下文
-const val MAX_OUTPUT_CHARS = 128 * 1024
+// 单个流保留的最大字符数。上限太高会让 npm/apt 这类命令把整段输出塞进上下文，
+// 直接把会话窗口撑爆；超出部分会被丢弃并置 truncated 标志，工具层会提示模型用
+// head/tail/grep 精确取回所需片段。
+const val MAX_OUTPUT_CHARS = 32 * 1024
 
 fun Process.readResult(timeoutMillis: Long, stdin: ByteArray? = null): WorkspaceCommandResult {
     val stdout = StreamCollector(inputStream)

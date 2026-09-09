@@ -14,6 +14,7 @@ import me.rerere.ai.ui.toMetadata
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.utils.generateUnifiedDiff
+import me.rerere.workspace.MAX_OUTPUT_CHARS
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
@@ -213,6 +214,8 @@ private fun createShellTool(
         if (!defaultCwd.isNullOrBlank()) {
             append("Defaults to '$defaultCwd'. ")
         }
+        append("Output is capped; if truncated, re-run with head/tail/grep to fetch only the part you need. ")
+        append("Long-running installs (apt/npm/pip) need a larger timeout parameter. ")
         append("Requires Rootfs to be installed and ready.")
     },
     parameters = {
@@ -237,7 +240,7 @@ private fun createShellTool(
                     put("type", "integer")
                     put(
                         "description",
-                        "Command timeout in seconds. Defaults to 30, max $SHELL_TIMEOUT_MAX_SECONDS."
+                        "Command timeout in seconds. Defaults to 30, max $SHELL_TIMEOUT_MAX_SECONDS. Use 300-600 for package installs and builds."
                     )
                 })
             },
@@ -262,7 +265,22 @@ private fun createShellTool(
                     put("stdout", result.stdout)
                     put("stderr", result.stderr)
                     put("timedOut", result.timedOut)
-                    if (result.truncated) put("truncated", true)
+                    if (result.truncated) {
+                        put("truncated", true)
+                        put(
+                            "truncatedHint",
+                            "Output exceeded ${MAX_OUTPUT_CHARS / 1024}K chars and was cut off. " +
+                                "Use pipes like `cmd 2>&1 | tail -c 4000`, `| head -50`, `| grep keyword`, " +
+                                "or redirect to a file and read parts of it."
+                        )
+                    }
+                    if (result.timedOut) {
+                        put(
+                            "timeoutHint",
+                            "Command was killed after the ${timeoutMillis / 1000}s timeout. " +
+                                "Retry with a larger timeout parameter (e.g. 300) or run it in the background with nohup."
+                        )
+                    }
                 }.toString()
             )
         )

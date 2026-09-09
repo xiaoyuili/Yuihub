@@ -80,6 +80,7 @@ import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.datastore.findModelById
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.datastore.getAssistantById
+import me.yui.yuihub.data.datastore.getCompressModelOrDefault
 import me.yui.yuihub.data.datastore.getCurrentAssistant
 import me.yui.yuihub.data.datastore.getCurrentChatModel
 import me.yui.yuihub.data.datastore.getFastModelOrDefault
@@ -1035,7 +1036,7 @@ class ChatService(
         windowTokens: Int,
     ): String {
         return runCatching {
-            val model = settings.getFastModelOrDefault() ?: return@runCatching ""
+            val model = settings.getCompressModelOrDefault() ?: return@runCatching ""
             val provider = model.findProvider(settings.providers) ?: return@runCatching ""
             val providerHandler = providerManager.getProviderByType(provider)
 
@@ -1112,7 +1113,16 @@ class ChatService(
             ).toMessageNode()
 
             val newConversation = conversation.copy(
-                messageNodes = listOf(checkpointNode) + nodesToKeep,
+                messageNodes = listOf(checkpointNode) + nodesToKeep.map { node ->
+                    // 保留消息里的 usage 是压缩前的 prompt 统计，已不代表压缩后的上下文占用；
+                    // 不清除会导致占用环显示旧值、且下次发送误判继续触发压缩。token 统计在
+                    // saveMessageNodes 时已按消息 id 幂等入账，这里清掉不影响历史统计。
+                    node.copy(
+                        messages = node.messages.map { message ->
+                            if (message.usage != null) message.copy(usage = null) else message
+                        }
+                    )
+                },
                 compressionSummaries = listOf(
                     CompressionSummary(
                         content = combined,
@@ -1127,6 +1137,14 @@ class ChatService(
                     "(retained ${nodesToKeep.size} messages verbatim)"
             )
             combined
+        }.onFailure { error ->
+            Log.w(TAG, "compressToSummary: auto compaction failed", error)
+            addError(
+                error = error,
+                conversationId = conversationId,
+                title = context.getString(R.string.error_title_compress_context),
+                solution = ChatErrorSolution.CheckFastModelSettings,
+            )
         }.getOrDefault("")
     }
 

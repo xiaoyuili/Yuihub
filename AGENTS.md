@@ -23,7 +23,9 @@ Built with Jetpack Compose, Kotlin, and follows Material Design 3 principles.
 - **highlight**: Code syntax highlighting implementation
 - **material3**: Material color utility extensions used by the app UI
 - **search**: Search functionality SDK for multiple providers (Exa, Tavily, Zhipu, Bing, Brave, SearXNG, and others)
-- **speech**: Speech module for TTS and ASR implementations
+- **oauth**: OAuth provider integration (loopback callback server, custom tab authorization)
+- **videogen**: Video generation module for AI video providers
+- **app:baselineprofile**: Baseline profile generation module (macrobenchmark)
 - **workspace**: Sandboxed per-workspace file system and shell execution environment exposed to the AI as tools.
 
 ## Concepts

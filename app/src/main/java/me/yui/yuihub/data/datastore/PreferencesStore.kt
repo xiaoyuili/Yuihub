@@ -514,6 +514,14 @@ fun Settings.getCurrentChatModel(): Model? {
 fun Settings.getFastModelOrDefault(): Model? =
     findModelById(fastModelId) ?: getCurrentChatModel()
 
+// 压缩模型：优先设置页指定的压缩模型，未指定（AUTO）时回退快模型再回退主模型
+fun Settings.getCompressModelOrDefault(): Model? {
+    if (compressModelId != DEFAULT_AUTO_MODEL_ID) {
+        findModelById(compressModelId)?.let { return it }
+    }
+    return getFastModelOrDefault()
+}
+
 fun Settings.getCurrentAssistant(): Assistant {
     return this.assistants.find { it.id == assistantId } ?: this.assistants.first()
 }

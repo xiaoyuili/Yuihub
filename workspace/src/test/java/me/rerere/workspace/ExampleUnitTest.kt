@@ -205,6 +205,34 @@ class ExampleUnitTest {
         assertTrue(File(linuxDir, "root").isDirectory)
     }
 
+    @Test
+    fun rootfsPatcherSwapsAptMirrorAndKeepsBackup() {
+        val linuxDir = Files.createTempDirectory("apt-mirror-test").toFile()
+        val aptDir = File(linuxDir, "etc/apt").apply { mkdirs() }
+        File(aptDir, "sources.list").writeText(
+            """
+            deb http://archive.ubuntu.com/ubuntu noble main universe
+            deb http://security.ubuntu.com/ubuntu noble-security main universe
+            # deb-src http://archive.ubuntu.com/ubuntu noble main
+            """.trimIndent() + "\n"
+        )
+
+        RootfsPatcher().patch(linuxDir, RootfsPatchOptions())
+
+        val patched = File(aptDir, "sources.list").readText()
+        assertTrue(patched.contains("http://mirrors.tuna.tsinghua.edu.cn/ubuntu noble main universe"))
+        assertTrue(patched.lineSequence().none { line -> line.trimStart().startsWith("deb") && line.contains("archive.ubuntu.com") })
+        // 注释行保持不变
+        assertTrue(patched.contains("# deb-src http://archive.ubuntu.com/ubuntu noble main"))
+        // security 源也换掉了
+        assertTrue(patched.contains("mirrors.tuna.tsinghua.edu.cn/ubuntu noble-security"))
+        assertTrue(File(aptDir, "sources.list.orig").exists())
+
+        // 二次 patch 不重复追加/改写
+        RootfsPatcher().patch(linuxDir, RootfsPatchOptions())
+        assertEquals(patched, File(aptDir, "sources.list").readText())
+    }
+
     private fun tarGz(vararg entries: TarTestEntry): ByteArray {
         val output = ByteArrayOutputStream()
         GZIPOutputStream(output).use { gzip ->
