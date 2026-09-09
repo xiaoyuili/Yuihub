@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -31,6 +32,8 @@ import com.dokar.sonner.ToastType
 import kotlinx.coroutines.launch
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.ui.components.nav.BackButton
+import me.yui.yuihub.ui.components.webview.WebView
+import me.yui.yuihub.ui.components.webview.rememberWebViewState
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.ui.theme.JetbrainsMono
@@ -53,8 +56,11 @@ fun WorkspaceFileEditorPage(
     val scope = rememberCoroutineScope()
     val editable = area == WorkspaceStorageArea.FILES
     val fileName = path.substringAfterLast('/').ifBlank { path }
+    val extension = fileName.substringAfterLast('.', "").lowercase()
+    val supportsPreview = extension in setOf("html", "htm", "svg")
 
     val textState = rememberTextFieldState()
+    var showPreview by rememberSaveable(id, area, path) { mutableStateOf(supportsPreview) }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -85,6 +91,11 @@ fun WorkspaceFileEditorPage(
                 },
                 navigationIcon = { BackButton() },
                 actions = {
+                    if (supportsPreview && !loading && loadError == null) {
+                        TextButton(onClick = { showPreview = !showPreview }) {
+                            Text(if (showPreview) "源码" else "预览")
+                        }
+                    }
                     if (editable && !loading && loadError == null) {
                         TextButton(
                             onClick = {
@@ -139,6 +150,12 @@ fun WorkspaceFileEditorPage(
                 )
             }
 
+            showPreview && supportsPreview -> WorkspaceWebPreview(
+                content = textState.text.toString(),
+                isSvg = extension == "svg",
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
+            )
+
             else -> TextField(
                 state = textState,
                 modifier = Modifier
@@ -155,4 +172,26 @@ fun WorkspaceFileEditorPage(
             )
         }
     }
+}
+
+@Composable
+private fun WorkspaceWebPreview(
+    content: String,
+    isSvg: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val state = rememberWebViewState(
+        data = content,
+        baseUrl = "https://workspace-preview.invalid/",
+        mimeType = if (isSvg) "image/svg+xml" else "text/html",
+        settings = {
+            allowFileAccess = false
+            allowContentAccess = false
+            builtInZoomControls = true
+            displayZoomControls = false
+            useWideViewPort = true
+            loadWithOverviewMode = true
+        },
+    )
+    WebView(state = state, modifier = modifier)
 }

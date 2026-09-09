@@ -235,6 +235,16 @@ class WorkspaceRepository(
      * FILES 区走 [WorkspaceManager.readText] (自带大小保护); LINUX 区通过 exportFile 读入内存,
      * 因此这里对 LINUX 区显式做大小限制, 避免大文件撑爆内存.
      */
+    suspend fun resolveFile(
+        id: String,
+        area: WorkspaceStorageArea,
+        path: String,
+    ) = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        manager.ensureWorkspace(workspace.root)
+        manager.resolveFile(workspace.root, path, area)
+    }
+
     suspend fun readTextForPreview(
         id: String,
         area: WorkspaceStorageArea,
