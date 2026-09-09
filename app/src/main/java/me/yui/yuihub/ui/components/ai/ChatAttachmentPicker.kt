@@ -3,7 +3,6 @@ package me.yui.yuihub.ui.components.ai
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -106,7 +105,7 @@ internal fun rememberChatAttachmentPickerActions(
         }
     )
     val imagePickerLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { selectedUris ->
+        rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
             if (selectedUris.isNotEmpty()) {
                 Log.d("ImagePickButton", "Selected URIs: $selectedUris")
                 if (setting.displaySetting.skipCropImage) {
@@ -190,8 +189,7 @@ internal fun rememberChatAttachmentPickerActions(
         onTakePicture = onTakePicture,
         onPickImage = {
             imagePickerLauncher.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
+                )
         },
         onPickVideo = { videoPickerLauncher.launch("video/*") },
         onPickAudio = { audioPickerLauncher.launch("audio/*") },
