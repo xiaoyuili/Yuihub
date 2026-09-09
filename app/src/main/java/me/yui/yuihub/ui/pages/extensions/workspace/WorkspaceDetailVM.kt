@@ -35,6 +35,13 @@ class WorkspaceDetailVM(
     private val _terminalState = MutableStateFlow(WorkspaceTerminalState())
     val terminalState = _terminalState.asStateFlow()
 
+    private val _settingsError = MutableStateFlow<String?>(null)
+    val settingsError = _settingsError.asStateFlow()
+
+    fun dismissSettingsError() {
+        _settingsError.value = null
+    }
+
     private val _installProgress = MutableStateFlow<RootfsInstallProgress?>(null)
     val installProgress = _installProgress.asStateFlow()
 
@@ -162,6 +169,20 @@ class WorkspaceDetailVM(
      * 把当前区域下的文件导出到 cacheDir 的临时文件, 完成后回调 [onReady].
      * 供分享 / 图片预览 / 交给系统应用打开等复用 (它们都需要一个 FileProvider 可访问的真实 File).
      */
+    fun setShellCompatibilityMode(enabled: Boolean) {
+        viewModelScope.launch {
+            try {
+                repository.setShellCompatibilityMode(id, enabled)
+                val workspace = repository.getById(id)
+                _state.update { it.copy(workspace = workspace) }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _settingsError.value = error.message.orEmpty()
+            }
+        }
+    }
+
     suspend fun resolveImageFile(
         entry: WorkspaceFileEntry,
         area: WorkspaceStorageArea,

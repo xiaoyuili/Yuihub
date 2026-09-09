@@ -25,6 +25,8 @@ data class WorkspaceEntity(
     val root: String,
     @ColumnInfo("shell_status")
     val shellStatus: String = WorkspaceShellStatus.DISABLED.name,
+    @ColumnInfo("shell_compatibility_mode", defaultValue = "0")
+    val shellCompatibilityMode: Boolean = false,
     @ColumnInfo("created_at")
     val createdAt: Long,
     @ColumnInfo("updated_at")

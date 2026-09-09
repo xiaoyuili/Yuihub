@@ -119,6 +119,7 @@ fun WorkspaceDetailPage(id: String) {
     val state by vm.state.collectAsStateWithLifecycle()
     val installProgress by vm.installProgress.collectAsStateWithLifecycle()
     val installError by vm.installError.collectAsStateWithLifecycle()
+    val settingsError by vm.settingsError.collectAsStateWithLifecycle()
     val mirrorSpeeds by vm.mirrorSpeeds.collectAsStateWithLifecycle()
     val mountError by vm.mountError.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState { 2 }
@@ -217,6 +218,7 @@ fun WorkspaceDetailPage(id: String) {
                     installProgress = installProgress,
                     onInstallRootfs = { showInstallDialog = true },
                     onToolApprovalChange = vm::setToolApproval,
+                    onShellCompatibilityModeChange = vm::setShellCompatibilityMode,
                     onAddMountDir = { showMountDialog = true },
                     onRemoveMountDir = vm::removeMountDir,
                     onMountReadOnlyChange = vm::setMountDirReadOnly,
@@ -374,6 +376,7 @@ private fun WorkspaceBasicPage(
     installProgress: RootfsInstallProgress?,
     onInstallRootfs: () -> Unit,
     onToolApprovalChange: (String, Boolean) -> Unit,
+    onShellCompatibilityModeChange: (Boolean) -> Unit,
     onAddMountDir: () -> Unit,
     onRemoveMountDir: (String) -> Unit,
     onMountReadOnlyChange: (String, Boolean) -> Unit,
@@ -392,6 +395,44 @@ private fun WorkspaceBasicPage(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CustomColors.cardColorsOnSurfaceContainer,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.workspace_detail_compatibility_mode),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.workspace_detail_compatibility_mode_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.workspace_detail_compatibility_mode),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = workspace?.shellCompatibilityMode ?: false,
+                            onCheckedChange = onShellCompatibilityModeChange,
+                            enabled = workspace != null,
+                        )
+                    }
+                }
+            }
+        }
+
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),

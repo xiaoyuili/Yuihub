@@ -362,6 +362,7 @@ class WorkspaceRepository(
                 timeoutMillis = timeoutMillis,
                 stdin = stdin,
                 extraBindMounts = mounts,
+                shellCompatibilityMode = workspace.shellCompatibilityMode,
             )
         }
     }
@@ -401,6 +402,10 @@ class WorkspaceRepository(
 
     private suspend fun restoreShellState(workspace: WorkspaceEntity) {
         updateShellState(workspace.id, workspace.shellStatus)
+    }
+
+    suspend fun setShellCompatibilityMode(id: String, enabled: Boolean) {
+        dao.setShellCompatibilityMode(id, enabled, System.currentTimeMillis())
     }
 
     private suspend fun updateShellState(

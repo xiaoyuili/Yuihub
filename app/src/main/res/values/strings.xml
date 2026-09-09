@@ -990,6 +990,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="workspace_detail_workspace_info">Workspace</string>
   <string name="workspace_detail_name">Name</string>
   <string name="workspace_detail_shell_status">Shell Status</string>
+  <string name="workspace_detail_compatibility_mode">Compatibility mode</string>
+  <string name="workspace_detail_compatibility_mode_desc">Try enabling this if the terminal fails to start. It may reduce performance. Applies to new terminal tabs and subsequent commands.</string>
   <string name="workspace_detail_loading">Loading</string>
   <string name="workspace_detail_enable_shell">Enable Shell</string>
   <string name="workspace_detail_enable_shell_desc">Allow this workspace to run a terminal environment using local Rootfs</string>

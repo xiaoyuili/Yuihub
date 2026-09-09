@@ -956,6 +956,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="workspace_detail_workspace_info">工作区</string>
   <string name="workspace_detail_name">名称</string>
   <string name="workspace_detail_shell_status">Shell 状态</string>
+  <string name="workspace_detail_compatibility_mode">兼容模式</string>
+  <string name="workspace_detail_compatibility_mode_desc">如果终端无法启动，请尝试启用此功能。这可能会降低性能。适用于新的终端标签页及后续命令。</string>
   <string name="workspace_detail_loading">加载中</string>
   <string name="workspace_detail_enable_shell">启用 Shell</string>
   <string name="workspace_detail_enable_shell_desc">允许此工作区使用本地Rootfs运行终端环境</string>

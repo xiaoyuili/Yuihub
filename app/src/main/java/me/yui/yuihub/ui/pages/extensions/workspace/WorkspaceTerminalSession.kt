@@ -25,6 +25,7 @@ internal fun createWorkspaceTerminalSession(
     root: String,
     client: TerminalSessionClient,
     prootArgs: List<String>,
+    shellCompatibilityMode: Boolean,
 ): TerminalSession {
     val appContext = context.applicationContext
     val workspaceDir = File(File(appContext.filesDir, "workspaces"), root)
@@ -49,17 +50,20 @@ internal fun createWorkspaceTerminalSession(
         "/bin/bash",
     )
 
-    val env = arrayOf(
+    val env = mutableListOf(
         "PROOT_LOADER=${loader.absolutePath}",
         "PROOT_TMP_DIR=${tempDir.absolutePath}",
         "TMPDIR=${tempDir.absolutePath}",
     )
+    if (shellCompatibilityMode) {
+        env += "PROOT_NO_SECCOMP=1"
+    }
 
     return TerminalSession(
         proot.absolutePath,
         filesDir.absolutePath,
         args.toTypedArray(),
-        env,
+        env.toTypedArray(),
         2_000,
         client,
     ).apply {

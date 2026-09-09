@@ -75,7 +75,7 @@ fun WorkspaceTerminalPage(id: String) {
     var pendingCloseTabId by remember(root) { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(root) {
-        root?.let { sessionManager.ensureSession(it) }
+        root?.let { sessionManager.ensureSession(it, state.workspace?.shellCompatibilityMode ?: false) }
     }
 
     YuihubTheme(colorMode = ColorMode.DARK) {
@@ -95,7 +95,7 @@ fun WorkspaceTerminalPage(id: String) {
                         IconButton(
                             onClick = {
                                 root?.let { currentRoot ->
-                                    sessionManager.createTab(currentRoot)
+                                    sessionManager.createTab(currentRoot, state.workspace?.shellCompatibilityMode ?: false)
                                 }
                             },
                             enabled = root != null && !terminalState.isCreating,
