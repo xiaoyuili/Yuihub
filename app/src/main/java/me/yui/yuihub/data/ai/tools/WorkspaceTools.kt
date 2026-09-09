@@ -218,6 +218,11 @@ private fun createShellTool(
         append("Output is capped; if truncated, re-run with head/tail/grep to fetch only the part you need. ")
         append("Long-running installs (apt/npm/pip) need a larger timeout parameter. ")
         append("Requires Rootfs to be installed and ready.")
+        appendLine()
+        append("When starting a web service (Python/Node/etc), bind it to 0.0.0.0 so it is reachable from both ")
+        append("the in-app viewer and the phone browser. The device shares this network stack, so 127.0.0.1 works directly. ")
+        append("Always tell the user the full URL in the form http://127.0.0.1:<port> (with scheme), ")
+        append("e.g. 'python3 -m http.server 5000 --bind 0.0.0.0' → tell user http://127.0.0.1:5000")
     },
     parameters = {
         InputSchema.Obj(

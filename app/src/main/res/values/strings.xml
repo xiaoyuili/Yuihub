@@ -1037,6 +1037,9 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="workspace_detail_extracting">Extracting %1$d items%2$s</string>
   <string name="workspace_detail_install_complete">Installation complete</string>
   <string name="workspace_terminal_title">Terminal</string>
+  <string name="workspace_web_viewer_title">Workspace Web</string>
+  <string name="workspace_web_viewer_reload">Reload</string>
+  <string name="workspace_web_viewer_go">Go</string>
   <string name="workspace_terminal_title_with_name">%s · Terminal</string>
   <string name="workspace_terminal_not_installed">Please install Rootfs first</string>
   <string name="workspace_terminal_loading">Loading workspace…</string>

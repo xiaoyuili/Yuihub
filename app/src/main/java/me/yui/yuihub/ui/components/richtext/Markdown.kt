@@ -61,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
@@ -1002,7 +1003,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
 
         node.type == GFMTokenTypes.GFM_AUTOLINK -> {
             val link = node.getTextInNode(content)
-            withLink(LinkAnnotation.Url(link)) {
+            withLink(markdownLink(link, TextLinkStyles(SpanStyle(fontStyle = FontStyle.Italic)))) {
                 withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
                     append(link)
                 }
@@ -1119,7 +1120,11 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                     appendInlineContent("citation:$linkDest")
                 }
             } else {
-                withLink(LinkAnnotation.Url(linkDest)) {
+                withLink(markdownLink(linkDest, TextLinkStyles(
+                    SpanStyle(
+                        color = colorScheme.primary, textDecoration = TextDecoration.Underline
+                    )
+                ))) {
                     withStyle(
                         SpanStyle(
                             color = colorScheme.primary, textDecoration = TextDecoration.Underline
@@ -1134,9 +1139,10 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
         node.type == MarkdownElementTypes.AUTOLINK -> {
             val links = node.children.trim(MarkdownTokenTypes.LT, 1).trim(MarkdownTokenTypes.GT, 1)
             links.fastForEach { link ->
-                withLink(LinkAnnotation.Url(link.getTextInNode(content))) {
+                val url = link.getTextInNode(content)
+                withLink(markdownLink(url, TextLinkStyles(SpanStyle(fontStyle = FontStyle.Italic)))) {
                     withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                        append(link.getTextInNode(content))
+                        append(url)
                     }
                 }
             }

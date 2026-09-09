@@ -64,6 +64,7 @@ import me.yui.yuihub.data.db.MigrationState
 import me.yui.yuihub.data.event.AppEvent
 import me.yui.yuihub.data.event.AppEventBus
 import me.yui.yuihub.ui.activity.SafeModeActivity
+import me.yui.yuihub.ui.components.richtext.LocalLinkHandler
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.context.LocalSharedTransitionScope
@@ -91,6 +92,7 @@ import me.yui.yuihub.ui.pages.extensions.workspace.WorkspacePage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceDetailPage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceFileEditorPage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceTerminalPage
+import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceWebViewerPage
 import me.rerere.workspace.WorkspaceStorageArea
 import me.yui.yuihub.ui.pages.favorite.FavoritePage
 import me.yui.yuihub.ui.pages.history.HistoryPage
@@ -253,6 +255,13 @@ class RouteActivity : ComponentActivity() {
 
         val backStack = rememberNavBackStack(startScreen)
         SideEffect { this@RouteActivity.navStack = backStack }
+
+        // Markdown 里的 loopback 链接 (工作区本地服务) 路由到应用内查看器
+        SideEffect {
+            LocalLinkHandler.navigateToViewer = { url ->
+                backStack.add(Screen.WorkspaceWebViewer(url = url))
+            }
+        }
 
         ShareHandler(backStack)
 
@@ -478,6 +487,10 @@ class RouteActivity : ComponentActivity() {
                                 )
                             }
 
+                            entry<Screen.WorkspaceWebViewer> { key ->
+                                WorkspaceWebViewerPage(url = key.url)
+                            }
+
                             entry<Screen.SkillDetail> { key ->
                                 SkillDetailPage(skillName = key.skillName)
                             }
@@ -664,6 +677,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data class WorkspaceFileEditor(val id: String, val area: String, val path: String) : Screen
+
+    @Serializable
+    data class WorkspaceWebViewer(val url: String) : Screen
 
     @Serializable
     data class SkillDetail(val skillName: String) : Screen

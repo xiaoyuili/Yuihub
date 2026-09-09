@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
@@ -945,7 +946,7 @@ private fun AnnotatedString.Builder.appendHtmlInlineElement(
                         color = colorScheme.primary,
                         textDecoration = TextDecoration.Underline,
                     ).merge(cssStyle ?: SpanStyle())
-                    withLink(LinkAnnotation.Url(href)) {
+                    withLink(markdownLink(href, TextLinkStyles(linkStyle))) {
                         withStyle(linkStyle) {
                             recurseChildren(element, style.merge(linkStyle.asTextStyle()))
                         }
