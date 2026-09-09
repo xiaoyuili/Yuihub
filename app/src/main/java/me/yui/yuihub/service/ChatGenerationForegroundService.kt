@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -65,6 +66,7 @@ class ChatGenerationForegroundService : Service() {
 
     private val activeGenerations = linkedMapOf<String, String>()
     private var isForeground = false
+    private var wakeLock: PowerManager.WakeLock? = null
     private val appScope: AppScope by inject()
     private val chatService: ChatService by inject()
 
@@ -81,6 +83,7 @@ class ChatGenerationForegroundService : Service() {
 
     override fun onDestroy() {
         activeGenerations.clear()
+        releaseWakeLock()
         if (isForeground) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             isForeground = false
@@ -107,15 +110,37 @@ class ChatGenerationForegroundService : Service() {
         val conversationId = intent.getStringExtra(EXTRA_CONVERSATION_ID) ?: return stopService()
         activeGenerations[generationId] = conversationId
         updateForegroundNotification(conversationId)
+        acquireWakeLock()
     }
 
     private fun release(intent: Intent) {
         intent.getStringExtra(EXTRA_GENERATION_ID)?.let(activeGenerations::remove)
         if (activeGenerations.isEmpty()) {
+            releaseWakeLock()
             stopService()
         } else {
             updateForegroundNotification(activeGenerations.values.last())
         }
+    }
+
+    /**
+     * 前台服务只保证进程不被冻结, 不阻止 CPU 休眠与 Doze 推迟网络;
+     * 息屏/后台跑工具链 (proot、网络请求) 时会长时间停摆, 需 Partial WakeLock。
+     */
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YuiHub::ChatGeneration")
+            .apply {
+                setReferenceCounted(false)
+                runCatching { acquire() }
+                    .onFailure { Log.e(TAG, "Failed to acquire generation wake lock", it) }
+            }
+    }
+
+    private fun releaseWakeLock() {
+        wakeLock?.takeIf { it.isHeld }?.runCatching { release() }
+        wakeLock = null
     }
 
     private fun updateForegroundNotification(conversationId: String) {
