@@ -9,6 +9,7 @@ import me.yui.yuihub.data.ai.tools.local.LocalTools
 import me.yui.yuihub.data.event.AppEventBus
 import me.yui.yuihub.service.ChatNotificationManager
 import me.yui.yuihub.service.ChatService
+import me.yui.yuihub.service.SubagentManager
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceTerminalSessionManager
 import me.yui.yuihub.utils.EmojiData
 import me.yui.yuihub.utils.EmojiUtils
@@ -58,6 +59,10 @@ val appModule = module {
     }
 
     single {
+        SubagentManager()
+    }
+
+    single {
         ChatService(
             context = get(),
             appScope = get(),
@@ -76,7 +81,8 @@ val appModule = module {
             filesManager = get(),
             skillManager = get(),
             workspaceRepository = get(),
-            folderRepository = get()
+            folderRepository = get(),
+            subagentManager = get(),
         )
     }
 }

@@ -323,7 +323,8 @@ object VisionToolUI : ToolUIRenderer {
 }
 
 /**
- * 技能调用: 标题显示技能名与路径
+ * 子代理派发: 运行中显示实时过程 (计时 + 最近动作), 完成后显示结果摘要。
+ * 过程数据来自 [SubagentManager] 的实时上报。
  */
 object SpawnAgentToolUI : ToolUIRenderer {
     override val toolName: String = "spawn_agent"

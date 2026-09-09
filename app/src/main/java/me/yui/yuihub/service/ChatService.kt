@@ -191,6 +191,7 @@ class ChatService(
     private val skillManager: SkillManager,
     private val workspaceRepository: WorkspaceRepository,
     private val folderRepository: FolderRepository,
+    private val subagentManager: SubagentManager,
 ) {
     // workspace 系统提示注入 (依赖 workspaceRepository, 故在类内构造)
     private val workspaceReminderTransformer = WorkspaceReminderTransformer(workspaceRepository)
@@ -885,38 +886,57 @@ class ChatService(
             parentConversationId = parentConversationId,
         ).filter { it.name != "ask_user" }.map { it.copy(needsApproval = { false }) }
         var latest = childMessages
-        generationHandler.generateText(
-            settings = settings,
-            model = model,
-            messages = childMessages,
-            assistant = assistant.copy(streamOutput = false),
-            conversationId = childId,
-            conversationSystemPrompt = conversation.customSystemPrompt,
-            conversationModeInjectionIds = conversation.modeInjectionIds,
-            conversationLorebookIds = conversation.lorebookIds,
-            workspaceCwd = conversation.workspaceCwd,
-            memories = emptyList(),
-            evolutionLessons = if (!assistant.enableEvolution) {
-                emptyList()
-            } else {
-                evolutionRepository.selectForPrompt(assistant.id.toString())
-            },
-            inputTransformers = buildList {
-                addAll(inputTransformers)
-                add(templateTransformer)
-                add(workspaceReminderTransformer)
-            },
-            outputTransformers = outputTransformers,
-            tools = childTools,
-            maxSteps = 32,
-        ).collect { chunk ->
-            when (chunk) {
-                is GenerationChunk.Messages -> latest = chunk.messages
+        subagentManager.start(
+            childId = childId,
+            parentConversationId = parentConversationId,
+            description = description,
+        )
+        try {
+            generationHandler.generateText(
+                settings = settings,
+                model = model,
+                messages = childMessages,
+                assistant = assistant.copy(streamOutput = false),
+                conversationId = childId,
+                conversationSystemPrompt = conversation.customSystemPrompt,
+                conversationModeInjectionIds = conversation.modeInjectionIds,
+                conversationLorebookIds = conversation.lorebookIds,
+                workspaceCwd = conversation.workspaceCwd,
+                memories = emptyList(),
+                evolutionLessons = if (!assistant.enableEvolution) {
+                    emptyList()
+                } else {
+                    evolutionRepository.selectForPrompt(assistant.id.toString())
+                },
+                inputTransformers = buildList {
+                    addAll(inputTransformers)
+                    add(templateTransformer)
+                    add(workspaceReminderTransformer)
+                },
+                outputTransformers = outputTransformers,
+                tools = childTools,
+                maxSteps = 32,
+            ).collect { chunk ->
+                when (chunk) {
+                    is GenerationChunk.Messages -> {
+                        latest = chunk.messages
+                        // 实时上报子代理进度, 供聊天页过程演示
+                        subagentManager.updateMessages(childId, chunk.messages)
+                    }
+                }
             }
+        } catch (e: CancellationException) {
+            subagentManager.finish(
+                childId = childId,
+                result = "cancelled: ${e.message.orEmpty()}"
+            )
+            throw e
         }
         conversationRepo.recordTokenUsage(parentConversationId.toString(), latest)
         val answer = latest.lastOrNull { it.role == MessageRole.ASSISTANT }?.toText()?.trim().orEmpty()
-        return answer.ifBlank { "Child agent '$description' finished with no text output." }
+        val finalAnswer = answer.ifBlank { "Child agent '$description' finished with no text output." }
+        subagentManager.finish(childId, finalAnswer)
+        return finalAnswer
     }
 
     /**

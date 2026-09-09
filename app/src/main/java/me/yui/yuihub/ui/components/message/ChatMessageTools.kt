@@ -26,9 +26,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,6 +45,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.coroutines.delay
+import org.koin.java.KoinJavaComponent.getKoin
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
@@ -51,9 +55,13 @@ import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Tools
 import me.yui.yuihub.R
+import me.yui.yuihub.data.ai.tools.SPAWN_AGENT_TOOL_NAME
+import me.yui.yuihub.service.SubagentManager
+import me.yui.yuihub.service.SubagentRun
 import me.yui.yuihub.ui.components.message.tools.ToolUIContext
 import me.yui.yuihub.ui.components.message.tools.ToolUIRegistry
 import me.yui.yuihub.ui.components.richtext.ZoomableAsyncImage
+import me.yui.yuihub.data.ai.tools.SPAWN_AGENT_TOOL_NAME
 import me.yui.yuihub.ui.components.ui.ChainOfThoughtScope
 import me.yui.yuihub.ui.components.ui.DotLoading
 import me.yui.yuihub.ui.components.ui.flowRowMetaColor
@@ -158,13 +166,19 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
             }
         },
         label = {
-            Text(
-                text = renderer.title(context),
-                style = flowRowTitleStyle(),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.shimmer(isLoading = loading),
-            )
+            Column {
+                Text(
+                    text = renderer.title(context),
+                    style = flowRowTitleStyle(),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.shimmer(isLoading = loading),
+                )
+                // 子代理运行中: 显示计时与最近动作, 避免长时间无反馈像卡住
+                if (loading && tool.toolName == SPAWN_AGENT_TOOL_NAME) {
+                    SubagentRunningHint()
+                }
+            }
         },
         extra = if (isPending && onToolApproval != null) {
             {
@@ -526,5 +540,48 @@ private fun ToolDenyReasonDialog(
                 Text(stringResource(android.R.string.cancel))
             }
         }
+    )
+}
+
+/**
+ * 子代理运行提示: 每秒刷新计时, 展示子代理最近一条动作 (回复片段或工具调用)。
+ * 子代理契约是主代理必须等待结果, 这里解决的是「等待期用户以为卡住」。
+ */
+@Composable
+private fun SubagentRunningHint() {
+    val subagentManager = remember { getKoin().get<SubagentManager>() }
+    val run by produceState<SubagentRun?>(initialValue = null) {
+        subagentManager.runs.collect { runs ->
+            // 工具串行执行, 同一时刻最多一个运行中的子代理, 取最近一条即可
+            value = runs.values.lastOrNull { !it.finished }
+        }
+    }
+    var elapsedSec by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000)
+            elapsedSec += 1
+        }
+    }
+    val latestText = run?.messages?.lastOrNull()?.let { message ->
+        when (val part = message.parts.lastOrNull()) {
+            is UIMessagePart.Text -> part.text.take(60)
+            is UIMessagePart.Tool -> "→ ${part.toolName}"
+            is UIMessagePart.Reasoning -> part.reasoning.take(60)
+            else -> null
+        }
+    }
+    Text(
+        text = buildString {
+            append(stringResource(R.string.chat_message_subagent_running, elapsedSec))
+            if (!latestText.isNullOrBlank()) {
+                append(" · ")
+                append(latestText.replace('\n', ' '))
+            }
+        },
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
     )
 }
