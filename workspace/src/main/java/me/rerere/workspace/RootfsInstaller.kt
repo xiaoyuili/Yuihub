@@ -70,46 +70,60 @@ class RootfsInstaller(
         connection.connectTimeout = CONNECT_TIMEOUT_MS
         connection.readTimeout = READ_TIMEOUT_MS
         connection.instanceFollowRedirects = true
+        // 部分镜像站/CDN 对 Java 默认 UA 回 403, 与测速保持一致
+        connection.setRequestProperty("User-Agent", RootfsCatalog.DOWNLOAD_USER_AGENT)
         try {
             val code = connection.responseCode
-            require(code in 200..299) { "Rootfs download failed: HTTP $code" }
-            val totalBytes = connection.contentLengthLong.takeIf { it > 0 }
-            target.parentFile?.mkdirs()
-            connection.inputStream.use { input ->
-                target.outputStream().use { output ->
-                    val buffer = ByteArray(BUFFER_SIZE)
-                    var bytesRead = 0L
-                    var lastReportBytes = 0L
-                    while (true) {
-                        checkInterrupted()
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        bytesRead += read
-                        if (bytesRead - lastReportBytes >= PROGRESS_STEP_BYTES || bytesRead == totalBytes) {
-                            lastReportBytes = bytesRead
-                            onProgress(
-                                RootfsInstallProgress(
-                                    stage = RootfsInstallStage.DOWNLOADING,
-                                    bytesRead = bytesRead,
-                                    totalBytes = totalBytes,
-                                )
-                            )
-                        }
-                    }
-                    if (bytesRead == 0L) {
+            require(code in 200..299) { "Rootfs download failed: HTTP $code (${url.substringBefore('?').substringAfterLast('/')})" }
+            downloadBody(connection, url, target, onProgress)
+        } catch (e: IOException) {
+            // 网络类错误与 HTTP 状态错误统一前缀, 上层据此决定是否换源重试
+            throw IOException("Rootfs download failed: ${e.message ?: e.javaClass.simpleName}", e)
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun downloadBody(
+        connection: HttpURLConnection,
+        url: String,
+        target: File,
+        onProgress: (RootfsInstallProgress) -> Unit,
+    ) {
+        val totalBytes = connection.contentLengthLong.takeIf { it > 0 }
+        target.parentFile?.mkdirs()
+        connection.inputStream.use { input ->
+            target.outputStream().use { output ->
+                val buffer = ByteArray(BUFFER_SIZE)
+                var bytesRead = 0L
+                var lastReportBytes = 0L
+                while (true) {
+                    checkInterrupted()
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    bytesRead += read
+                    if (bytesRead - lastReportBytes >= PROGRESS_STEP_BYTES || bytesRead == totalBytes) {
+                        lastReportBytes = bytesRead
                         onProgress(
                             RootfsInstallProgress(
                                 stage = RootfsInstallStage.DOWNLOADING,
-                                bytesRead = 0,
+                                bytesRead = bytesRead,
                                 totalBytes = totalBytes,
                             )
                         )
                     }
                 }
+                if (bytesRead == 0L) {
+                    onProgress(
+                        RootfsInstallProgress(
+                            stage = RootfsInstallStage.DOWNLOADING,
+                            bytesRead = 0,
+                            totalBytes = totalBytes,
+                        )
+                    )
+                }
             }
-        } finally {
-            connection.disconnect()
         }
     }
 

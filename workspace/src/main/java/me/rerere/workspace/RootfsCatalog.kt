@@ -78,6 +78,9 @@ object RootfsCatalog {
         "ubuntu-base-$UBUNTU_NOBLE_RELEASE-base-$arch.tar.gz"
     }
 
+    /** 下载与镜像测速共用的 UA; 部分镜像站/CDN 会对 Java 默认 UA 回 403 */
+    const val DOWNLOAD_USER_AGENT = "YuiHub-Rootfs"
+
     /** 设备 ABI 对应的默认下载地址（官方源） */
     fun defaultUrlForAbi(abi: String): String? =
         fileNameForAbi(abi)?.let { MIRRORS.first().urlFor(it) }

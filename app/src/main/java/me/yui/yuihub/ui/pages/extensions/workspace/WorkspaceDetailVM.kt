@@ -276,17 +276,34 @@ class WorkspaceDetailVM(
             _installError.value = null
             val workspace = state.value.workspace ?: return@launch
             _installProgress.value = RootfsInstallProgress(stage = RootfsInstallStage.DOWNLOADING)
+            // 候选源: 用户确认的 URL 优先, 之后按测速可用的镜像依次回退。
+            // 部分镜像站/CDN 会对特定网络环境回 403/限流, 单源失败不应让用户干着急。
+            val candidates = buildList {
+                add(url)
+                _mirrorSpeeds.value.filter { it.usable }.forEach { speed ->
+                    if (speed.url !in this) add(speed.url)
+                }
+            }
+            var lastError: Throwable? = null
             try {
                 terminalSessionManager.closeWorkspace(workspace.root)
-                repository.installRootfs(workspace.id, url) { progress ->
-                    _installProgress.value = progress
+                for (candidate in candidates) {
+                    try {
+                        repository.installRootfs(workspace.id, candidate) { progress ->
+                            _installProgress.value = progress
+                        }
+                        loadWorkspace()
+                        refresh()
+                        return@launch
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        lastError = e
+                        // 只有下载阶段的错误才值得换源重试; 解压/移动阶段失败换源也一样
+                        if (e.message?.startsWith("Rootfs download failed") != true) break
+                    }
                 }
-                loadWorkspace()
-                refresh()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (error: Throwable) {
-                _installError.value = error.message ?: "Rootfs 安装失败"
+                _installError.value = lastError?.message ?: "Rootfs 安装失败"
             } finally {
                 _installProgress.value = null
             }

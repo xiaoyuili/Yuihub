@@ -117,6 +117,6 @@ class RootfsMirrorSelector(
         private const val DEFAULT_SAMPLE_BYTES = 512L * 1024
         private const val CONNECT_TIMEOUT_MS = 5_000
         private const val READ_TIMEOUT_MS = 8_000
-        private const val USER_AGENT = "YuiHub-Rootfs"
+        private const val USER_AGENT = RootfsCatalog.DOWNLOAD_USER_AGENT
     }
 }
