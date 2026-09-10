@@ -77,12 +77,11 @@ class SettingsStore(
         // 模型选择
         val FAVORITE_MODELS = stringPreferencesKey("favorite_models")
         val SELECT_MODEL = stringPreferencesKey("chat_model")
-        val FAST_MODEL = stringPreferencesKey("fast_model")
-        val FAST_MODEL_REASONING_LEVEL = stringPreferencesKey("fast_model_reasoning_level")
+        val TITLE_MODEL = stringPreferencesKey("title_model")
+        val TITLE_MODEL_REASONING_LEVEL = stringPreferencesKey("title_model_reasoning_level")
         val IMAGE_GENERATION_MODEL = stringPreferencesKey("image_generation_model")
         val VISION_MODEL = stringPreferencesKey("vision_model")
         val TITLE_PROMPT = stringPreferencesKey("title_prompt")
-        val COMPRESS_MODEL = stringPreferencesKey("compress_model")
         val COMPRESS_PROMPT = stringPreferencesKey("compress_prompt")
 
         // 供应商
@@ -134,15 +133,13 @@ class SettingsStore(
                 } ?: emptyList(),
                 chatModelId = preferences[SELECT_MODEL]?.let { Uuid.parse(it) }
                     ?: DEFAULT_AUTO_MODEL_ID,
-                fastModelId = preferences[FAST_MODEL]?.let { Uuid.parse(it) }
-                    ?: DEFAULT_AUTO_MODEL_ID,
-                fastModelReasoningLevel = preferences[FAST_MODEL_REASONING_LEVEL]
+                titleModelId = preferences[TITLE_MODEL]?.let { Uuid.parse(it) },
+                titleModelReasoningLevel = preferences[TITLE_MODEL_REASONING_LEVEL]
                     ?.let { value -> ReasoningLevel.entries.find { it.name == value } }
-                    ?: ReasoningLevel.AUTO,
+                    ?: ReasoningLevel.LOW,
                 imageGenerationModelId = preferences[IMAGE_GENERATION_MODEL]?.let { Uuid.parse(it) } ?: Uuid.random(),
                 visionModelId = preferences[VISION_MODEL]?.let { Uuid.parse(it) },
                 titlePrompt = preferences[TITLE_PROMPT] ?: DEFAULT_TITLE_PROMPT,
-                compressModelId = preferences[COMPRESS_MODEL]?.let { Uuid.parse(it) } ?: DEFAULT_AUTO_MODEL_ID,
                 compressPrompt = preferences[COMPRESS_PROMPT] ?: DEFAULT_COMPRESS_PROMPT,
                 assistantId = preferences[SELECT_ASSISTANT]?.let { Uuid.parse(it) }
                     ?: DEFAULT_ASSISTANT_ID,
@@ -268,8 +265,12 @@ class SettingsStore(
 
             preferences[FAVORITE_MODELS] = JsonInstant.encodeToString(settings.favoriteModels)
             preferences[SELECT_MODEL] = settings.chatModelId.toString()
-            preferences[FAST_MODEL] = settings.fastModelId.toString()
-            preferences[FAST_MODEL_REASONING_LEVEL] = settings.fastModelReasoningLevel.name
+            if (settings.titleModelId != null) {
+                preferences[TITLE_MODEL] = settings.titleModelId.toString()
+            } else {
+                preferences.remove(TITLE_MODEL)
+            }
+            preferences[TITLE_MODEL_REASONING_LEVEL] = settings.titleModelReasoningLevel.name
             preferences[IMAGE_GENERATION_MODEL] = settings.imageGenerationModelId.toString()
             if (settings.visionModelId != null) {
                 preferences[VISION_MODEL] = settings.visionModelId.toString()
@@ -277,7 +278,6 @@ class SettingsStore(
                 preferences.remove(VISION_MODEL)
             }
             preferences[TITLE_PROMPT] = settings.titlePrompt
-            preferences[COMPRESS_MODEL] = settings.compressModelId.toString()
             preferences[COMPRESS_PROMPT] = settings.compressPrompt
 
             preferences[PROVIDERS] = JsonInstant.encodeToString(settings.providers)
@@ -386,12 +386,11 @@ data class Settings(
     val networkSetting: NetworkSetting = NetworkSetting(),
     val favoriteModels: List<Uuid> = emptyList(),
     val chatModelId: Uuid = Uuid.random(),
-    val fastModelId: Uuid = Uuid.random(),
-    val fastModelReasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
+    val titleModelId: Uuid? = null,
+    val titleModelReasoningLevel: ReasoningLevel = ReasoningLevel.LOW,
     val imageGenerationModelId: Uuid = Uuid.random(),
     val visionModelId: Uuid? = null,
     val titlePrompt: String = DEFAULT_TITLE_PROMPT,
-    val compressModelId: Uuid = Uuid.random(),
     val compressPrompt: String = DEFAULT_COMPRESS_PROMPT,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,
     val providers: List<ProviderSetting> = DEFAULT_PROVIDERS,
@@ -510,17 +509,9 @@ fun Settings.getCurrentChatModel(): Model? {
     return findModelById(this.getCurrentAssistant().chatModelId ?: this.chatModelId)
 }
 
-// 快速/后台任务模型：未配置快模型时回退当前对话模型（标题、压缩摘要、记忆提取共用）
-fun Settings.getFastModelOrDefault(): Model? =
-    findModelById(fastModelId) ?: getCurrentChatModel()
-
-// 压缩模型：优先设置页指定的压缩模型，未指定（AUTO）时回退快模型再回退主模型
-fun Settings.getCompressModelOrDefault(): Model? {
-    if (compressModelId != DEFAULT_AUTO_MODEL_ID) {
-        findModelById(compressModelId)?.let { return it }
-    }
-    return getFastModelOrDefault()
-}
+// 标题模型：未配置时回退当前对话模型
+fun Settings.getTitleModelOrDefault(): Model? =
+    findModelById(titleModelId) ?: getCurrentChatModel()
 
 fun Settings.getCurrentAssistant(): Assistant {
     return this.assistants.find { it.id == assistantId } ?: this.assistants.first()

@@ -40,8 +40,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -59,7 +57,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -76,7 +73,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowTurnBackward
 import me.rerere.hugeicons.stroke.Bash
@@ -98,6 +94,9 @@ import me.yui.yuihub.data.repository.AptIndexRefresh
 import androidx.compose.ui.res.stringResource
 import me.yui.yuihub.R
 import me.yui.yuihub.ui.components.nav.BackButton
+import me.yui.yuihub.ui.components.nav.FloatingBottomBar
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
 import me.yui.yuihub.ui.components.ui.ImagePreviewDialog
 import me.yui.yuihub.ui.components.ui.RikkaConfirmDialog
 import me.yui.yuihub.ui.context.LocalNavController
@@ -135,7 +134,6 @@ fun WorkspaceDetailPage(id: String) {
     val aptIndexDetail by vm.aptIndexDetail.collectAsStateWithLifecycle()
     val mirrorError by vm.mirrorError.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState { 3 }
-    val scope = rememberCoroutineScope()
     var deleteTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
     var showInstallDialog by remember { mutableStateOf(false) }
     var showMountDialog by remember { mutableStateOf(false) }
@@ -200,36 +198,15 @@ fun WorkspaceDetailPage(id: String) {
                 colors = CustomColors.topBarColors,
             )
         },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 0,
-                    label = { Text(stringResource(R.string.workspace_detail_tab_basic)) },
-                    icon = { Icon(HugeIcons.Settings03, contentDescription = null) },
-                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
-                )
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 1,
-                    label = { Text(stringResource(R.string.workspace_detail_tab_environment)) },
-                    icon = { Icon(HugeIcons.Package01, contentDescription = null) },
-                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
-                )
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 2,
-                    label = { Text(stringResource(R.string.workspace_detail_tab_files)) },
-                    icon = { Icon(HugeIcons.File02, contentDescription = null) },
-                    onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
-                )
-            }
-        },
         containerColor = CustomColors.topBarColors.containerColor,
     ) { innerPadding ->
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize(),
-        ) { page ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .fillMaxSize(),
+            ) { page ->
             when (page) {
                 0 -> WorkspaceBasicPage(
                     workspace = state.workspace,
@@ -274,6 +251,9 @@ fun WorkspaceDetailPage(id: String) {
                                     previewImageUri = file.absolutePath
                                 }
 
+                                entry.name.substringAfterLast('.', "").equals("apk", ignoreCase = true) &&
+                                    !SystemPermissions.ensureInstallPermission(context) -> Unit
+
                                 else -> vm.exportToCacheFile(entry, context.cacheDir) { file ->
                                     val uri = FileProvider.getUriForFile(
                                         context,
@@ -316,6 +296,27 @@ fun WorkspaceDetailPage(id: String) {
                     },
                 )
             }
+            }
+            FloatingBottomBar(
+                pagerState = pagerState,
+                tabs = listOf(
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Settings03,
+                        label = stringResource(R.string.workspace_detail_tab_basic),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Package01,
+                        label = stringResource(R.string.workspace_detail_tab_environment),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.File02,
+                        label = stringResource(R.string.workspace_detail_tab_files),
+                    ),
+                ),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = innerPadding.calculateBottomPadding()),
+            )
         }
     }
 
@@ -428,7 +429,7 @@ private fun WorkspaceBasicPage(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(16.dp) + PaddingValues(bottom = FloatingBottomBarDefaults.ContentBottom),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -522,7 +523,7 @@ private fun WorkspaceEnvironmentPage(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(16.dp) + PaddingValues(bottom = FloatingBottomBarDefaults.ContentBottom),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -929,6 +930,7 @@ private fun workspaceToolApprovalItems() = listOf(
     "workspace_read_file" to stringResource(R.string.workspace_detail_tool_read_file),
     "workspace_write_file" to stringResource(R.string.workspace_detail_tool_write_file),
     "workspace_edit_file" to stringResource(R.string.workspace_detail_tool_edit_file),
+    "workspace_present_file" to stringResource(R.string.workspace_detail_tool_present_file),
     "workspace_shell" to stringResource(R.string.workspace_detail_tool_shell),
 )
 
@@ -1331,7 +1333,7 @@ private fun WorkspaceFilesPage(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = contentPadding + PaddingValues(16.dp),
+        contentPadding = contentPadding + PaddingValues(16.dp) + PaddingValues(bottom = FloatingBottomBarDefaults.ContentBottom),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {

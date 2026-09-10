@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -45,8 +44,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SheetState
@@ -105,6 +102,9 @@ import me.yui.yuihub.data.files.FileUtils
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.ui.components.ai.ModelSelector
 import me.yui.yuihub.ui.components.nav.BackButton
+import me.yui.yuihub.ui.components.nav.FloatingBottomBar
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
 import me.yui.yuihub.ui.components.ui.FormItem
 import me.yui.yuihub.ui.components.ui.ImagePreviewDialog
 import me.yui.yuihub.ui.components.ui.OutlinedNumberInput
@@ -121,7 +121,6 @@ fun ImageGenPage(
     vm: ImgGenVM = koinViewModel()
 ) {
     val pagerState = rememberPagerState { 2 }
-    val scope = rememberCoroutineScope()
 
     val isGenerating by vm.isGenerating.collectAsStateWithLifecycle()
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -157,20 +156,35 @@ fun ImageGenPage(
                 }
             )
         },
-        bottomBar = {
-            BottomBar(pagerState, scope)
-        },
     ) { innerPadding ->
-        HorizontalPager(
-            state = pagerState,
-            modifier = modifier
-                .padding(innerPadding)
-                .consumeWindowInsets(innerPadding)
-        ) { page ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = modifier
+                    .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
+            ) { page ->
             when (page) {
                 0 -> ImageGenScreen(vm = vm)
                 1 -> ImageGalleryScreen(vm = vm, isActive = pagerState.currentPage == 1)
             }
+            }
+            FloatingBottomBar(
+                pagerState = pagerState,
+                tabs = listOf(
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Colors,
+                        label = stringResource(R.string.imggen_page_title),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Image03,
+                        label = stringResource(R.string.imggen_page_gallery),
+                    ),
+                ),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = innerPadding.calculateBottomPadding()),
+            )
         }
     }
 }
@@ -195,44 +209,6 @@ private fun CancelDialog(
             }
         }
     )
-}
-
-@Composable
-private fun BottomBar(
-    pagerState: PagerState,
-    scope: CoroutineScope
-) {
-    NavigationBar {
-        NavigationBarItem(
-            selected = 0 == pagerState.currentPage,
-            label = {
-                Text(stringResource(R.string.imggen_page_title))
-            },
-            icon = {
-                Icon(HugeIcons.Colors, null)
-            },
-            onClick = {
-                scope.launch {
-                    pagerState.animateScrollToPage(0)
-                }
-            }
-        )
-
-        NavigationBarItem(
-            selected = 1 == pagerState.currentPage,
-            label = {
-                Text(stringResource(R.string.imggen_page_gallery))
-            },
-            icon = {
-                Icon(HugeIcons.Image03, null)
-            },
-            onClick = {
-                scope.launch {
-                    pagerState.animateScrollToPage(1)
-                }
-            }
-        )
-    }
 }
 
 @Composable
@@ -266,7 +242,7 @@ private fun ImageGenScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + FloatingBottomBarDefaults.ContentBottom)
             .imePadding()
     ) {
         Box(
@@ -645,7 +621,7 @@ private fun ImageGalleryScreen(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(16.dp),
+                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + FloatingBottomBarDefaults.ContentBottom),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize(),

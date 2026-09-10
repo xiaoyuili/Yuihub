@@ -168,6 +168,11 @@ fun ChatMessage(
             )
         }
 
+        PresentedFilesList(
+            parts = message.parts,
+            assistant = assistant,
+        )
+
         val showActions = if (lastMessage) {
             !loading
         } else {

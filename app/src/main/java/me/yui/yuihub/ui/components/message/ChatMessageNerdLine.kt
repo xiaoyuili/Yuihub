@@ -20,6 +20,7 @@ import kotlinx.datetime.toJavaLocalDateTime
 import me.rerere.ai.ui.UIMessage
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Clock02
+import me.rerere.hugeicons.stroke.Database02
 import me.rerere.hugeicons.stroke.Download04
 import me.rerere.hugeicons.stroke.Upload02
 import me.rerere.hugeicons.stroke.Zap
@@ -59,12 +60,22 @@ fun ChatMessageNerdLine(
                             )
                         },
                         content = {
-                            Text(text = "${usage.promptTokens.formatNumber()} tokens")
+                            Text(text = usage.promptTokens.formatNumber())
                             // Cached tokens
                             if (usage.cachedTokens > 0) {
-                                Text(
-                                    text = "(${message.usage?.cachedTokens?.formatNumber() ?: "0"} cached)"
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(1.dp),
+                                    modifier = Modifier.padding(start = 3.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = HugeIcons.Database02,
+                                        contentDescription = "Cached",
+                                        tint = color,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(text = usage.cachedTokens.formatNumber())
+                                }
                             }
                         }
                     )
@@ -78,7 +89,7 @@ fun ChatMessageNerdLine(
                             )
                         },
                         content = {
-                            Text(text = "${usage.completionTokens.formatNumber()} tokens")
+                            Text(text = usage.completionTokens.formatNumber())
                         }
                     )
                     // TPS
@@ -98,7 +109,7 @@ fun ChatMessageNerdLine(
                                 )
                             },
                             content = {
-                                Text(text = "${tps.toFixed(1)} tok/s")
+                                Text(text = "${tps.toFixed(1)}/s")
                             }
                         )
 

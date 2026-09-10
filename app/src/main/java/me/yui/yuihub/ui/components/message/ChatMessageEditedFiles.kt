@@ -29,6 +29,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -42,11 +43,14 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.FileImport
+import me.rerere.hugeicons.stroke.FolderOpen
 import me.rerere.hugeicons.stroke.Share08
 import me.yui.yuihub.R
+import me.yui.yuihub.Screen
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.rerere.workspace.WorkspaceStorageArea
+import me.yui.yuihub.ui.context.LocalNavController
 import org.koin.compose.koinInject
 import java.io.File
 
@@ -72,6 +76,7 @@ internal fun EditedFilesList(
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val navController = LocalNavController.current
     val workspaceRepository: WorkspaceRepository = koinInject()
 
     var selectedPath by remember { mutableStateOf<String?>(null) }
@@ -144,102 +149,140 @@ internal fun EditedFilesList(
     if (selectedPath != null) {
         val path = selectedPath!!
         val fileName = remember(path) { path.substringAfterLast('/') }
-        ModalBottomSheet(
+        WorkspaceFileActionSheet(
+            fileName = fileName,
+            subtitle = null,
+            onOpen = {
+                selectedPath = null
+                val (area, relativePath) = resolveWorkspacePath(path)
+                navController.navigate(
+                    Screen.WorkspaceFileEditor(
+                        id = workspaceId,
+                        area = area.name,
+                        path = relativePath,
+                    )
+                )
+            },
+            onExport = {
+                exportLauncher.launch(fileName)
+            },
+            onShare = {
+                selectedPath = null
+                scope.launch {
+                    runCatching {
+                        val (area, relativePath) = resolveWorkspacePath(path)
+                        val dir = File(context.cacheDir, "workspace_share").apply { mkdirs() }
+                        val file = File(dir, fileName)
+                        file.outputStream().use { output ->
+                            workspaceRepository.exportFile(workspaceId, area, relativePath, output)
+                        }
+                        val uri = FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            file,
+                        )
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/octet-stream"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, null))
+                    }
+                }
+            },
             onDismissRequest = { selectedPath = null },
-            sheetState = rememberBottomSheetState(
-                initialValue = SheetValue.Hidden,
-                enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
-            ),
+        )
+    }
+}
+
+/** 工作区文件操作弹层：打开 / 导出 / 分享。 */
+@Composable
+internal fun WorkspaceFileActionSheet(
+    fileName: String,
+    subtitle: String?,
+    onOpen: () -> Unit,
+    onExport: () -> Unit,
+    onShare: () -> Unit,
+    onDismissRequest: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+        ),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            Text(
+                text = fileName,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!subtitle.isNullOrBlank()) {
                 Text(
-                    text = fileName,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Card(
-                    onClick = {
-                        val p = selectedPath ?: return@Card
-                        exportLauncher.launch(p.substringAfterLast('/'))
-                    },
-                    shape = MaterialTheme.shapes.medium,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                    ) {
-                        Icon(
-                            imageVector = HugeIcons.FileImport,
-                            contentDescription = null,
-                            modifier = Modifier.padding(4.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.common_export),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    }
-                }
-                Card(
-                    onClick = {
-                        val p = selectedPath ?: return@Card
-                        selectedPath = null
-                        scope.launch {
-                            runCatching {
-                                val (area, relativePath) = resolveWorkspacePath(p)
-                                val dir = File(context.cacheDir, "workspace_share").apply { mkdirs() }
-                                val file = File(dir, p.substringAfterLast('/'))
-                                file.outputStream().use { output ->
-                                    workspaceRepository.exportFile(workspaceId, area, relativePath, output)
-                                }
-                                val uri = FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.fileprovider",
-                                    file,
-                                )
-                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "application/octet-stream"
-                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(intent, null))
-                            }
-                        }
-                    },
-                    shape = MaterialTheme.shapes.medium,
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        modifier = Modifier
-                            .padding(16.dp)
-                            .fillMaxWidth(),
-                    ) {
-                        Icon(
-                            imageVector = HugeIcons.Share08,
-                            contentDescription = null,
-                            modifier = Modifier.padding(4.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.common_share),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    }
-                }
             }
+            FileActionCard(
+                icon = HugeIcons.FolderOpen,
+                label = stringResource(R.string.common_open),
+                onClick = onOpen,
+            )
+            FileActionCard(
+                icon = HugeIcons.FileImport,
+                label = stringResource(R.string.common_export),
+                onClick = onExport,
+            )
+            FileActionCard(
+                icon = HugeIcons.Share08,
+                label = stringResource(R.string.common_share),
+                onClick = onShare,
+            )
         }
     }
 }
 
-private fun resolveWorkspacePath(path: String): Pair<WorkspaceStorageArea, String> {
+@Composable
+private fun FileActionCard(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier
+                .padding(16.dp)
+                .fillMaxWidth(),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.padding(4.dp),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+    }
+}
+
+internal fun resolveWorkspacePath(path: String): Pair<WorkspaceStorageArea, String> {
     val trimmed = path.trimEnd('/')
     return if (trimmed == "/workspace" || trimmed.startsWith("/workspace/")) {
         WorkspaceStorageArea.FILES to trimmed.removePrefix("/workspace").trimStart('/')

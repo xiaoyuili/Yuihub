@@ -1,6 +1,8 @@
 package me.yui.yuihub.ui.pages.assistant.detail
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -9,20 +11,21 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SecondaryTabRow
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Book01
+import me.rerere.hugeicons.stroke.MagicWand01
+import me.rerere.hugeicons.stroke.McpServer
+import me.rerere.hugeicons.stroke.Puzzle
 import me.yui.yuihub.R
-import kotlinx.coroutines.launch
 import me.yui.yuihub.Screen
 import me.yui.yuihub.ui.components.ai.ExtensionEmptyState
 import me.yui.yuihub.ui.components.ai.LorebooksContent
@@ -30,6 +33,9 @@ import me.yui.yuihub.ui.components.ai.McpPicker
 import me.yui.yuihub.ui.components.ai.ModeInjectionsContent
 import me.yui.yuihub.ui.components.ai.SkillsContent
 import me.yui.yuihub.ui.components.nav.BackButton
+import me.yui.yuihub.ui.components.nav.FloatingBottomBar
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.theme.CustomColors
 import org.koin.androidx.compose.koinViewModel
@@ -44,7 +50,6 @@ fun AssistantExtensionsPage(id: String) {
     val mcpServerConfigs by vm.mcpServerConfigs.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState { 4 }
 
     Scaffold(
@@ -59,42 +64,13 @@ fun AssistantExtensionsPage(id: String) {
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = CustomColors.topBarColors.containerColor,
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-        ) {
-            SecondaryTabRow(
-                selectedTabIndex = pagerState.currentPage,
-                containerColor = Color.Transparent,
-            ) {
-                Tab(
-                    selected = pagerState.currentPage == 0,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
-                    text = { Text(stringResource(R.string.assistant_extensions_page_tab_mode_injections)) }
-                )
-                Tab(
-                    selected = pagerState.currentPage == 1,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
-                    text = { Text(stringResource(R.string.assistant_extensions_page_tab_lorebooks)) }
-                )
-                Tab(
-                    selected = pagerState.currentPage == 2,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
-                    text = { Text(stringResource(R.string.assistant_extensions_page_tab_skills)) }
-                )
-                Tab(
-                    selected = pagerState.currentPage == 3,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(3) } },
-                    text = { Text(stringResource(R.string.assistant_page_tab_mcp)) }
-                )
-            }
-
+        Box(modifier = Modifier.fillMaxSize()) {
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding),
             ) { page ->
                 when (page) {
                     0 -> {
@@ -105,7 +81,9 @@ fun AssistantExtensionsPage(id: String) {
                                 onAction = { navController.navigate(Screen.Prompts) },
                             )
                         } else {
-                            Column {
+                            Column(
+                                modifier = Modifier.padding(bottom = FloatingBottomBarDefaults.ContentBottom),
+                            ) {
                                 ModeInjectionsContent(
                                     modifier = Modifier.weight(1f),
                                     modeInjections = settings.modeInjections,
@@ -134,7 +112,9 @@ fun AssistantExtensionsPage(id: String) {
                                 onAction = { navController.navigate(Screen.Prompts) },
                             )
                         } else {
-                            Column {
+                            Column(
+                                modifier = Modifier.padding(bottom = FloatingBottomBarDefaults.ContentBottom),
+                            ) {
                                 LorebooksContent(
                                     modifier = Modifier.weight(1f),
                                     lorebooks = settings.lorebooks,
@@ -163,7 +143,9 @@ fun AssistantExtensionsPage(id: String) {
                                 onAction = { navController.navigate(Screen.Skills) },
                             )
                         } else {
-                            Column {
+                            Column(
+                                modifier = Modifier.padding(bottom = FloatingBottomBarDefaults.ContentBottom),
+                            ) {
                                 SkillsContent(
                                     modifier = Modifier.weight(1f),
                                     skills = skills,
@@ -192,7 +174,9 @@ fun AssistantExtensionsPage(id: String) {
                                 onAction = { navController.navigate(Screen.SettingMcp) },
                             )
                         } else {
-                            Column {
+                            Column(
+                                modifier = Modifier.padding(bottom = FloatingBottomBarDefaults.ContentBottom),
+                            ) {
                                 McpPicker(
                                     modifier = Modifier.weight(1f),
                                     assistant = assistant,
@@ -210,6 +194,30 @@ fun AssistantExtensionsPage(id: String) {
                     }
                 }
             }
+            FloatingBottomBar(
+                pagerState = pagerState,
+                tabs = listOf(
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.MagicWand01,
+                        label = stringResource(R.string.assistant_extensions_page_tab_mode_injections),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Book01,
+                        label = stringResource(R.string.assistant_extensions_page_tab_lorebooks),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Puzzle,
+                        label = stringResource(R.string.assistant_extensions_page_tab_skills),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.McpServer,
+                        label = stringResource(R.string.assistant_page_tab_mcp),
+                    ),
+                ),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = innerPadding.calculateBottomPadding()),
+            )
         }
     }
 }

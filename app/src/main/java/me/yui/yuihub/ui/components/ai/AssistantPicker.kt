@@ -1,5 +1,6 @@
 package me.yui.yuihub.ui.components.ai
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -26,6 +27,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,8 +43,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.ArrowDataTransferHorizontal
 import me.rerere.hugeicons.stroke.Edit03
-import me.rerere.hugeicons.stroke.LookTop
 import me.yui.yuihub.R
 import me.yui.yuihub.Screen
 import me.yui.yuihub.data.datastore.Settings
@@ -63,35 +65,48 @@ fun AssistantPicker(
     val defaultAssistantName = stringResource(R.string.assistant_page_default_assistant)
     var showPicker by remember { mutableStateOf(false) }
 
-    NavigationDrawerItem(
-        icon = {
-            Icon(HugeIcons.LookTop, contentDescription = null)
-        },
-        label = {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = state.currentAssistant.name.ifEmpty { defaultAssistantName },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                Spacer(Modifier.weight(1f))
-
+    Surface(
+        shape = RoundedCornerShape(percent = 50),
+        color = Color.Transparent,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+    ) {
+        NavigationDrawerItem(
+            icon = {
                 UIAvatar(
                     name = state.currentAssistant.name.ifEmpty { defaultAssistantName },
                     value = state.currentAssistant.avatar,
-                    onClick = onClickSetting
+                    onClick = onClickSetting,
                 )
-            }
-        },
-        onClick = {
-            showPicker = true
-        },
-        modifier = modifier,
-        selected = false,
-    )
+            },
+            label = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = state.currentAssistant.name.ifEmpty { defaultAssistantName },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(Modifier.weight(1f))
+
+                    IconButton(
+                        onClick = { showPicker = true },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = HugeIcons.ArrowDataTransferHorizontal,
+                            contentDescription = stringResource(R.string.chat_page_switch_assistant),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            },
+            onClick = onClickSetting,
+            modifier = modifier,
+            selected = false,
+        )
+    }
 
     if (showPicker) {
         AssistantPickerSheet(

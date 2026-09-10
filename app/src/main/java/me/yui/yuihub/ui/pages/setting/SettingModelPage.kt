@@ -1,6 +1,7 @@
 package me.yui.yuihub.ui.pages.setting
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,17 +11,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -28,7 +26,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelType
@@ -43,6 +40,9 @@ import me.yui.yuihub.ui.components.ai.ModelListSheet
 import me.yui.yuihub.ui.components.ai.ReasoningButton
 import me.yui.yuihub.ui.components.ai.rememberModelListState
 import me.yui.yuihub.ui.components.nav.BackButton
+import me.yui.yuihub.ui.components.nav.FloatingBottomBar
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
 import me.yui.yuihub.ui.components.ui.CardGroup
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
@@ -54,7 +54,6 @@ fun SettingModelPage(vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val pagerState = rememberPagerState { 2 }
-    val scope = rememberCoroutineScope()
 
     Scaffold(
         containerColor = CustomColors.topBarColors.containerColor,
@@ -66,34 +65,34 @@ fun SettingModelPage(vm: SettingVM = koinViewModel()) {
                 colors = CustomColors.topBarColors,
             )
         },
-        bottomBar = {
-            BottomAppBar(
-                containerColor = CustomColors.cardColorsOnSurfaceContainer.containerColor
-            ) {
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 0,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
-                    icon = { Icon(HugeIcons.AiBrain01, null) },
-                    label = { Text(stringResource(R.string.setting_model_page_tab_model)) }
-                )
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 1,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
-                    icon = { Icon(HugeIcons.AiEditing, null) },
-                    label = { Text(stringResource(R.string.setting_model_page_tab_prompt)) }
-                )
-            }
-        },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
     ) { contentPadding ->
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize(),
-        ) { page ->
-            when (page) {
-                0 -> ModelSettingsPage(settings = settings, vm = vm, contentPadding = contentPadding)
-                1 -> PromptSettingsPage(settings = settings, vm = vm, contentPadding = contentPadding)
+        Box(modifier = Modifier.fillMaxSize()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                when (page) {
+                    0 -> ModelSettingsPage(settings = settings, vm = vm, contentPadding = contentPadding)
+                    1 -> PromptSettingsPage(settings = settings, vm = vm, contentPadding = contentPadding)
+                }
             }
+            FloatingBottomBar(
+                pagerState = pagerState,
+                tabs = listOf(
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.AiBrain01,
+                        label = stringResource(R.string.setting_model_page_tab_model),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.AiEditing,
+                        label = stringResource(R.string.setting_model_page_tab_prompt),
+                    ),
+                ),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = contentPadding.calculateBottomPadding()),
+            )
         }
     }
 }
@@ -102,38 +101,21 @@ fun SettingModelPage(vm: SettingVM = koinViewModel()) {
 private fun ModelSettingsPage(settings: Settings, vm: SettingVM, contentPadding: PaddingValues) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = contentPadding + PaddingValues(horizontal = 16.dp),
+        contentPadding = contentPadding + PaddingValues(start = 16.dp, end = 16.dp, bottom = FloatingBottomBarDefaults.ContentBottom),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {
             ModelSettingItem(
-                title = stringResource(R.string.setting_model_page_chat_model),
-                description = stringResource(R.string.setting_model_page_chat_model_desc),
-                modelId = settings.chatModelId,
+                title = stringResource(R.string.setting_model_page_title_model),
+                description = stringResource(R.string.setting_model_page_title_model_desc),
+                modelId = settings.titleModelId,
                 providers = settings.providers,
-                onSelect = { vm.updateSettings(settings.copy(chatModelId = it.id)) },
-            )
-        }
-        item {
-            ModelSettingItem(
-                title = stringResource(R.string.setting_model_page_fast_model),
-                description = stringResource(R.string.setting_model_page_fast_model_desc),
-                modelId = settings.fastModelId,
-                providers = settings.providers,
-                onSelect = { vm.updateSettings(settings.copy(fastModelId = it.id)) },
-                reasoningLevel = settings.fastModelReasoningLevel,
+                onSelect = { vm.updateSettings(settings.copy(titleModelId = it.id)) },
+                reasoningLevel = settings.titleModelReasoningLevel,
                 onUpdateReasoningLevel = {
-                    vm.updateSettings(settings.copy(fastModelReasoningLevel = it))
+                    vm.updateSettings(settings.copy(titleModelReasoningLevel = it))
                 },
-            )
-        }
-        item {
-            ModelSettingItem(
-                title = stringResource(R.string.setting_model_page_compress_model),
-                description = stringResource(R.string.setting_model_page_compress_model_desc),
-                modelId = settings.compressModelId,
-                providers = settings.providers,
-                onSelect = { vm.updateSettings(settings.copy(compressModelId = it.id)) },
+                unselectedText = stringResource(R.string.setting_model_page_default_chat_model),
             )
         }
         item {
@@ -157,6 +139,7 @@ private fun ModelSettingItem(
     onSelect: (Model) -> Unit,
     reasoningLevel: ReasoningLevel? = null,
     onUpdateReasoningLevel: ((ReasoningLevel) -> Unit)? = null,
+    unselectedText: String? = null,
 ) {
     val state = rememberModelListState(
         modelId = modelId,
@@ -176,6 +159,7 @@ private fun ModelSettingItem(
                     ) {
                         Text(
                             text = state.currentModel?.displayName
+                                ?: unselectedText
                                 ?: stringResource(R.string.model_list_select_model),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -24,7 +24,6 @@ import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantMemory
 import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.data.model.EvolutionLesson
-import me.yui.yuihub.data.model.Tag
 import me.yui.yuihub.data.repository.EvolutionRepository
 import me.yui.yuihub.data.repository.MemoryRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
@@ -89,22 +88,6 @@ class AssistantDetailVM(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
         )
 
-    val providers = settingsStore
-        .settingsFlow
-        .map { settings ->
-            settings.providers
-        }.stateIn(
-            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
-        )
-
-    val tags = settingsStore
-        .settingsFlow
-        .map { settings ->
-            settings.assistantTags
-        }.stateIn(
-            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
-        )
-
     val workspaces: StateFlow<List<WorkspaceEntity>> = workspaceRepository
         .listFlow()
         .stateIn(
@@ -112,64 +95,6 @@ class AssistantDetailVM(
             started = SharingStarted.Eagerly,
             initialValue = emptyList(),
         )
-
-    fun updateTags(tagIds: List<Uuid>, tags: List<Tag>) {
-        viewModelScope.launch {
-            val settings = settings.value
-            settingsStore.update(
-                settings = settings.copy(
-                    assistantTags = tags
-                )
-            )
-            update(
-                assistant.value.copy(
-                    tags = tagIds.toList()
-                )
-            )
-            Log.d(TAG, "updateTags: ${tagIds.joinToString(",")}")
-            cleanupUnusedTags()
-        }
-    }
-
-    fun cleanupUnusedTags() {
-        viewModelScope.launch {
-            val settings = settings.value
-            val validTagIds = settings.assistantTags.map { it.id }.toSet()
-
-            // 清理 assistant 中的无效 tag id
-            val cleanedAssistants = settings.assistants.map { assistant ->
-                val validTags = assistant.tags.filter { tagId ->
-                    validTagIds.contains(tagId)
-                }
-                if (validTags.size != assistant.tags.size) {
-                    assistant.copy(tags = validTags)
-                } else {
-                    assistant
-                }
-            }
-
-            // 获取清理后的 assistant 中使用的 tag id
-            val usedTagIds = cleanedAssistants.flatMap { it.tags }.toSet()
-
-            // 清理未使用的 tags
-            val cleanedTags = settings.assistantTags.filter { tag ->
-                usedTagIds.contains(tag.id)
-            }
-
-            // 检查是否需要更新
-            val needUpdateAssistants = cleanedAssistants != settings.assistants
-            val needUpdateTags = cleanedTags.size != settings.assistantTags.size
-
-            if (needUpdateAssistants || needUpdateTags) {
-                settingsStore.update(
-                    settings = settings.copy(
-                        assistants = cleanedAssistants,
-                        assistantTags = cleanedTags
-                    )
-                )
-            }
-        }
-    }
 
     fun update(assistant: Assistant) {
         viewModelScope.launch {

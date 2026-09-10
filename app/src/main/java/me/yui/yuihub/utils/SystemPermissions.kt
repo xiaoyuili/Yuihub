@@ -74,6 +74,33 @@ object SystemPermissions {
         return appDetailsIntent(context)
     }
 
+    /** 是否允许安装未知应用（APK）。Android 8 以下无此限制，视为已允许。 */
+    fun canInstallUnknownApps(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        return runCatching {
+            context.packageManager.canRequestPackageInstalls()
+        }.getOrDefault(false)
+    }
+
+    /** 「安装未知应用」授权页；个别 ROM 不支持带包名跳转，回退到应用详情页。 */
+    fun installUnknownAppsIntent(context: Context): Intent {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val scoped = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                .setData(Uri.parse("package:${context.packageName}"))
+            if (scoped.isResolvable(context)) return scoped
+            val list = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+            if (list.isResolvable(context)) return list
+        }
+        return appDetailsIntent(context)
+    }
+
+    /** 打开安装包前调用：未授予「安装未知应用」时跳转授权页并返回 false。 */
+    fun ensureInstallPermission(context: Context): Boolean {
+        if (canInstallUnknownApps(context)) return true
+        openSettings(context, installUnknownAppsIntent(context))
+        return false
+    }
+
     fun appDetailsIntent(context: Context): Intent =
         Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
             .setData(Uri.parse("package:${context.packageName}"))

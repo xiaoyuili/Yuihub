@@ -11,14 +11,21 @@ import me.rerere.hugeicons.stroke.Tools
 import me.rerere.hugeicons.stroke.Share01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Cancel01
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -43,7 +50,6 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
 import androidx.compose.material3.FloatingToolbarDefaults.floatingToolbarVerticalNestedScroll
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
@@ -52,8 +58,6 @@ import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MultiChoiceSegmentedButtonRow
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -63,7 +67,6 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -71,8 +74,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetState
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -82,18 +85,24 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastFilter
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dokar.sonner.ToastType
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Modality
@@ -112,6 +121,9 @@ import me.yui.yuihub.ui.components.ai.ModelSelector
 import me.yui.yuihub.ui.components.ai.ModelTypeTag
 import me.yui.yuihub.ui.components.ai.ProviderBalanceText
 import me.yui.yuihub.ui.components.nav.BackButton
+import me.yui.yuihub.ui.components.nav.FloatingBottomBar
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
 import me.yui.yuihub.ui.components.ui.AutoAIIcon
 import me.yui.yuihub.ui.components.ui.ShareSheet
 import me.yui.yuihub.ui.components.ui.SiliconFlowPowerByIcon
@@ -124,12 +136,14 @@ import me.yui.yuihub.ui.hooks.useEditState
 import me.yui.yuihub.ui.pages.assistant.detail.CustomBodies
 import me.yui.yuihub.ui.pages.assistant.detail.CustomHeaders
 import me.yui.yuihub.ui.pages.setting.components.ProviderConfigure
+import me.yui.yuihub.ui.pages.setting.components.ModelConnectionTester
 import me.yui.yuihub.ui.pages.setting.components.ProviderConnectionTester
 import me.yui.yuihub.ui.pages.setting.components.SettingProviderBalanceOption
 import me.yui.yuihub.ui.pages.setting.components.isUsingDefaultBaseUrl
 import me.yui.yuihub.ui.pages.setting.components.resetBaseUrlToDefault
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.ui.theme.extendColors
+import me.yui.yuihub.utils.computeAIIconByName
 import me.yui.yuihub.utils.formatContextLength
 import me.yui.yuihub.utils.parseContextLengthInput
 import me.yui.yuihub.utils.UiState
@@ -138,6 +152,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import kotlin.math.roundToInt
 import kotlin.uuid.Uuid
 
 @Composable
@@ -146,7 +161,6 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     val navController = LocalNavController.current
     val provider = settings.providers.find { it.id == id } ?: return
     val pager = rememberPagerState { 2 }
-    val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
     val context = LocalContext.current
 
@@ -183,13 +197,16 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        AutoAIIcon(provider.name, modifier = Modifier.size(22.dp))
+                        if (computeAIIconByName(provider.name) != null) {
+                            AutoAIIcon(provider.name, modifier = Modifier.size(22.dp))
+                        }
                         Text(text = provider.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 },
                 actions = {
                     val shareSheetState = rememberShareSheetState()
                     ShareSheet(shareSheetState)
+                    ModelConnectionTester(providerSetting = provider)
                     IconButton(
                         onClick = {
                             shareSheetState.show(provider)
@@ -200,39 +217,14 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                 }
             )
         },
-        bottomBar = {
-            NavigationBar(
-                containerColor = CustomColors.cardColorsOnSurfaceContainer.containerColor
-            ) {
-                NavigationBarItem(
-                    selected = pager.currentPage == 0,
-                    label = { Text(stringResource(id = R.string.setting_provider_page_configuration)) },
-                    icon = { Icon(HugeIcons.Tools, null) },
-                    onClick = {
-                        scope.launch {
-                            pager.animateScrollToPage(0)
-                        }
-                    }
-                )
-                NavigationBarItem(
-                    selected = pager.currentPage == 1,
-                    label = { Text(stringResource(id = R.string.setting_provider_page_models)) },
-                    icon = { Icon(HugeIcons.Package01, null) },
-                    onClick = {
-                        scope.launch {
-                            pager.animateScrollToPage(1)
-                        }
-                    }
-                )
-            }
-        }
-    ) {
-        HorizontalPager(
-            state = pager,
-            modifier = Modifier
-                .padding(it)
-                .consumeWindowInsets(it)
-        ) { page ->
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            HorizontalPager(
+                state = pager,
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .consumeWindowInsets(innerPadding)
+            ) { page ->
             when (page) {
                 0 -> {
                     SettingProviderConfigPage(
@@ -257,6 +249,23 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                     )
                 }
             }
+            }
+            FloatingBottomBar(
+                pagerState = pager,
+                tabs = listOf(
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Tools,
+                        label = stringResource(R.string.setting_provider_page_configuration),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Package01,
+                        label = stringResource(R.string.setting_provider_page_models),
+                    ),
+                ),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = innerPadding.calculateBottomPadding()),
+            )
         }
     }
 }
@@ -275,7 +284,7 @@ private fun SettingProviderConfigPage(
             .fillMaxSize()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + FloatingBottomBarDefaults.ContentBottom),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         ProviderConfigure(
@@ -417,7 +426,7 @@ private fun ModelList(
                     onExpand = { expanded = true },
                     onCollapse = { expanded = false },
                 ),
-            contentPadding = PaddingValues(16.dp) + PaddingValues(bottom = 128.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = FloatingBottomBarDefaults.ToolbarContentBottom),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
             state = lazyListState
@@ -479,7 +488,7 @@ private fun ModelList(
             expanded = expanded,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .offset(y = -ScreenOffset),
+                .offset(y = -FloatingBottomBarDefaults.ToolbarOffset),
         ) {
             AddModelButton(
                 models = modelList,
@@ -628,14 +637,14 @@ private fun ModelSettingsForm(
                                     onModelChange(model.copy(abilities = it))
                                 }
                             )
-                        }
 
-                        ContextLengthSetting(
-                            contextLength = model.contextLength,
-                            onUpdate = {
-                                onModelChange(model.copy(contextLength = it))
-                            },
-                        )
+                            ContextLengthSetting(
+                                contextLength = model.contextLength,
+                                onUpdate = {
+                                    onModelChange(model.copy(contextLength = it))
+                                },
+                            )
+                        }
                     }
                 }
 
@@ -1170,6 +1179,87 @@ fun ModalAbilitySelector(
 }
 
 @Composable
+private fun SwipeRevealBox(
+    modifier: Modifier = Modifier,
+    revealWidth: Dp = 112.dp,
+    actions: @Composable RowScope.(close: () -> Unit) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val density = LocalDensity.current
+    val revealPx = remember(density, revealWidth) { with(density) { revealWidth.toPx() } }
+    var offsetX by remember { mutableStateOf(0f) }
+    var settleJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
+    val settleTo: (Float) -> Unit = { target ->
+        settleJob?.cancel()
+        settleJob = scope.launch {
+            animate(
+                initialValue = offsetX,
+                targetValue = target,
+                animationSpec = tween(220),
+            ) { value, _ ->
+                offsetX = value
+            }
+        }
+    }
+    val close: () -> Unit = { settleTo(0f) }
+    val isOpen by remember { derivedStateOf { offsetX < 0f } }
+
+    Box(modifier = modifier.clipToBounds()) {
+        Row(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            actions(close)
+        }
+
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(offsetX.roundToInt(), 0) }
+                .pointerInput(revealPx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ ->
+                            change.consume()
+                        } ?: return@awaitEachGesture
+                        settleJob?.cancel()
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            val dragAmount = change.position.x - change.previousPosition.x
+                            if (dragAmount != 0f) {
+                                change.consume()
+                                offsetX = (offsetX + dragAmount).coerceIn(-revealPx, 0f)
+                            }
+                        }
+                        val target = if (offsetX <= -revealPx / 2f) -revealPx else 0f
+                        settleTo(target)
+                    }
+                },
+        ) {
+            content()
+
+            if (isOpen) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) {
+                            close()
+                        },
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ModelCard(
     model: Model,
     modifier: Modifier = Modifier,
@@ -1180,7 +1270,6 @@ private fun ModelCard(
     val dialogState = useEditState<Model> {
         onEdit(it.copy(displayName = it.displayName.trim()))
     }
-    val swipeToDismissBoxState = rememberSwipeToDismissBoxState()
     val scope = rememberCoroutineScope()
 
 
@@ -1263,43 +1352,23 @@ private fun ModelCard(
         }
     }
 
-    SwipeToDismissBox(
-        state = swipeToDismissBoxState,
-        backgroundContent = {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                verticalAlignment = Alignment.CenterVertically
+    SwipeRevealBox(
+        modifier = modifier,
+        actions = { close ->
+            IconButton(
+                onClick = close,
             ) {
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            swipeToDismissBoxState.reset()
-                        }
-                    }
-                ) {
-                    Icon(HugeIcons.Cancel01, null)
-                }
-                FilledIconButton(
-                    onClick = {
-                        scope.launch {
-                            onDelete()
-                            swipeToDismissBoxState.reset()
-                        }
-                    }
-                ) {
-                    Icon(
-                        HugeIcons.Delete01,
-                        contentDescription = stringResource(R.string.chat_page_delete)
-                    )
-                }
+                Icon(HugeIcons.Cancel01, null)
+            }
+            FilledIconButton(
+                onClick = onDelete,
+            ) {
+                Icon(
+                    HugeIcons.Delete01,
+                    contentDescription = stringResource(R.string.chat_page_delete)
+                )
             }
         },
-        enableDismissFromStartToEnd = false,
-        gesturesEnabled = true,
-        modifier = modifier
     ) {
         OutlinedCard {
             Row(
@@ -1340,9 +1409,18 @@ private fun ModelCard(
                                 )
                             }
                         }
-                        ModelTypeTag(model = model)
-                        ModelModalityTag(model = model)
-                        ModelAbilityTag(model = model)
+                        if (model.type == ModelType.CHAT) {
+                            val contextLengthText = formatContextLength(model.contextLength)
+                            if (contextLengthText.isNotEmpty()) {
+                                Tag(type = TagType.INFO) {
+                                    Text(contextLengthText)
+                                }
+                            }
+                            ModelModalityTag(model = model)
+                            ModelAbilityTag(model = model)
+                        } else {
+                            ModelTypeTag(model = model)
+                        }
                     }
                 }
 

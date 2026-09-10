@@ -13,11 +13,13 @@ import me.rerere.hugeicons.stroke.Wrench01
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -81,12 +83,12 @@ fun AssistantDetailPage(id: String) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = innerPadding + PaddingValues(8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 AssistantHeader(
                     assistant = assistant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp)
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
                 )
             }
 
@@ -154,35 +156,47 @@ private fun AssistantHeader(
     assistant: Assistant,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Card(
         modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        colors = CustomColors.cardColorsOnSurfaceContainer,
     ) {
-        UIAvatar(
-            value = assistant.avatar,
-            name = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) },
-            onUpdate = null,
+        Row(
             modifier = Modifier
-                .size(100.dp)
-                .heroAnimation("assistant_${assistant.id}")
-        )
-
-        Text(
-            text = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) },
-            style = MaterialTheme.typography.headlineSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        if (assistant.systemPrompt.isNotBlank()) {
-            Text(
-                text = assistant.systemPrompt.take(100) + if (assistant.systemPrompt.length > 100) "..." else "",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            UIAvatar(
+                value = assistant.avatar,
+                name = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) },
+                onUpdate = null,
+                modifier = Modifier
+                    .size(72.dp)
+                    .heroAnimation("assistant_${assistant.id}")
             )
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) },
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (assistant.systemPrompt.isNotBlank()) {
+                    Text(
+                        text = assistant.systemPrompt.take(100) + if (assistant.systemPrompt.length > 100) "..." else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }

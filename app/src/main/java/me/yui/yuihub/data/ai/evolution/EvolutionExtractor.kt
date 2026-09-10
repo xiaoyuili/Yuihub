@@ -15,7 +15,7 @@ import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.datastore.getAssistantById
-import me.yui.yuihub.data.datastore.getFastModelOrDefault
+import me.yui.yuihub.data.datastore.getCurrentChatModel
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.EvolutionLesson
 import me.yui.yuihub.data.repository.ConversationRepository
@@ -79,7 +79,7 @@ class EvolutionExtractor(
         assistant: Assistant,
     ) {
         val conversation = conversationRepository.getConversationById(conversationId) ?: return
-        val model = settings.getFastModelOrDefault() ?: return
+        val model = settings.getCurrentChatModel() ?: return
         val provider = model.findProvider(settings.providers) ?: return
 
         val recentMessages = conversation.currentMessages.takeLast(10)

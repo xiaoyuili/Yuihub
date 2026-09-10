@@ -31,8 +31,8 @@ android {
         applicationId = "me.yui.yuihub"
         minSdk = 26
         targetSdk = 37
-        versionCode = 186
-        versionName = "2.4.16-3"
+        versionCode = 198
+        versionName = "2.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -296,7 +296,6 @@ dependencies {
     implementation(project(":document"))
     implementation(project(":highlight"))
     implementation(project(":search"))
-    implementation(project(":videogen"))
     implementation(project(":common"))
     implementation(project(":material3"))
     implementation(project(":workspace"))

@@ -31,6 +31,7 @@ import me.yui.yuihub.data.ai.prompts.DEFAULT_COMPRESS_PROMPT
 import me.yui.yuihub.data.ai.prompts.DEFAULT_TITLE_PROMPT
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.ui.components.ai.ReasoningButton
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
 import me.yui.yuihub.ui.components.ui.CardGroup
 import me.yui.yuihub.utils.plus
 
@@ -38,7 +39,7 @@ import me.yui.yuihub.utils.plus
 internal fun PromptSettingsPage(settings: Settings, vm: SettingVM, contentPadding: PaddingValues) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = contentPadding + PaddingValues(horizontal = 16.dp),
+        contentPadding = contentPadding + PaddingValues(start = 16.dp, end = 16.dp, bottom = FloatingBottomBarDefaults.ContentBottom),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         item {

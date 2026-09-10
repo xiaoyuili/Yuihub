@@ -8,7 +8,6 @@ import me.yui.yuihub.ui.pages.chat.ChatVM
 import me.yui.yuihub.ui.pages.debug.DebugVM
 import me.yui.yuihub.ui.pages.favorite.FavoriteVM
 import me.yui.yuihub.ui.pages.search.SearchVM
-import me.yui.yuihub.ui.pages.history.HistoryVM
 import me.yui.yuihub.ui.pages.stats.StatsVM
 import me.yui.yuihub.ui.pages.imggen.ImgGenVM
 import me.yui.yuihub.ui.pages.extensions.PromptVM
@@ -38,7 +37,6 @@ val viewModelModule = module {
     viewModelOf(::ChatDrawerVM)
     viewModelOf(::SettingVM)
     viewModelOf(::DebugVM)
-    viewModelOf(::HistoryVM)
     viewModelOf(::AssistantVM)
     viewModel<AssistantDetailVM> {
         AssistantDetailVM(

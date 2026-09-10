@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import me.rerere.workspace.WorkspaceFileEntry
 import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.model.Folder
@@ -48,6 +49,56 @@ class ChatDrawerVM(
     // 当前选中的文件夹筛选，null 表示「未归类」视图
     private val _selectedFolderId = MutableStateFlow<Uuid?>(null)
     val selectedFolderId: StateFlow<Uuid?> = _selectedFolderId.asStateFlow()
+
+    // ---- 侧滑页「会话 / 文件」面板状态（存 VM：从文件详情页返回时保留现场） ----
+
+    private val _drawerPanel = MutableStateFlow(DrawerPanel.CHATS)
+    val drawerPanel: StateFlow<DrawerPanel> = _drawerPanel.asStateFlow()
+
+    /** 文件面板当前目录（相对工作区 FILES 根）。 */
+    private val _filesPath = MutableStateFlow("")
+    val filesPath: StateFlow<String> = _filesPath.asStateFlow()
+
+    /** 目录列表内存缓存：切目录/回退时秒开。 */
+    val filesCache: MutableMap<String, List<WorkspaceFileEntry>> = mutableMapOf()
+
+    private val _drawerReopenRequest = MutableStateFlow(false)
+    private var lastWorkspaceId: Uuid? = null
+    private var workspaceStateInitialized = false
+
+    fun setDrawerPanel(panel: DrawerPanel) {
+        _drawerPanel.value = panel
+    }
+
+    fun setFilesPath(path: String) {
+        _filesPath.value = path
+    }
+
+    fun invalidateFilesCache() {
+        filesCache.clear()
+    }
+
+    /** 从侧滑页进入文件详情页时调用：返回后自动重新拉开含文件面板的抽屉。 */
+    fun requestDrawerReopen() {
+        _drawerReopenRequest.value = true
+    }
+
+    fun consumeDrawerReopenRequest(): Boolean {
+        val requested = _drawerReopenRequest.value
+        _drawerReopenRequest.value = false
+        return requested
+    }
+
+    /** 助手切换（工作区变化）时重置文件面板现场。 */
+    fun syncWorkspaceState(workspaceId: Uuid?) {
+        if (!workspaceStateInitialized || lastWorkspaceId != workspaceId) {
+            workspaceStateInitialized = true
+            lastWorkspaceId = workspaceId
+            _drawerPanel.value = DrawerPanel.CHATS
+            _filesPath.value = ""
+            filesCache.clear()
+        }
+    }
 
     // 当前助手的文件夹列表（Room Flow，增删改自动刷新）
     val folders: StateFlow<List<Folder>> = assistantIdFlow

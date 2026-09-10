@@ -81,10 +81,9 @@ import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.datastore.findModelById
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.datastore.getAssistantById
-import me.yui.yuihub.data.datastore.getCompressModelOrDefault
 import me.yui.yuihub.data.datastore.getCurrentAssistant
 import me.yui.yuihub.data.datastore.getCurrentChatModel
-import me.yui.yuihub.data.datastore.getFastModelOrDefault
+import me.yui.yuihub.data.datastore.getTitleModelOrDefault
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantAffectScope
@@ -152,7 +151,7 @@ data class ChatError(
 )
 
 enum class ChatErrorSolution {
-    CheckFastModelSettings,
+    CheckModelSettings,
 }
 
 private val inputTransformers by lazy {
@@ -1072,7 +1071,7 @@ class ChatService(
 
         runCatching {
             val settings = settingsStore.settingsFlow.first()
-            val model = settings.getFastModelOrDefault() ?: return@runCatching
+            val model = settings.getTitleModelOrDefault() ?: return@runCatching
             val provider = model.findProvider(settings.providers) ?: return@runCatching
 
             val providerHandler = providerManager.getProviderByType(provider)
@@ -1086,7 +1085,7 @@ class ChatService(
                                 .takeLast(4).joinToString("\n\n") { it.summaryAsText(maxLength = 500) })
                     ),
                 ),
-                params = backgroundTextGenerationParams(model, settings.fastModelReasoningLevel),
+                params = backgroundTextGenerationParams(model, settings.titleModelReasoningLevel),
             )
 
             // 生成完，conversation可能不是最新了，因此需要重新获取
@@ -1102,7 +1101,7 @@ class ChatService(
                 error = it,
                 conversationId = conversationId,
                 title = context.getString(R.string.error_title_generate_title),
-                solution = ChatErrorSolution.CheckFastModelSettings,
+                solution = ChatErrorSolution.CheckModelSettings,
             )
         }
     }
@@ -1130,7 +1129,7 @@ class ChatService(
         if (usedTokens < threshold) return
 
         Log.i(TAG, "autoCompressIfNeeded: $usedTokens / $window tokens >= threshold $threshold, compacting conversation $conversationId")
-        compressToSummary(conversationId, conversation, settings, window)
+        compressToSummary(conversationId, conversation, settings, model, window)
     }
 
     /**
@@ -1139,15 +1138,16 @@ class ChatService(
      * 2. 其余历史分块并行摘要，与旧摘要（prior checkpoint）合并为单一新摘要；
      * 3. 消息流替换为 [检查点行] + 尾部保留原文；检查点行是 user 角色的 <compressed-summary> 消息，
      *    模型把它当既有背景不复述；UI 渲染为流程行（可见可回溯，类似 harness 的 compaction 事件）。
+     * 压缩使用对话模型（model 参数）。
      */
     private suspend fun compressToSummary(
         conversationId: Uuid,
         conversation: Conversation,
         settings: Settings,
+        model: Model,
         windowTokens: Int,
     ): String {
         return runCatching {
-            val model = settings.getCompressModelOrDefault() ?: return@runCatching ""
             val provider = model.findProvider(settings.providers) ?: return@runCatching ""
             val providerHandler = providerManager.getProviderByType(provider)
 
@@ -1254,7 +1254,7 @@ class ChatService(
                 error = error,
                 conversationId = conversationId,
                 title = context.getString(R.string.error_title_compress_context),
-                solution = ChatErrorSolution.CheckFastModelSettings,
+                solution = ChatErrorSolution.CheckModelSettings,
             )
         }.getOrDefault("")
     }

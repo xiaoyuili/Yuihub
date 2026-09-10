@@ -10,7 +10,7 @@ import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.ui.UIMessage
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.findProvider
-import me.yui.yuihub.data.datastore.getFastModelOrDefault
+import me.yui.yuihub.data.datastore.getCurrentChatModel
 import me.yui.yuihub.data.model.EvolutionLesson
 import me.yui.yuihub.data.repository.EvolutionRepository
 import me.yui.yuihub.service.backgroundTextGenerationParams
@@ -28,7 +28,7 @@ class EvolutionConsolidator(
 ) {
     suspend fun consolidate(assistantId: String, settings: Settings): ConsolidationResult =
         withContext(Dispatchers.IO) {
-            val model = settings.getFastModelOrDefault() ?: return@withContext ConsolidationResult(0, 0)
+            val model = settings.getCurrentChatModel() ?: return@withContext ConsolidationResult(0, 0)
             val provider = model.findProvider(settings.providers)
                 ?: return@withContext ConsolidationResult(0, 0)
 

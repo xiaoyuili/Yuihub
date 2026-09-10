@@ -30,6 +30,7 @@ import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,6 +93,7 @@ import me.yui.yuihub.utils.navigateToChatPage
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
+import androidx.activity.ComponentActivity
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
 
@@ -118,6 +120,15 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     val softwareKeyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
+    // 从侧滑页打开文件详情后返回时，重新拉开抽屉并回到文件列表现场
+    val context = LocalContext.current
+    val drawerVm: ChatDrawerVM = koinViewModel(viewModelStoreOwner = context as ComponentActivity)
+    LaunchedEffect(Unit) {
+        if (drawerVm.consumeDrawerReopenRequest()) {
+            drawerState.open()
+        }
+    }
+
     // Handle back press when drawer is open
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch {
@@ -125,12 +136,11 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         }
     }
 
-    // Hide keyboard when drawer is open
+    // Hide keyboard when drawer is open, and release focus when it closes
+    // so the file search field does not auto-open the IME next time.
     LaunchedEffect(drawerState.isOpen) {
-        if (drawerState.isOpen) {
-            focusManager.clearFocus(force = true)
-            softwareKeyboardController?.hide()
-        }
+        focusManager.clearFocus(force = true)
+        softwareKeyboardController?.hide()
     }
 
     val windowAdaptiveInfo = currentWindowDpSize()
@@ -641,14 +651,14 @@ private fun TopBar(
                     val model = settings.getCurrentChatModel()
                     val provider = model?.findProvider(providers = settings.providers, checkOverwrite = false)
                     Text(
-                        text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
+                        text = "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) }}",
                         maxLines = 1,
                         style = MaterialTheme.typography.bodyMedium,
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (model != null && provider != null) {
                         Text(
-                            text = "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${model.displayName} (${provider.name})",
+                            text = "${provider.name} / ${model.displayName}",
                             overflow = TextOverflow.Ellipsis,
                             maxLines = 1,
                             color = LocalContentColor.current.copy(0.65f),

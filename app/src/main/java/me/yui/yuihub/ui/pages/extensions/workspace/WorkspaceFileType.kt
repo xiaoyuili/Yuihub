@@ -3,15 +3,30 @@ package me.yui.yuihub.ui.pages.extensions.workspace
 import me.rerere.workspace.WorkspaceFileEntry
 
 /**
- * 工作区文件的粗略分类, 用于决定点击文件时的行为:
+ * 工作区文件的粗略分类, 用于决定点击文件时的行为与列表图标:
  * - TEXT: 应用内文本编辑/预览
  * - IMAGE: 应用内可缩放图片预览
- * - OTHER: 交给系统应用 (视频/音频/文档等) 打开
+ * - AUDIO / VIDEO: 应用内媒体播放
+ * - ARCHIVE: 压缩包, 交给系统应用打开
+ * - OTHER: 其他二进制文件
  */
-enum class WorkspaceFileType { TEXT, IMAGE, OTHER }
+enum class WorkspaceFileType { TEXT, IMAGE, AUDIO, VIDEO, ARCHIVE, OTHER }
 
 private val IMAGE_EXTENSIONS = setOf(
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "heic", "heif", "avif", "ico",
+)
+
+private val AUDIO_EXTENSIONS = setOf(
+    "mp3", "wav", "ogg", "oga", "m4a", "aac", "flac", "opus", "wma", "amr", "mid", "midi", "mka",
+)
+
+// 注意: "ts" 归入文本 (TypeScript), 不视为视频
+private val VIDEO_EXTENSIONS = setOf(
+    "mp4", "mkv", "webm", "mov", "avi", "3gp", "3gpp", "m4v", "flv", "wmv", "mpeg", "mpg", "rmvb",
+)
+
+private val ARCHIVE_EXTENSIONS = setOf(
+    "zip", "rar", "7z", "tar", "gz", "gzip", "bz2", "xz", "zst", "tgz",
 )
 
 private val TEXT_EXTENSIONS = setOf(
@@ -23,12 +38,17 @@ private val TEXT_EXTENSIONS = setOf(
     "diff", "patch", "srt", "vtt",
 )
 
-fun WorkspaceFileEntry.detectFileType(): WorkspaceFileType {
+fun detectFileTypeByName(name: String): WorkspaceFileType {
     val ext = name.substringAfterLast('.', "").lowercase()
     return when {
         ext.isEmpty() -> WorkspaceFileType.OTHER
         ext in IMAGE_EXTENSIONS -> WorkspaceFileType.IMAGE
+        ext in AUDIO_EXTENSIONS -> WorkspaceFileType.AUDIO
+        ext in VIDEO_EXTENSIONS -> WorkspaceFileType.VIDEO
+        ext in ARCHIVE_EXTENSIONS -> WorkspaceFileType.ARCHIVE
         ext in TEXT_EXTENSIONS -> WorkspaceFileType.TEXT
         else -> WorkspaceFileType.OTHER
     }
 }
+
+fun WorkspaceFileEntry.detectFileType(): WorkspaceFileType = detectFileTypeByName(name)

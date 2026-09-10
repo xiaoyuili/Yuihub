@@ -42,7 +42,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FloatingToolbarDefaults.ScreenOffset
 import androidx.compose.material3.FloatingToolbarDefaults.floatingToolbarVerticalNestedScroll
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
@@ -51,8 +50,6 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SwipeToDismissBox
@@ -91,6 +88,9 @@ import me.yui.yuihub.data.model.InjectionPosition
 import me.yui.yuihub.data.model.Lorebook
 import me.yui.yuihub.data.model.PromptInjection
 import me.yui.yuihub.ui.components.nav.BackButton
+import me.yui.yuihub.ui.components.nav.FloatingBottomBar
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
+import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
 import me.yui.yuihub.ui.components.ui.ExportDialog
 import me.yui.yuihub.ui.components.ui.FormItem
 import me.yui.yuihub.ui.components.ui.Select
@@ -108,7 +108,6 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 fun PromptPage(vm: PromptVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val pagerState = rememberPagerState { 2 }
-    val scope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
@@ -120,46 +119,44 @@ fun PromptPage(vm: PromptVM = koinViewModel()) {
                 colors = CustomColors.topBarColors,
             )
         },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 0,
-                    label = { Text(stringResource(R.string.prompt_page_mode_injection_tab)) },
-                    icon = { Icon(HugeIcons.MagicWand01, null) },
-                    onClick = {
-                        scope.launch { pagerState.animateScrollToPage(0) }
-                    }
-                )
-                NavigationBarItem(
-                    selected = pagerState.currentPage == 1,
-                    label = { Text(stringResource(R.string.prompt_page_lorebook_tab)) },
-                    icon = { Icon(HugeIcons.Book01, null) },
-                    onClick = {
-                        scope.launch { pagerState.animateScrollToPage(1) }
-                    }
-                )
-            }
-        },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = CustomColors.topBarColors.containerColor,
     ) { innerPadding ->
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier
-                .padding(innerPadding)
-                .fillMaxSize()
-        ) { page ->
-            when (page) {
-                0 -> ModeInjectionTab(
-                    modeInjections = settings.modeInjections,
-                    onUpdate = { vm.updateSettings(settings.copy(modeInjections = it)) }
-                )
+        Box(modifier = Modifier.fillMaxSize()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .padding(innerPadding)
+                    .fillMaxSize()
+            ) { page ->
+                when (page) {
+                    0 -> ModeInjectionTab(
+                        modeInjections = settings.modeInjections,
+                        onUpdate = { vm.updateSettings(settings.copy(modeInjections = it)) }
+                    )
 
-                1 -> LorebookTab(
-                    lorebooks = settings.lorebooks,
-                    onUpdate = { vm.updateSettings(settings.copy(lorebooks = it)) }
-                )
+                    1 -> LorebookTab(
+                        lorebooks = settings.lorebooks,
+                        onUpdate = { vm.updateSettings(settings.copy(lorebooks = it)) }
+                    )
+                }
             }
+            FloatingBottomBar(
+                pagerState = pagerState,
+                tabs = listOf(
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.MagicWand01,
+                        label = stringResource(R.string.prompt_page_mode_injection_tab),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Book01,
+                        label = stringResource(R.string.prompt_page_lorebook_tab),
+                    ),
+                ),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = innerPadding.calculateBottomPadding()),
+            )
         }
     }
 }
@@ -207,7 +204,7 @@ private fun ModeInjectionTab(
                     onExpand = { expanded = true },
                     onCollapse = { expanded = false }
                 ),
-            contentPadding = PaddingValues(16.dp) + PaddingValues(bottom = 128.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = FloatingBottomBarDefaults.ToolbarContentBottom),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             state = lazyListState
         ) {
@@ -260,7 +257,7 @@ private fun ModeInjectionTab(
             expanded = expanded,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .offset(y = -ScreenOffset),
+                .offset(y = -FloatingBottomBarDefaults.ToolbarOffset),
             leadingContent = {
                 IconButton(onClick = { importer.importFromFile() }) {
                     Icon(HugeIcons.FileImport, null)
@@ -619,7 +616,7 @@ private fun LorebookTab(
                     onExpand = { expanded = true },
                     onCollapse = { expanded = false }
                 ),
-            contentPadding = PaddingValues(16.dp) + PaddingValues(bottom = 128.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = FloatingBottomBarDefaults.ToolbarContentBottom),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             state = lazyListState
         ) {
@@ -672,7 +669,7 @@ private fun LorebookTab(
             expanded = expanded,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .offset(y = -ScreenOffset),
+                .offset(y = -FloatingBottomBarDefaults.ToolbarOffset),
             leadingContent = {
                 IconButton(onClick = { importer.importFromFile() }) {
                     Icon(HugeIcons.FileImport, null)

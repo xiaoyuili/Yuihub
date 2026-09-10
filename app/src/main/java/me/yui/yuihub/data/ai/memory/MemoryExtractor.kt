@@ -14,7 +14,7 @@ import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.datastore.getAssistantById
-import me.yui.yuihub.data.datastore.getFastModelOrDefault
+import me.yui.yuihub.data.datastore.getCurrentChatModel
 import me.yui.yuihub.data.datastore.findModelById
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantMemory
@@ -91,8 +91,8 @@ class MemoryExtractor(
         assistant: Assistant,
     ) {
         val conversation = conversationRepository.getConversationById(conversationId) ?: return
-        // 提取模型：快模型优先，回退当前聊天模型（零额外配置）
-        val model = settings.getFastModelOrDefault() ?: return
+        // 提取模型：使用当前对话模型
+        val model = settings.getCurrentChatModel() ?: return
         val provider = model.findProvider(settings.providers) ?: return
 
         val recentMessages = conversation.currentMessages.takeLast(6)

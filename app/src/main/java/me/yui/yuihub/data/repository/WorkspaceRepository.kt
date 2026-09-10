@@ -355,6 +355,39 @@ class WorkspaceRepository(
         manager.moveFile(workspace.root, source, target, overwrite)
     }
 
+    /**
+     * 按文件名（子串、忽略大小写）递归搜索 FILES 区文件。
+     * 广度优先、限制结果数，跳过隐藏目录（.git 等）保证速度。
+     */
+    suspend fun searchFilesByName(
+        id: String,
+        query: String,
+        limit: Int = 80,
+    ): List<WorkspaceFileEntry> = withContext(Dispatchers.IO) {
+        val needle = query.trim().lowercase()
+        if (needle.isEmpty()) return@withContext emptyList()
+        val workspace = dao.getById(id) ?: return@withContext emptyList()
+        manager.ensureWorkspace(workspace.root)
+        val results = mutableListOf<WorkspaceFileEntry>()
+        val pending = ArrayDeque<String>()
+        pending.add("")
+        while (pending.isNotEmpty() && results.size < limit) {
+            val dir = pending.removeFirst()
+            val entries = runCatching {
+                manager.listFiles(workspace.root, dir, WorkspaceStorageArea.FILES)
+            }.getOrDefault(emptyList())
+            for (entry in entries) {
+                if (entry.isDirectory) {
+                    if (!entry.name.startsWith(".")) pending.add(entry.path)
+                } else if (entry.name.lowercase().contains(needle)) {
+                    results.add(entry)
+                    if (results.size >= limit) break
+                }
+            }
+        }
+        results
+    }
+
     suspend fun executeCommand(
         id: String,
         command: String,

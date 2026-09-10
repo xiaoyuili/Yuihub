@@ -32,6 +32,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.flow.first
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.AppStore
+import me.rerere.hugeicons.stroke.BatteryCharging01
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Notification01
 import me.rerere.hugeicons.stroke.Zap
@@ -72,6 +74,9 @@ fun SettingPermissionsPage() {
     }
     val storageEnabled = remember(refreshKey) {
         SystemPermissions.hasAllFilesAccess()
+    }
+    val installUnknownAppsEnabled = remember(refreshKey) {
+        SystemPermissions.canInstallUnknownApps(context)
     }
     // 与另两项保持同构：不设单独开关，豁免电池优化后即视为开启保活
     LaunchedEffect(batteryExempt) {
@@ -123,6 +128,24 @@ fun SettingPermissionsPage() {
                         },
                     )
                     item(
+                        leadingContent = { Icon(HugeIcons.BatteryCharging01, null) },
+                        headlineContent = {
+                            Text(stringResource(R.string.setting_permissions_battery_optimization))
+                        },
+                        supportingContent = {
+                            Text(stringResource(R.string.setting_permissions_battery_optimization_desc))
+                        },
+                        trailingContent = {
+                            PermissionBadge(enabled = batteryExempt)
+                        },
+                        onClick = {
+                            SystemPermissions.openSettings(
+                                context,
+                                SystemPermissions.batteryOptimizationIntent(context),
+                            )
+                        },
+                    )
+                    item(
                         leadingContent = { Icon(HugeIcons.Zap, null) },
                         headlineContent = {
                             Text(stringResource(R.string.setting_permissions_background))
@@ -158,6 +181,24 @@ fun SettingPermissionsPage() {
                             SystemPermissions.openSettings(
                                 context,
                                 SystemPermissions.allFilesAccessIntent(context),
+                            )
+                        },
+                    )
+                    item(
+                        leadingContent = { Icon(HugeIcons.AppStore, null) },
+                        headlineContent = {
+                            Text(stringResource(R.string.setting_permissions_install_unknown_apps))
+                        },
+                        supportingContent = {
+                            Text(stringResource(R.string.setting_permissions_install_unknown_apps_desc))
+                        },
+                        trailingContent = {
+                            PermissionBadge(enabled = installUnknownAppsEnabled)
+                        },
+                        onClick = {
+                            SystemPermissions.openSettings(
+                                context,
+                                SystemPermissions.installUnknownAppsIntent(context),
                             )
                         },
                     )

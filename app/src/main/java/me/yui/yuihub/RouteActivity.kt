@@ -95,7 +95,6 @@ import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceTerminalPage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceWebViewerPage
 import me.rerere.workspace.WorkspaceStorageArea
 import me.yui.yuihub.ui.pages.favorite.FavoritePage
-import me.yui.yuihub.ui.pages.history.HistoryPage
 import me.yui.yuihub.ui.pages.imggen.ImageGenPage
 import me.yui.yuihub.ui.pages.search.SearchPage
 import me.yui.yuihub.ui.pages.setting.SettingAboutPage
@@ -326,10 +325,6 @@ class RouteActivity : ComponentActivity() {
                                     text = key.text,
                                     image = key.streamUri
                                 )
-                            }
-
-                            entry<Screen.History> {
-                                HistoryPage()
                             }
 
                             entry<Screen.Favorite> {
@@ -563,9 +558,6 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data class ShareHandler(val text: String, val streamUri: String? = null) : Screen
-
-    @Serializable
-    data object History : Screen
 
     @Serializable
     data object Favorite : Screen

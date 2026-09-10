@@ -111,7 +111,7 @@ fun ErrorCard(
     val clipboard = LocalClipboard.current
     val navController = LocalNavController.current
     val scope = rememberCoroutineScope()
-    val checkFastModelSettings = stringResource(R.string.chat_page_check_fast_model_settings)
+    val checkModelSettings = stringResource(R.string.chat_page_check_model_settings)
     val linkColor = MaterialTheme.colorScheme.primary
 
     // 5 秒后自动消失
@@ -152,7 +152,7 @@ fun ErrorCard(
                     color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (error.solution == ChatErrorSolution.CheckFastModelSettings) {
+                if (error.solution == ChatErrorSolution.CheckModelSettings) {
                     Text(
                         text = buildAnnotatedString {
                             withLink(
@@ -169,7 +169,7 @@ fun ErrorCard(
                                     },
                                 )
                             ) {
-                                append(checkFastModelSettings)
+                                append(checkModelSettings)
                             }
                         },
                         style = MaterialTheme.typography.bodySmall,

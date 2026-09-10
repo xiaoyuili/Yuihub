@@ -35,8 +35,10 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.FileAdd
 import me.rerere.hugeicons.stroke.FileEdit
+import me.rerere.hugeicons.stroke.FileImport
 import me.rerere.hugeicons.stroke.FileView
 import me.yui.yuihub.R
+import me.yui.yuihub.ui.components.message.WORKSPACE_PRESENT_FILE_TOOL
 import me.yui.yuihub.ui.components.richtext.DiffAddedColor
 import me.yui.yuihub.ui.components.richtext.DiffRemovedColor
 import me.yui.yuihub.ui.components.richtext.DiffView
@@ -472,4 +474,20 @@ private fun languageOf(path: String?): String = when (
     "sql" -> "sql"
     "gradle" -> "groovy"
     else -> "plaintext"
+}
+
+/**
+ * 工作空间发送文件: 步骤行只展示发送动作, 文件卡片渲染在消息正文下方
+ */
+object PresentFileToolUI : ToolUIRenderer {
+    override val toolName: String = WORKSPACE_PRESENT_FILE_TOOL
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.FileImport
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val path = context.arguments.getStringContent("path")
+        return if (path != null) stringResource(R.string.tool_ui_present_file, path)
+        else stringResource(R.string.tool_ui_present_file_default)
+    }
 }
