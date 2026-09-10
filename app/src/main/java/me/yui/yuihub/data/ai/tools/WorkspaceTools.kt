@@ -228,6 +228,11 @@ private fun createShellTool(
         append("'nohup <cmd> >/workspace/svc.log 2>&1 &' (they survive after the command returns). ")
         append("Then verify with a short sleep + curl. Stop them with 'pkill -f <pattern>'. ")
         append("Never wait on the service command itself; check it with curl instead.")
+        appendLine()
+        append("Tooling notes: 'ps aux' may print 'Unable to get system boot time' under proot — ")
+        append("its PID column is still valid but prefer 'pgrep -f <pattern>' to check a process. ")
+        append("/proc/net/tcp may be empty; to check a listening port use 'curl -s -m 2 http://127.0.0.1:<port>' instead. ")
+        append("curl may be missing on first use; install it with 'apt-get install -y curl'.")
     },
     parameters = {
         InputSchema.Obj(

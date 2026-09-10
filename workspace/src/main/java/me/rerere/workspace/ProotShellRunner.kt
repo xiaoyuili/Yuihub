@@ -81,7 +81,8 @@ class ProotShellRunner(
             proot.absolutePath,
             "--root-id",
             "--link2symlink",
-            "--kill-on-exit",
+            // 不加 --kill-on-exit: 它在进程退出时杀死整个进程树,
+            // nohup/setsid 起的后台服务也会被一并杀掉, 常驻服务无法跨 tool call 存活。
             "-r",
             context.linuxDir.absolutePath,
             "-w",

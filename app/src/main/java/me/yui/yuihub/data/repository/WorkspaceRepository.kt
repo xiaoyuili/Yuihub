@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.dao.WorkspaceDAO
@@ -17,6 +18,7 @@ import me.rerere.workspace.WorkspaceBindMount
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
+import me.yui.yuihub.AppScope
 import me.rerere.workspace.WorkspaceMountDir
 import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
@@ -30,6 +32,7 @@ class WorkspaceRepository(
     private val manager: WorkspaceManager,
     private val rootfsInstaller: RootfsInstaller,
     private val settingsStore: SettingsStore,
+    private val appScope: AppScope,
 ) {
     fun listFlow(): Flow<List<WorkspaceEntity>> = dao.listFlow()
 
@@ -182,6 +185,7 @@ class WorkspaceRepository(
                 rootfsInstaller.install(workspace.root, url, onProgress)
             }
             updateShellState(workspace, WorkspaceShellStatus.READY.name)
+            installCommonNetworkToolsAsync(workspace.id)
             return true
         } catch (e: CancellationException) {
             withContext(NonCancellable) {
@@ -406,6 +410,24 @@ class WorkspaceRepository(
 
     suspend fun setShellCompatibilityMode(id: String, enabled: Boolean) {
         dao.setShellCompatibilityMode(id, enabled, System.currentTimeMillis())
+    }
+
+    /**
+     * 安装常用网络工具 (curl)。Ubuntu base 默认不带 curl, 而工具描述让 AI 用 curl 验证服务。
+     * 用 rootfs 内 apt (已配国内镜像) 安装, 失败静默 —— 缺失时 AI 可用 node fetch 兼容。
+     */
+    private fun installCommonNetworkToolsAsync(id: String) {
+        appScope.launch(Dispatchers.IO) {
+            runCatching {
+                executeCommand(
+                    id = id,
+                    command = "command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y --no-install-recommends curl; }",
+                    timeoutMillis = 300_000L,
+                )
+            }.onFailure {
+                Log.w(TAG, "install network tools failed (non-fatal)", it)
+            }
+        }
     }
 
     private suspend fun updateShellState(
