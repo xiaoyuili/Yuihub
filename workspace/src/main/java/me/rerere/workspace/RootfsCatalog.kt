@@ -26,6 +26,9 @@ object RootfsCatalog {
     /** Ubuntu Base 24.04 LTS (Noble Numbat)，24.04.4 为当前最新 point release */
     const val UBUNTU_NOBLE_RELEASE = "24.04.4"
 
+    /** 发行版代号，apt 源与镜像测速路径都要用 */
+    const val UBUNTU_CODENAME = "noble"
+
     private const val UBUNTU_BASE_DIR = "ubuntu-base/releases/24.04/release"
 
     /** 官方源排在首位：镜像站全部测速失败时它仍可作为兜底 */

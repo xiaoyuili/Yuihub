@@ -13,12 +13,14 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
+import me.yui.yuihub.data.repository.AptIndexRefresh
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.rerere.workspace.RootfsCatalog
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstallStage
 import me.rerere.workspace.RootfsMirrorSpeed
 import me.rerere.workspace.RootfsMirrorSelector
+import me.rerere.workspace.PackageMirrorPick
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceMountDir
@@ -55,6 +57,23 @@ class WorkspaceDetailVM(
 
     private val _mountError = MutableStateFlow<String?>(null)
     val mountError = _mountError.asStateFlow()
+
+    private val _mirrorSetupRunning = MutableStateFlow(false)
+    val mirrorSetupRunning = _mirrorSetupRunning.asStateFlow()
+
+    /** 最近一次测速选中的站点及其吞吐；仅本次会话有效，持久化的摘要看 workspace.packageMirrorSetup() */
+    private val _mirrorPicks = MutableStateFlow<List<PackageMirrorPick>>(emptyList())
+    val mirrorPicks = _mirrorPicks.asStateFlow()
+
+    /** 最近一次配置后 apt 索引刷新结果，null 表示本会话还没跑过 */
+    private val _aptIndexRefresh = MutableStateFlow<AptIndexRefresh?>(null)
+    val aptIndexRefresh = _aptIndexRefresh.asStateFlow()
+
+    private val _aptIndexDetail = MutableStateFlow<String?>(null)
+    val aptIndexDetail = _aptIndexDetail.asStateFlow()
+
+    private val _mirrorError = MutableStateFlow<String?>(null)
+    val mirrorError = _mirrorError.asStateFlow()
 
     init {
         loadWorkspace()
@@ -246,6 +265,40 @@ class WorkspaceDetailVM(
 
     fun dismissMountError() {
         _mountError.value = null
+    }
+
+    /**
+     * 一键测速并配置国内镜像源。
+     *
+     * 失败（包括刷索引超时）不影响已写入的配置，所以错误只弹提示、不回滚状态。
+     */
+    fun configurePackageMirrors() {
+        if (_mirrorSetupRunning.value) return
+        _mirrorSetupRunning.value = true
+        _mirrorError.value = null
+        _aptIndexRefresh.value = null
+        _aptIndexDetail.value = null
+        viewModelScope.launch {
+            try {
+                val result = repository.configurePackageMirrors(id)
+                _mirrorPicks.value = result.outcome.picks
+                _aptIndexRefresh.value = result.aptIndex
+                _aptIndexDetail.value = result.aptIndexDetail
+                // 终端标签的 proot 参数与已 source 的环境变量不会自动更新，重开才能拿到新 GOPROXY
+                state.value.workspace?.let { terminalSessionManager.closeWorkspace(it.root) }
+                loadWorkspace()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                _mirrorError.value = error.message ?: "镜像源配置失败"
+            } finally {
+                _mirrorSetupRunning.value = false
+            }
+        }
+    }
+
+    fun dismissMirrorError() {
+        _mirrorError.value = null
     }
 
     /** 当前设备 ABI 对应的 rootfs 文件名，不支持的架构返回 null */

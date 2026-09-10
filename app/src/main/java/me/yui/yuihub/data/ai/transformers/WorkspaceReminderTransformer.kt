@@ -1,10 +1,13 @@
 package me.yui.yuihub.data.ai.transformers
 
+import java.net.URI
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.yui.yuihub.data.repository.WorkspaceRepository
+import me.rerere.workspace.PackageMirrorCatalog
+import me.rerere.workspace.PackageMirrorSetup
 import me.rerere.workspace.WorkspaceShellStatus
 
 /**
@@ -25,7 +28,8 @@ class WorkspaceReminderTransformer(
         // 与 ChatService.createWorkspaceToolsIfReady 保持一致: 仅在 shell 就绪时注入
         if (workspace.shellStatus != WorkspaceShellStatus.READY.name) return messages
 
-        val prompt = buildWorkspacePrompt(workspace, ctx.workspaceCwd)
+        val prompt = buildWorkspacePrompt(workspace, ctx.workspaceCwd) +
+            buildPackageMirrorPrompt(workspace.packageMirrorSetup())
 
         // 追加到第一条 system 消息; 若不存在则插入一条
         val systemIndex = messages.indexOfFirst { it.role == MessageRole.SYSTEM }
@@ -61,6 +65,58 @@ private fun buildWorkspacePrompt(workspace: WorkspaceEntity, cwd: String? = null
         appendLine("- Current working directory: `$cwd`. Use this as the default context for file operations and shell commands.")
     }
     append("</workspace>")
+}
+
+/**
+ * 国内镜像源已配置时追加的提示词。
+ *
+ * 光告诉模型「源换好了」不够：没被自动覆盖到的下载（GitHub Release 预编译二进制、
+ * Maven 依赖等）依旧会卡住，模型容易因此报「环境不可用」。这里把「慢/连不上就先换国内源
+ * 重试」写成可执行的指令，并给出各管理器的具体写法与备选站。
+ */
+private fun buildPackageMirrorPrompt(setup: PackageMirrorSetup): String {
+    if (!setup.active) return ""
+    return buildString {
+        appendLine()
+        appendLine("<package_mirrors>")
+        appendLine("This workspace's package managers are already pointed at fast domestic (China) mirrors. Use them as-is; never switch a working install back to the official endpoints.")
+        if (setup.aptRepoUrl.isNotBlank()) {
+            appendLine("- apt: ${aptLine(setup)}")
+        }
+        if (setup.npmRegistry.isNotBlank()) {
+            appendLine("- npm: registry `${setup.npmRegistry}` (configured in `/root/.npmrc`, which also mirrors node/electron/sharp/puppeteer prebuilt binaries)")
+        }
+        if (setup.pipIndexUrl.isNotBlank()) {
+            appendLine("- pip: index `${setup.pipIndexUrl}` (configured in `/etc/pip.conf`)")
+        }
+        if (setup.goProxy.isNotBlank()) {
+            appendLine("- Go: `GOPROXY=${setup.goProxy},direct` (exported by `/etc/profile.d/yuihub-mirrors.sh`, already active in every shell this tool runs)")
+        }
+        appendLine("A slow, hanging, or unreachable download here is a mirror problem, NOT a broken environment. Never report the sandbox as unusable and never give up after one timeout: retry the same install against a domestic mirror, and raise the `timeout` parameter for package installs.")
+        appendLine("How to redirect a single download:")
+        appendLine("  - npm: `npm install --registry=https://registry.npmmirror.com <pkg>")
+        appendLine("  - pip: `pip install -i ${setup.pipIndexUrl.ifBlank { "https://pypi.tuna.tsinghua.edu.cn/simple" }} <pkg>`")
+        appendLine("  - Go: `go env -w GOPROXY=https://goproxy.cn,direct`")
+        appendLine("  - Maven/Gradle deps: add a `maven.aliyun.com/repository/public` repository; Gradle wrapper distributions: rewrite the distributionUrl host to `mirrors.cloud.tencent.com` (path unchanged).")
+        appendLine("  - GitHub release/archive downloads (the usual cause of hangs): prefix the URL with `https://gh-proxy.com/`.")
+        appendLine("  - apt: rewrite the `URIs:` line in `/etc/apt/sources.list.d/ubuntu.sources` to another mirror, then `apt-get update`. Other mirrors known to serve this image: ${otherAptMirrors(setup)}")
+        appendLine("Note: the Ubuntu base image ships without `ca-certificates`. If a tool fails with TLS/certificate errors, run `apt-get install -y ca-certificates` first, then retry.")
+        append("</package_mirrors>")
+    }
+}
+
+private fun aptLine(setup: PackageMirrorSetup): String =
+    "`${setup.aptRepoUrl}` (already rewritten in `/etc/apt/sources.list` and `/etc/apt/sources.list.d/*.sources`; run `apt-get update` before the first install of a session)"
+
+/** 备选 apt 站：从候选清单里取，排除当前已生效的主机。 */
+private fun otherAptMirrors(setup: PackageMirrorSetup): String {
+    val currentHost = runCatching { URI(setup.aptRepoUrl).host }.getOrNull()
+    return PackageMirrorCatalog.APT_SITES
+        .asSequence()
+        .map { it.host.removePrefix("http://").removePrefix("https://") }
+        .distinct()
+        .filter { it != currentHost }
+        .joinToString(", ") { "http://$it" }
 }
 
 private fun UIMessage.appendText(extra: String): UIMessage {

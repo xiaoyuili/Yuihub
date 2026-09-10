@@ -14,6 +14,9 @@ import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.yui.yuihub.utils.JsonInstant
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstaller
+import me.rerere.workspace.PackageMirrorConfigurator
+import me.rerere.workspace.PackageMirrorOutcome
+import me.rerere.workspace.PackageMirrorSetup
 import me.rerere.workspace.WorkspaceBindMount
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
@@ -34,6 +37,8 @@ class WorkspaceRepository(
     private val settingsStore: SettingsStore,
     private val appScope: AppScope,
 ) {
+    private val mirrorConfigurator = PackageMirrorConfigurator()
+
     fun listFlow(): Flow<List<WorkspaceEntity>> = dao.listFlow()
 
     suspend fun checkIntegrity() = withContext(Dispatchers.IO) {
@@ -185,6 +190,9 @@ class WorkspaceRepository(
                 rootfsInstaller.install(workspace.root, url, onProgress)
             }
             updateShellState(workspace, WorkspaceShellStatus.READY.name)
+            // 重新安装会换掉整个 rootfs，之前写进去的镜像配置随之消失，
+            // 摘要不清空会让系统提示词继续告诉 AI 「源已经配好」。
+            clearPackageMirrors(workspace.id)
             installCommonNetworkToolsAsync(workspace.id)
             return true
         } catch (e: CancellationException) {
@@ -446,8 +454,77 @@ class WorkspaceRepository(
         )
     }
 
+    /**
+     * 一键配置国内镜像源：并行测速→每个包管理器挑最快的一家→写进 rootfs。
+     *
+     * 写完后额外刷一次 apt 索引：新装的 rootfs 里 apt 连包列表都没有，只改源不 update，
+     * AI 第一次 `apt-get install` 仍会失败。刷索引失败（比如离线）不抽销已写入的配置，
+     * 因此结果里单独回传状态让 UI 区分。
+     */
+    suspend fun configurePackageMirrors(id: String): PackageMirrorApplyResult {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        require(manager.hasRootfs(workspace.root)) { "Rootfs is not installed" }
+        val outcome = mirrorConfigurator.configure(manager.linuxDir(workspace.root))
+        val (aptIndex, aptIndexDetail) = if (outcome.setup.aptRepoUrl.isNotBlank()) {
+            refreshAptIndex(id)
+        } else {
+            AptIndexRefresh.SKIPPED to null
+        }
+        dao.upsert(
+            workspace.copy(
+                packageMirrors = JsonInstant.encodeToString(outcome.setup),
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+        return PackageMirrorApplyResult(outcome, aptIndex, aptIndexDetail)
+    }
+
+    /** 清除记录里的镜像源摘要（rootfs 里的配置文件保留，重新安装时会回到默认源）。 */
+    suspend fun clearPackageMirrors(id: String) {
+        val workspace = dao.getById(id) ?: return
+        dao.upsert(
+            workspace.copy(
+                packageMirrors = JsonInstant.encodeToString(PackageMirrorSetup()),
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    /** @return 索引刷新状态与失败原因文本 */
+    private suspend fun refreshAptIndex(id: String): Pair<AptIndexRefresh, String?> = try {
+        val result = executeCommand(
+            id = id,
+            command = "apt-get update -qq",
+            timeoutMillis = APT_INDEX_TIMEOUT_MS,
+        )
+        when {
+            result.timedOut -> AptIndexRefresh.TIMEOUT to null
+            result.exitCode != 0 -> {
+                val detail = (result.stderr.ifBlank { result.stdout }).lines().lastOrNull()?.take(MAX_ERROR_DETAIL_CHARS)
+                AptIndexRefresh.FAILED to (detail ?: "exit ${result.exitCode}")
+            }
+
+            else -> AptIndexRefresh.SUCCESS to null
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        AptIndexRefresh.FAILED to e.message
+    }
+
     companion object {
         private const val TAG = "WorkspaceRepository"
         private const val MAX_PREVIEW_BYTES = 512L * 1024
+        private const val APT_INDEX_TIMEOUT_MS = 300_000L
+        private const val MAX_ERROR_DETAIL_CHARS = 300
     }
 }
+
+/** apt 索引刷新结果，UI 据此提示「配置已写入但当前网络刷不动索引」。 */
+enum class AptIndexRefresh { SUCCESS, FAILED, TIMEOUT, SKIPPED }
+
+data class PackageMirrorApplyResult(
+    val outcome: PackageMirrorOutcome,
+    val aptIndex: AptIndexRefresh,
+    val aptIndexDetail: String? = null,
+)

@@ -49,7 +49,7 @@ import me.yui.yuihub.utils.JsonInstant
         TokenLedgerEntity::class,
         EvolutionLessonEntity::class,
     ],
-    version = 31,
+    version = 32,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -76,6 +76,7 @@ import me.yui.yuihub.utils.JsonInstant
         AutoMigration(from = 28, to = 29, spec = Migration_28_29::class),
         AutoMigration(from = 29, to = 30, spec = Migration_29_30::class),
         AutoMigration(from = 30, to = 31),
+        AutoMigration(from = 31, to = 32),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)

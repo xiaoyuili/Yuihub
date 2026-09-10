@@ -1,7 +1,5 @@
 package me.rerere.workspace
 
-import java.net.HttpURLConnection
-import java.net.URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -53,65 +51,22 @@ class RootfsMirrorSelector(
     }
 
     private fun probe(mirror: RootfsMirror, url: String): RootfsMirrorSpeed {
-        val startAt = System.nanoTime()
-        var connection: HttpURLConnection? = null
-        return try {
-            connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = connectTimeoutMillis
-                readTimeout = readTimeoutMillis
-                instanceFollowRedirects = true
-                // 只要头部与一小段正文：Range 不被支持时服务端会回 200，此时靠字节数判断
-                setRequestProperty("Range", "bytes=0-${sampleBytes - 1}")
-                setRequestProperty("User-Agent", USER_AGENT)
-            }
-            val code = connection.responseCode
-            if (code !in 200..299) {
-                return fail(mirror, url, startAt, "HTTP $code")
-            }
-            var sampled = 0L
-            var firstByteAt = 0L
-            connection.inputStream.use { input ->
-                val buffer = ByteArray(16 * 1024)
-                while (sampled < sampleBytes) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    if (firstByteAt == 0L) firstByteAt = System.nanoTime()
-                    sampled += read
-                }
-            }
-            val finishedAt = System.nanoTime()
-            if (sampled <= 0L) {
-                return fail(mirror, url, startAt, "empty response")
-            }
-            val elapsedMillis = ((finishedAt - startAt) / 1_000_000L).coerceAtLeast(1L)
-            RootfsMirrorSpeed(
-                mirror = mirror,
-                url = url,
-                latencyMillis = ((firstByteAt - startAt) / 1_000_000L).coerceAtLeast(0L),
-                bytesPerSecond = sampled * 1000L / elapsedMillis,
-                bytesSampled = sampled,
-            )
-        } catch (e: Exception) {
-            fail(mirror, url, startAt, e.message ?: e.javaClass.simpleName)
-        } finally {
-            runCatching { connection?.disconnect() }
-        }
+        val result = HttpProbe.probe(
+            url = url,
+            sampleBytes = sampleBytes,
+            connectTimeoutMillis = connectTimeoutMillis,
+            readTimeoutMillis = readTimeoutMillis,
+            userAgent = USER_AGENT,
+        )
+        return RootfsMirrorSpeed(
+            mirror = mirror,
+            url = url,
+            latencyMillis = result.latencyMillis,
+            bytesPerSecond = result.bytesPerSecond,
+            bytesSampled = result.bytesSampled,
+            error = result.error,
+        )
     }
-
-    private fun fail(
-        mirror: RootfsMirror,
-        url: String,
-        startAt: Long,
-        reason: String,
-    ): RootfsMirrorSpeed = RootfsMirrorSpeed(
-        mirror = mirror,
-        url = url,
-        latencyMillis = (System.nanoTime() - startAt) / 1_000_000L,
-        bytesPerSecond = 0L,
-        bytesSampled = 0L,
-        error = reason,
-    )
 
     private companion object {
         private const val DEFAULT_SAMPLE_BYTES = 512L * 1024

@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.Settings
+import android.text.format.DateUtils
 import java.io.File
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
@@ -79,18 +80,21 @@ import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowTurnBackward
 import me.rerere.hugeicons.stroke.Bash
+import me.rerere.hugeicons.stroke.Bolt
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.FileImport
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.MoreVertical
+import me.rerere.hugeicons.stroke.Package01
 import me.rerere.hugeicons.stroke.Refresh01
 import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.Share08
 import me.yui.yuihub.Screen
 import me.yui.yuihub.data.ai.tools.resolveWorkspaceToolApproval
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
+import me.yui.yuihub.data.repository.AptIndexRefresh
 import androidx.compose.ui.res.stringResource
 import me.yui.yuihub.R
 import me.yui.yuihub.ui.components.nav.BackButton
@@ -104,6 +108,9 @@ import me.rerere.workspace.RootfsCatalog
 import me.rerere.workspace.RootfsInstallProgress
 import me.rerere.workspace.RootfsInstallStage
 import me.rerere.workspace.RootfsMirrorSpeed
+import me.rerere.workspace.PackageMirrorPick
+import me.rerere.workspace.PackageManager
+import me.rerere.workspace.PackageMirrorSetup
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceMountDir
 import me.rerere.workspace.WorkspaceShellStatus
@@ -122,7 +129,12 @@ fun WorkspaceDetailPage(id: String) {
     val settingsError by vm.settingsError.collectAsStateWithLifecycle()
     val mirrorSpeeds by vm.mirrorSpeeds.collectAsStateWithLifecycle()
     val mountError by vm.mountError.collectAsStateWithLifecycle()
-    val pagerState = rememberPagerState { 2 }
+    val mirrorSetupRunning by vm.mirrorSetupRunning.collectAsStateWithLifecycle()
+    val mirrorPicks by vm.mirrorPicks.collectAsStateWithLifecycle()
+    val aptIndexRefresh by vm.aptIndexRefresh.collectAsStateWithLifecycle()
+    val aptIndexDetail by vm.aptIndexDetail.collectAsStateWithLifecycle()
+    val mirrorError by vm.mirrorError.collectAsStateWithLifecycle()
+    val pagerState = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
     var deleteTarget by remember { mutableStateOf<WorkspaceFileEntry?>(null) }
     var showInstallDialog by remember { mutableStateOf(false) }
@@ -152,7 +164,7 @@ fun WorkspaceDetailPage(id: String) {
         vm.exportFile(entry, outputStream)
     }
 
-    BackHandler(enabled = pagerState.currentPage == 1 && state.path.isNotBlank()) {
+    BackHandler(enabled = pagerState.currentPage == 2 && state.path.isNotBlank()) {
         vm.goUp()
     }
 
@@ -168,7 +180,7 @@ fun WorkspaceDetailPage(id: String) {
                 },
                 navigationIcon = { BackButton() },
                 actions = {
-                    if (pagerState.currentPage == 1) {
+                    if (pagerState.currentPage == 2) {
                         IconButton(onClick = { filePicker.launch(arrayOf("*/*")) }) {
                             Icon(
                                 HugeIcons.FileImport,
@@ -198,9 +210,15 @@ fun WorkspaceDetailPage(id: String) {
                 )
                 NavigationBarItem(
                     selected = pagerState.currentPage == 1,
+                    label = { Text(stringResource(R.string.workspace_detail_tab_environment)) },
+                    icon = { Icon(HugeIcons.Package01, contentDescription = null) },
+                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                )
+                NavigationBarItem(
+                    selected = pagerState.currentPage == 2,
                     label = { Text(stringResource(R.string.workspace_detail_tab_files)) },
                     icon = { Icon(HugeIcons.File02, contentDescription = null) },
-                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                    onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
                 )
             }
         },
@@ -218,13 +236,22 @@ fun WorkspaceDetailPage(id: String) {
                     installProgress = installProgress,
                     onInstallRootfs = { showInstallDialog = true },
                     onToolApprovalChange = vm::setToolApproval,
-                    onShellCompatibilityModeChange = vm::setShellCompatibilityMode,
                     onAddMountDir = { showMountDialog = true },
                     onRemoveMountDir = vm::removeMountDir,
                     onMountReadOnlyChange = vm::setMountDirReadOnly,
                 )
 
-                1 -> WorkspaceFilesPage(
+                1 -> WorkspaceEnvironmentPage(
+                    workspace = state.workspace,
+                    mirrorSetupRunning = mirrorSetupRunning,
+                    mirrorPicks = mirrorPicks,
+                    aptIndexRefresh = aptIndexRefresh,
+                    aptIndexDetail = aptIndexDetail,
+                    onShellCompatibilityModeChange = vm::setShellCompatibilityMode,
+                    onConfigureMirrors = vm::configurePackageMirrors,
+                )
+
+                2 -> WorkspaceFilesPage(
                     state = state,
                     contentPadding = PaddingValues(),
                     onSelectArea = vm::selectArea,
@@ -343,6 +370,19 @@ fun WorkspaceDetailPage(id: String) {
         )
     }
 
+    mirrorError?.let { message ->
+        AlertDialog(
+            onDismissRequest = vm::dismissMirrorError,
+            title = { Text(stringResource(R.string.workspace_detail_package_mirrors_failed)) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = vm::dismissMirrorError) {
+                    Text(stringResource(R.string.common_confirm))
+                }
+            },
+        )
+    }
+
     previewImageUri?.let { uri ->
         ImagePreviewDialog(
             images = listOf(uri),
@@ -373,7 +413,6 @@ private fun WorkspaceBasicPage(
     installProgress: RootfsInstallProgress?,
     onInstallRootfs: () -> Unit,
     onToolApprovalChange: (String, Boolean) -> Unit,
-    onShellCompatibilityModeChange: (Boolean) -> Unit,
     onAddMountDir: () -> Unit,
     onRemoveMountDir: (String) -> Unit,
     onMountReadOnlyChange: (String, Boolean) -> Unit,
@@ -392,44 +431,6 @@ private fun WorkspaceBasicPage(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CustomColors.cardColorsOnSurfaceContainer,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.workspace_detail_compatibility_mode),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        text = stringResource(R.string.workspace_detail_compatibility_mode_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.workspace_detail_compatibility_mode),
-                            modifier = Modifier.weight(1f),
-                        )
-                        Switch(
-                            checked = workspace?.shellCompatibilityMode ?: false,
-                            onCheckedChange = onShellCompatibilityModeChange,
-                            enabled = workspace != null,
-                        )
-                    }
-                }
-            }
-        }
-
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -508,6 +509,256 @@ private fun WorkspaceBasicPage(
         }
     }
 }
+
+@Composable
+private fun WorkspaceEnvironmentPage(
+    workspace: WorkspaceEntity?,
+    mirrorSetupRunning: Boolean,
+    mirrorPicks: List<PackageMirrorPick>,
+    aptIndexRefresh: AptIndexRefresh?,
+    aptIndexDetail: String?,
+    onShellCompatibilityModeChange: (Boolean) -> Unit,
+    onConfigureMirrors: () -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CustomColors.cardColorsOnSurfaceContainer,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.workspace_detail_compatibility_mode),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text = stringResource(R.string.workspace_detail_compatibility_mode_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.workspace_detail_compatibility_mode),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(
+                            checked = workspace?.shellCompatibilityMode ?: false,
+                            onCheckedChange = onShellCompatibilityModeChange,
+                            enabled = workspace != null,
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            PackageMirrorCard(
+                workspace = workspace,
+                running = mirrorSetupRunning,
+                picks = mirrorPicks,
+                aptIndex = aptIndexRefresh,
+                aptIndexDetail = aptIndexDetail,
+                onConfigure = onConfigureMirrors,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PackageMirrorCard(
+    workspace: WorkspaceEntity?,
+    running: Boolean,
+    picks: List<PackageMirrorPick>,
+    aptIndex: AptIndexRefresh?,
+    aptIndexDetail: String?,
+    onConfigure: () -> Unit,
+) {
+    val context = LocalContext.current
+    val setup = workspace?.packageMirrorSetup() ?: PackageMirrorSetup()
+    val rows = listOf(
+        PackageManager.APT to setup.aptRepoUrl,
+        PackageManager.NPM to setup.npmRegistry,
+        PackageManager.PIP to setup.pipIndexUrl,
+        PackageManager.GO to setup.goProxy,
+    ).filter { it.second.isNotBlank() }
+    val rootfsReady = workspace?.shellStatus == WorkspaceShellStatus.READY.name
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = stringResource(R.string.workspace_detail_package_mirrors),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = stringResource(R.string.workspace_detail_package_mirrors_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (rows.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.workspace_detail_package_mirrors_empty),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                rows.forEach { (manager, url) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = manager.mirrorLabel,
+                            modifier = Modifier.weight(0.22f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = url,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            picks.firstOrNull { it.manager == manager }?.let { pick ->
+                                Text(
+                                    text = stringResource(
+                                        R.string.workspace_detail_package_mirrors_pick,
+                                        pick.displayName,
+                                        pick.bytesPerSecond.fileSizeToString(),
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (setup.configuredAt > 0) {
+                    Text(
+                        text = stringResource(
+                            R.string.workspace_detail_package_mirrors_configured_at,
+                            DateUtils.formatDateTime(
+                                context,
+                                setup.configuredAt,
+                                DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_TIME,
+                            ),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (aptIndex == AptIndexRefresh.FAILED || aptIndex == AptIndexRefresh.TIMEOUT) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.errorContainer)
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (aptIndex == AptIndexRefresh.TIMEOUT) {
+                                R.string.workspace_detail_package_mirrors_apt_timeout
+                            } else {
+                                R.string.workspace_detail_package_mirrors_apt_failed
+                            }
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    aptIndexDetail?.let { detail ->
+                        Text(
+                            text = detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            } else if (aptIndex == AptIndexRefresh.SUCCESS) {
+                Text(
+                    text = stringResource(R.string.workspace_detail_package_mirrors_apt_ready),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Button(
+                onClick = onConfigure,
+                enabled = rootfsReady && !running,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(HugeIcons.Bolt, contentDescription = null)
+                Text(
+                    text = stringResource(
+                        if (running) {
+                            R.string.workspace_detail_package_mirrors_working
+                        } else {
+                            R.string.workspace_detail_package_mirrors_configure
+                        }
+                    ),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+
+            if (running) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text(
+                    text = stringResource(R.string.workspace_detail_package_mirrors_progress),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else if (!rootfsReady) {
+                Text(
+                    text = stringResource(R.string.workspace_detail_package_mirrors_need_rootfs),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** 包管理器在设置页里的显示名：都是产品专名，不进字符串资源。 */
+private val PackageManager.mirrorLabel: String
+    get() = when (this) {
+        PackageManager.APT -> "apt"
+        PackageManager.NPM -> "npm"
+        PackageManager.PIP -> "pip"
+        PackageManager.GO -> "Go"
+    }
 
 @Composable
 private fun WorkspaceMountDirCard(

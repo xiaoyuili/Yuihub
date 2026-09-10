@@ -22,47 +22,21 @@ class RootfsPatcher {
         ensureHostname(etcDir, options.hostname)
         ensureLocale(etcDir, options.locale)
         ensureGroupNames(etcDir, options.groupIds.ifEmpty { currentSupplementaryGroupIds() })
-        ensureAptMirror(etcDir)
+        ensureAptMirror(linuxDir)
         ensureTempDirs(linuxDir)
         marker.writeText(signature)
     }
 
     /**
-     * 把 apt 源换成国内镜像。Ubuntu Base 的 sources.list 默认指向
-     * archive.ubuntu.com / security.ubuntu.com，国内直连极慢，AI 装包（node/git 等）
-     * 经常超时被当成「环境不可用」。默认 http 源，避免 base 镜像缺 ca-certificates
-     * 时 https 源直接失效。只换主机名，保留路径结构（含 security 套件）。
+     * 把 apt 源换成国内镜像。ubuntu-base 的源默认指向 ports.ubuntu.com / archive.ubuntu.com，
+     * 国内直连极慢，AI 装包（node/git 等）经常超时被当成「环境不可用」。
+     *
+     * 用户在工作区「环境配置」里显式选过源时不再插手，避免每条 shell 命令都把用户选的站点
+     * 抢回默认站。具体改写规则（deb822 + one-line、ubuntu 与 ubuntu-ports 目录）见 [AptSources]。
      */
-    private fun ensureAptMirror(etcDir: File) {
-        val sourcesList = File(etcDir, "apt/sources.list")
-        if (!sourcesList.isFile) return
-        val original = sourcesList.readText()
-        if (original.contains(APT_MIRROR_HOST)) return
-        val patched = original
-            .lineSequence()
-            .joinToString("\n") { line ->
-                val trimmed = line.trimStart()
-                when {
-                    trimmed.startsWith("#") || trimmed.isBlank() -> line
-                    APT_OFFICIAL_HOSTS.any { line.contains(it) } ->
-                        APT_OFFICIAL_HOSTS.fold(line) { acc, host ->
-                            acc
-                                .replace("http://$host", APT_MIRROR)
-                                .replace("https://$host", APT_MIRROR)
-                                // archive 路径已含 /ubuntu，折叠镜像基址后产生的重复段
-                                .replace("ubuntu/ubuntu", "ubuntu")
-                                // security 套件在镜像站也走 /ubuntu 路径
-                                .replace("ubuntu-security", "ubuntu")
-                        }
-                    else -> line
-                }
-            }
-        if (patched == original) return
-        val backup = File(etcDir, "apt/sources.list.orig")
-        if (!backup.exists()) {
-            runCatching { sourcesList.copyTo(backup, overwrite = false) }
-        }
-        sourcesList.writeText(patched)
+    private fun ensureAptMirror(linuxDir: File) {
+        if (AptSources.isExplicit(linuxDir)) return
+        AptSources.rewriteTo(linuxDir, AptSources.DEFAULT_MIRROR, explicit = false)
     }
 
     private fun ensureRootfsDns(
@@ -215,9 +189,6 @@ class RootfsPatcher {
         private const val PATCH_MARKER = ".yuihub-patched"
         private const val MAX_DNS_SERVERS = 3
         private const val DEFAULT_HOSTNAME = "localhost"
-        private const val APT_MIRROR_HOST = "mirrors.tuna.tsinghua.edu.cn"
-        private const val APT_MIRROR = "http://mirrors.tuna.tsinghua.edu.cn/ubuntu"
-        private val APT_OFFICIAL_HOSTS = listOf("archive.ubuntu.com", "security.ubuntu.com")
         private val WHITESPACE_REGEX = Regex("\\s+")
         private val LOCAL_RESOLVERS = setOf(
             "127.0.0.1",

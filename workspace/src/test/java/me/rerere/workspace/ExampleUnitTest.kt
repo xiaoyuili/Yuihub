@@ -233,6 +233,70 @@ class ExampleUnitTest {
         assertEquals(patched, File(aptDir, "sources.list").readText())
     }
 
+    @Test
+    fun rootfsPatcherRewritesDeb822UbuntuPortsSources() {
+        // Ubuntu 24.04 的 ubuntu-base：sources.list 只剩注释，真源在 sources.list.d/ubuntu.sources（deb822）
+        val linuxDir = Files.createTempDirectory("apt-deb822-test").toFile()
+        val aptDir = File(linuxDir, "etc/apt").apply { mkdirs() }
+        val listDir = File(aptDir, "sources.list.d").apply { mkdirs() }
+        File(aptDir, "sources.list").writeText(
+            "# Ubuntu sources have moved to the /etc/apt/sources.list.d/ubuntu.sources\n" +
+                "# file, which uses the deb822 format.\n"
+        )
+        val sources = File(listDir, "ubuntu.sources")
+        sources.writeText(
+            """
+            Types: deb
+            URIs: http://ports.ubuntu.com/ubuntu-ports/
+            Suites: noble noble-updates noble-backports
+            Components: main universe restricted multiverse
+            Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+            Types: deb
+            URIs: http://ports.ubuntu.com/ubuntu-ports/
+            Suites: noble-security
+            Components: main universe restricted multiverse
+            Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+            """.trimIndent() + "\n"
+        )
+
+        RootfsPatcher().patch(linuxDir, RootfsPatchOptions())
+
+        val patched = sources.readText()
+        assertEquals(2, patched.lines().count { it == "URIs: http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/" })
+        assertTrue(patched.lineSequence().none { !it.startsWith("#") && it.contains("ports.ubuntu.com") })
+        // 只换主机名：两个池的目录名、后面的 Suites/Components 一行都不能动
+        assertTrue(patched.contains("Suites: noble noble-updates noble-backports"))
+        assertTrue(patched.contains("Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg"))
+        // 备份里仍是指向官方站的原始内容
+        assertTrue(File(listDir, "ubuntu.sources.orig").readText().contains("ports.ubuntu.com"))
+        // 测速与换站需要的元信息能从文件里读出来
+        assertTrue(AptSources.usesPortsRepo(linuxDir))
+        assertEquals("noble", AptSources.detectSuite(linuxDir, "jammy"))
+    }
+
+    @Test
+    fun aptSourcesSwitchMirrorsFromPristineBackupAndKeepUserChoice() {
+        val linuxDir = Files.createTempDirectory("apt-switch-test").toFile()
+        val listDir = File(linuxDir, "etc/apt/sources.list.d").apply { mkdirs() }
+        val sources = File(listDir, "ubuntu.sources")
+        sources.writeText("Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports/\nSuites: noble\n")
+
+        AptSources.rewriteTo(linuxDir, "http://mirrors.tuna.tsinghua.edu.cn", explicit = false)
+        AptSources.rewriteTo(linuxDir, "http://mirrors.aliyun.com", explicit = true)
+
+        val rewritten = sources.readText()
+        // 以 .orig 备份为基准重放，不会在上一家镜像的结果上继续替换
+        assertTrue(rewritten.contains("URIs: http://mirrors.aliyun.com/ubuntu-ports/"))
+        assertFalse(rewritten.contains("tuna"))
+        assertEquals("http://mirrors.aliyun.com", AptSources.appliedMirror(linuxDir))
+        assertTrue(AptSources.isExplicit(linuxDir))
+
+        // 每条 shell 命令都会跑的默认改写不得抢回用户显式选的站
+        RootfsPatcher().patch(linuxDir, RootfsPatchOptions())
+        assertEquals(rewritten, sources.readText())
+    }
+
     private fun tarGz(vararg entries: TarTestEntry): ByteArray {
         val output = ByteArrayOutputStream()
         GZIPOutputStream(output).use { gzip ->

@@ -5,6 +5,7 @@ import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
 import me.yui.yuihub.utils.JsonInstant
+import me.rerere.workspace.PackageMirrorSetup
 import me.rerere.workspace.Workspace
 import me.rerere.workspace.WorkspaceMountDir
 import me.rerere.workspace.WorkspaceShellStatus
@@ -39,6 +40,9 @@ data class WorkspaceEntity(
     // 用户自定义的宿主机目录挂载 (JSON 数组)，挂进 Rootfs 供 shell 与文件工具访问
     @ColumnInfo("mount_dirs", defaultValue = "[]")
     val mountDirs: String = "[]",
+    // 一键配置写入 rootfs 的国内镜像源摘要 (JSON)，同时用于给 AI 注入源配置提示词
+    @ColumnInfo("package_mirrors", defaultValue = "{}")
+    val packageMirrors: String = "{}",
 ) {
     fun toolApprovalOverrides(): Map<String, Boolean> = runCatching {
         JsonInstant.decodeFromString<Map<String, Boolean>>(toolApprovals)
@@ -50,6 +54,11 @@ data class WorkspaceEntity(
     }.getOrDefault(emptyList()).filter {
         it.sourcePath.startsWith("/") && it.target.startsWith("/") && it.target.trimEnd('/') != it.sourcePath.trimEnd('/')
     }
+
+    /** 当前生效的国内镜像源配置；从未配置过（或手改坏了 JSON）时返回空配置。 */
+    fun packageMirrorSetup(): PackageMirrorSetup = runCatching {
+        JsonInstant.decodeFromString<PackageMirrorSetup>(packageMirrors)
+    }.getOrDefault(PackageMirrorSetup())
 
     fun toWorkspace(): Workspace = Workspace(
         id = id,
