@@ -57,6 +57,15 @@ fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
                 currentThinkingSteps.add(ThinkingStep.ServerToolStep(part))
             }
 
+            is UIMessagePart.Text -> {
+                // 部分模型 (如 Qwen) 会在工具/思考之间输出空白文本，把它当作分隔符
+                // 会导致一条思考链被拆成多个块（折叠头消失、块间出现间距），
+                // 且空白文本本身不渲染任何内容，这里直接跳过不参与分组。
+                if (part.text.isBlank()) return@fastForEachIndexed
+                flushThinkingSteps()
+                result.add(MessagePartBlock.ContentBlock(part, index))
+            }
+
             else -> {
                 flushThinkingSteps()
                 result.add(MessagePartBlock.ContentBlock(part, index))

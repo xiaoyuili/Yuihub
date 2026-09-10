@@ -75,7 +75,9 @@ class WorkspaceManager(
         val args = mutableListOf(
             "--root-id",
             "--link2symlink",
-            "--kill-on-exit",
+            // 不加 --kill-on-exit: 它会在单条命令结束时杀掉整个进程树,
+            // AI 用 nohup/后台启动的常驻服务 (web server 等) 会立即被杀。
+            // 生命周期由 shell 工具层的超时与 kill 兼管。
             "-r",
             linuxDir(root).absolutePath,
             "-w",

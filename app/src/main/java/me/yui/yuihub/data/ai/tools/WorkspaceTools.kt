@@ -223,6 +223,11 @@ private fun createShellTool(
         append("the in-app viewer and the phone browser. The device shares this network stack, so 127.0.0.1 works directly. ")
         append("Always tell the user the full URL in the form http://127.0.0.1:<port> (with scheme), ")
         append("e.g. 'python3 -m http.server 5000 --bind 0.0.0.0' → tell user http://127.0.0.1:5000")
+        appendLine()
+        append("Long-running background services ARE supported: start them detached with ")
+        append("'nohup <cmd> >/workspace/svc.log 2>&1 &' (they survive after the command returns). ")
+        append("Then verify with a short sleep + curl. Stop them with 'pkill -f <pattern>'. ")
+        append("Never wait on the service command itself; check it with curl instead.")
     },
     parameters = {
         InputSchema.Obj(

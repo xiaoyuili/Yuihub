@@ -5,6 +5,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -67,6 +68,7 @@ class ChatGenerationForegroundService : Service() {
     private val activeGenerations = linkedMapOf<String, String>()
     private var isForeground = false
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private val appScope: AppScope by inject()
     private val chatService: ChatService by inject()
 
@@ -84,6 +86,7 @@ class ChatGenerationForegroundService : Service() {
     override fun onDestroy() {
         activeGenerations.clear()
         releaseWakeLock()
+        releaseWifiLock()
         if (isForeground) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             isForeground = false
@@ -111,12 +114,14 @@ class ChatGenerationForegroundService : Service() {
         activeGenerations[generationId] = conversationId
         updateForegroundNotification(conversationId)
         acquireWakeLock()
+        acquireWifiLock()
     }
 
     private fun release(intent: Intent) {
         intent.getStringExtra(EXTRA_GENERATION_ID)?.let(activeGenerations::remove)
         if (activeGenerations.isEmpty()) {
             releaseWakeLock()
+            releaseWifiLock()
             stopService()
         } else {
             updateForegroundNotification(activeGenerations.values.last())
@@ -141,6 +146,29 @@ class ChatGenerationForegroundService : Service() {
     private fun releaseWakeLock() {
         wakeLock?.takeIf { it.isHeld }?.runCatching { release() }
         wakeLock = null
+    }
+
+    /** Wi-Fi 高性能模式: 防止息屏后 Wi-Fi 进省电模式导致流式请求断流 */
+    private fun acquireWifiLock() {
+        if (wifiLock?.isHeld == true) return
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return
+        val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+        } else {
+            @Suppress("DEPRECATION")
+            WifiManager.WIFI_MODE_FULL_HIGH_PERF
+        }
+        wifiLock = wifiManager.createWifiLock(mode, "YuiHub::ChatGenerationWifi")
+            .apply {
+                setReferenceCounted(false)
+                runCatching { acquire() }
+                    .onFailure { Log.e(TAG, "Failed to acquire generation wifi lock", it) }
+            }
+    }
+
+    private fun releaseWifiLock() {
+        wifiLock?.takeIf { it.isHeld }?.runCatching { release() }
+        wifiLock = null
     }
 
     private fun updateForegroundNotification(conversationId: String) {
