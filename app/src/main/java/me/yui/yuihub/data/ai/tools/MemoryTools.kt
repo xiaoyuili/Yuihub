@@ -6,6 +6,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.floatOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -14,34 +15,24 @@ import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
 import me.yui.yuihub.data.model.AssistantMemory
-import me.yui.yuihub.utils.toLocalString
-import java.time.LocalDate
+import me.yui.yuihub.data.model.MemoryCategory
 
 fun buildMemoryTools(
     json: Json,
-    onCreation: suspend (String) -> AssistantMemory,
-    onUpdate: suspend (Int, String) -> AssistantMemory,
+    onCreation: suspend (content: String, category: String, importance: Float?) -> AssistantMemory,
+    onUpdate: suspend (id: Int, content: String, category: String, importance: Float?) -> AssistantMemory,
     onDelete: suspend (Int) -> Unit
 ): List<Tool> = listOf(
     Tool(
         name = "memory_tool",
         description = """
-            The memory tool stores long-term information across conversations.
-            Use `action` to control the operation: `create` (add), `edit` (update), `delete` (remove).
-            - No relevant record: `create` + `content`
-            - Existing relevant record: `edit` + `id` + `content`
-            - Outdated/irrelevant record: `delete` + `id`
-            Memories will automatically appear in the <memories> tag in later conversations.
-            Do not store sensitive information (e.g., ethnicity, religion, sexual orientation, political views, sex life, criminal records).
-            You may store: preferred name, preferences, plans, work-related notes, chat style preferences, first chat time, etc.
-            Do not show memory content directly in the conversation unless the user explicitly asks.
-            Today is ${LocalDate.now().toLocalString(true)}.
-            Similar memories should be merged; prefer updating existing records.
-
-            Examples:
-            {"action":"create","content":"User prefers brief replies and is more active on weekends."}
-            {"action":"edit","id":12,"content":"User’s preferred name updated to “A-Xing”, prefers Chinese replies."}
-            {"action":"delete","id":7}
+            Store long-term info about the user across conversations. `action`: create / edit / delete.
+            - New fact: create + content + category + importance
+            - Existing record on the same topic: edit + id + content (add category/importance only when changed)
+            - Stale record: delete + id
+            Categories: profile (identity/stable facts), preference (how the user likes things), coding, roleplay, daily, temporary (short-lived), other.
+            importance 0.0-1.0: 0.9+ identity/strong preference; 0.6-0.8 ordinary preference or ongoing project; 0.2-0.5 minor note.
+            Merge similar memories; prefer updating over creating. Never store sensitive personal data. Don't quote memory content in chat unless asked.
         """.trimIndent(),
         parameters = {
             InputSchema.Obj(
@@ -66,6 +57,20 @@ fun buildMemoryTools(
                         put("type", "string")
                         put("description", "The content of the memory record (required for create/edit)")
                     })
+                    put("category", buildJsonObject {
+                        put("type", "string")
+                        put(
+                            "enum",
+                            buildJsonArray {
+                                MemoryCategory.ALL.forEach { add(it) }
+                            }
+                        )
+                        put("description", "Memory category (required for create; optional for edit)")
+                    })
+                    put("importance", buildJsonObject {
+                        put("type", "number")
+                        put("description", "Importance 0.0-1.0 (0.9+ identity/strong preferences, 0.6-0.8 ordinary, 0.2-0.5 minor). Optional; omitted keeps the current value on edit.")
+                    })
                 },
                 required = listOf("action")
             )
@@ -76,13 +81,17 @@ fun buildMemoryTools(
             val payload = when (action) {
                 "create" -> {
                     val content = params["content"]?.jsonPrimitive?.contentOrNull ?: error("content is required")
-                    json.encodeToJsonElement(AssistantMemory.serializer(), onCreation(content))
+                    val category = params["category"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val importance = params["importance"]?.jsonPrimitive?.floatOrNull
+                    json.encodeToJsonElement(AssistantMemory.serializer(), onCreation(content, category, importance))
                 }
 
                 "edit" -> {
                     val id = params["id"]?.jsonPrimitive?.intOrNull ?: error("id is required")
                     val content = params["content"]?.jsonPrimitive?.contentOrNull ?: error("content is required")
-                    json.encodeToJsonElement(AssistantMemory.serializer(), onUpdate(id, content))
+                    val category = params["category"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    val importance = params["importance"]?.jsonPrimitive?.floatOrNull
+                    json.encodeToJsonElement(AssistantMemory.serializer(), onUpdate(id, content, category, importance))
                 }
 
                 "delete" -> {

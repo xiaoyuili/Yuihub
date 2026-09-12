@@ -10,6 +10,7 @@ import me.yui.yuihub.ui.pages.favorite.FavoriteVM
 import me.yui.yuihub.ui.pages.search.SearchVM
 import me.yui.yuihub.ui.pages.stats.StatsVM
 import me.yui.yuihub.ui.pages.imggen.ImgGenVM
+import me.yui.yuihub.ui.pages.extensions.LorebookVM
 import me.yui.yuihub.ui.pages.extensions.PromptVM
 import me.yui.yuihub.ui.pages.extensions.skills.SkillDetailVM
 import me.yui.yuihub.ui.pages.extensions.skills.SkillsVM
@@ -43,11 +44,10 @@ val viewModelModule = module {
             id = it.get(),
             settingsStore = get(),
             memoryRepository = get(),
-            evolutionRepository = get(),
+            memoryConsolidator = get(),
             filesManager = get(),
             skillManager = get(),
             workspaceRepository = get(),
-            evolutionConsolidator = get(),
         )
     }
     viewModel<ShareHandlerVM> {
@@ -59,6 +59,7 @@ val viewModelModule = module {
     viewModelOf(::BackupVM)
     viewModelOf(::ImgGenVM)
     viewModelOf(::PromptVM)
+    viewModelOf(::LorebookVM)
     viewModelOf(::SkillsVM)
     viewModelOf(::SkillDetailVM)
     viewModelOf(::WorkspaceVM)

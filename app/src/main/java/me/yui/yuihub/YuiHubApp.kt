@@ -36,6 +36,7 @@ import me.yui.yuihub.service.KeepAliveService
 import me.yui.yuihub.utils.SystemPermissions
 import me.yui.yuihub.utils.CrashHandler
 import me.yui.yuihub.utils.DatabaseUtil
+import me.yui.yuihub.utils.EmojiData
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.rerere.workspace.WorkspaceManager
 import org.koin.android.ext.android.get
@@ -93,6 +94,9 @@ class YuiHubApp : Application() {
 
         // sync upload files to DB
         syncManagedFiles()
+
+        // preload emoji data (large JSON parse) off the main thread
+        preloadEmojiData()
 
         // 同步常驻保活服务与设置开关
         syncKeepAwakeService()
@@ -162,6 +166,17 @@ class YuiHubApp : Application() {
                 get<FilesManager>().syncFolder()
             }.onFailure {
                 Log.e(TAG, "syncManagedFiles failed", it)
+            }
+        }
+    }
+
+    // 738KB emoji JSON 解析较重：提前在 IO 线程预热，避免首次打开表情面板时卡顿
+    private fun preloadEmojiData() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching {
+                get<EmojiData>()
+            }.onFailure {
+                Log.e(TAG, "preloadEmojiData failed", it)
             }
         }
     }

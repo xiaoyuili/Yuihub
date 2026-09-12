@@ -32,8 +32,8 @@ enum class BackupItem {
 /**
  * 本地备份：将选中的内容打成 zip（导出到本地文件 / 从本地文件恢复）。
  *
- * SETTINGS 对应 settings.json——供应商、MCP、技能启用、自进化开关、模型参数等。
- * DATABASE 对应 Room 数据库（聊天记录、记忆、自进化方法、token 账本等）。
+ * SETTINGS 对应 settings.json——供应商、MCP、技能启用、模型参数等。
+ * DATABASE 对应 Room 数据库（聊天记录、记忆、token 账本等）。
  * FILES 对应上传附件、技能、字体、工具输出。
  */
 class LocalBackupService(

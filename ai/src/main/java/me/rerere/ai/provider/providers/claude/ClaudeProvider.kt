@@ -56,7 +56,9 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
+import me.rerere.ai.util.retryAfterMsOrNull
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.parseContextLength
@@ -69,6 +71,7 @@ import me.rerere.ai.util.toHeaders
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonPrimitiveOrNull
 import okhttp3.MediaType.Companion.toMediaType
+import java.io.IOException
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -308,11 +311,17 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
             .build()
 
-        Log.i(TAG, "generateText: ${json.encodeToString(requestBody)}")
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(TAG, "generateText: ${json.encodeToString(requestBody)}")
+        }
 
         val response = client.newCall(request).await()
         if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+            throw HttpException(
+                message = "Failed to get response: ${response.code} ${response.body?.string()}",
+                code = response.code,
+                retryAfterMs = response.retryAfterMsOrNull(),
+            )
         }
 
         val bodyStr = response.body?.string() ?: ""
@@ -359,11 +368,10 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .configureSessionHeaders(providerSetting.baseUrl, params.sessionId)
             .build()
 
-        Log.i(TAG, "streamText: ${json.encodeToString(requestBody)}")
-
-        requestBody["messages"]!!.jsonArray.forEach {
-            Log.i(TAG, "streamText: $it")
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(TAG, "streamText: ${json.encodeToString(requestBody)}")
         }
+
 
         val decoder = ClaudeStreamDecoder()
 
@@ -398,18 +406,21 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                 t?.printStackTrace()
                 Log.e(TAG, "onFailure: ${t?.javaClass?.name} ${t?.message} / $response")
 
+                val code = response?.code
+                val retryAfterMs = response?.retryAfterMsOrNull()
                 val bodyRaw = response?.body?.stringSafe()
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
                         Log.i(TAG, "Error response: $bodyElement")
-                        exception = bodyElement.parseErrorDetail()
+                        exception = bodyElement.parseErrorDetail(code, retryAfterMs)
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
                     e.printStackTrace()
                 } finally {
-                    close(exception)
+                    // t 为 null 且无响应体时不能 close(null)：会把失败伪装成正常结束，静默截断回复
+                    close(exception ?: t ?: IOException("SSE stream failed without error detail (HTTP $code)"))
                 }
             }
 

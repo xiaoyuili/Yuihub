@@ -29,6 +29,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +46,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dokar.sonner.ToastType
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import me.rerere.common.android.Logging
 import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.ui.components.ui.UIAvatar
 import me.yui.yuihub.ui.components.nav.BackButton
@@ -55,6 +58,9 @@ import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.theme.JetbrainsMono
 import org.koin.androidx.compose.koinViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.random.Random
 import kotlin.random.nextInt
 import kotlin.uuid.Uuid
@@ -75,7 +81,7 @@ fun DebugPage(vm: DebugVM = koinViewModel()) {
             )
         }
     ) { contentPadding ->
-        val state = rememberPagerState { 2 }
+        val state = rememberPagerState { 3 }
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -106,6 +112,17 @@ fun DebugPage(vm: DebugVM = koinViewModel()) {
                         Text("Colors")
                     }
                 )
+                Tab(
+                    selected = state.currentPage == 2,
+                    onClick = {
+                        scope.launch {
+                            state.animateScrollToPage(2)
+                        }
+                    },
+                    text = {
+                        Text("Logs")
+                    }
+                )
             }
             HorizontalPager(
                 state = state,
@@ -116,6 +133,7 @@ fun DebugPage(vm: DebugVM = koinViewModel()) {
                 when (page) {
                     0 -> MainPage(vm)
                     1 -> ColorsPage()
+                    2 -> LogsPage()
                 }
             }
         }
@@ -264,6 +282,46 @@ private fun MainPage(vm: DebugVM) {
             onValueChange = { markdown = it },
             modifier = Modifier.fillMaxWidth()
         )
+    }
+}
+
+@Composable
+private fun LogsPage() {
+    // 每秒刷新应用内日志环形缓冲（Logging，最近 100 条）：
+    // generateInternal 埋点（prefix/ttft/gen/msgs 指纹）与压缩事件都在此展示，无需 adb
+    var logs by remember { mutableStateOf(Logging.snapshot()) }
+    val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            logs = Logging.snapshot()
+            delay(1000)
+        }
+    }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        items(logs, key = { it.id }) { entry ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .padding(8.dp),
+            ) {
+                Text(
+                    text = "${timeFormat.format(Date(entry.timestamp))}  ${entry.tag}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = entry.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = JetbrainsMono,
+                )
+            }
+        }
     }
 }
 

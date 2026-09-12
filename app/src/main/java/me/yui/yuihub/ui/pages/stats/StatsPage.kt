@@ -367,10 +367,11 @@ private fun DailyTokenBars(tokensPerDay: Map<LocalDate, Long>) {
 }
 
 private fun formatCacheRate(cachedTokens: Long, promptTokens: Long): String {
-    val base = cachedTokens + promptTokens
-    if (base <= 0L) return "0.00%"
-    val rate = cachedTokens.toDouble() / base.toDouble() * 100.0
-    return "%.2f%%".format(rate)
+    // promptTokens 已归一化为「总输入含缓存部分」（Claude 在 provider 层相加，OpenAI/DeepSeek/Gemini 本身包含），
+    // 分母不能再叠加 cached，否则命中率被系统性低估（33.2K/38.2K=86.9% 会算成 46.5%）
+    if (promptTokens <= 0L) return "0.00%"
+    val rate = cachedTokens.toDouble() / promptTokens.toDouble() * 100.0
+    return "%.2f%%".format(rate.coerceAtMost(100.0))
 }
 
 private fun formatCount(count: Long): String = when {

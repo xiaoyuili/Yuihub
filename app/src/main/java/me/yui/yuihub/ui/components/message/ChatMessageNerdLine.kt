@@ -92,14 +92,18 @@ fun ChatMessageNerdLine(
                             Text(text = usage.completionTokens.formatNumber())
                         }
                     )
-                    // TPS
-                    if (message.finishedAt != null) {
-                        val duration = Duration.between(
-                            message.createdAt.toJavaLocalDateTime(),
-                            message.finishedAt!!.toJavaLocalDateTime()
-                        )
-                        val tps = usage.completionTokens.toFloat() / duration.toMillis() * 1000
-                        val seconds = (duration.toMillis() / 1000f).toFixed(1)
+                    // TPS：分子用跨请求累加的输出 tokens（工具循环时 usage 只剩最后一次），
+                    // 分母用首字之后的纯生成时长（不含排队/prefill 与工具等待），旧数据逐级回退
+                    val outputTokens = message.generationOutputTokens ?: usage.completionTokens
+                    val outputDurationMs = message.generationDurationMs
+                        ?: message.finishedAt?.let { finished ->
+                            Duration.between(
+                                message.createdAt.toJavaLocalDateTime(),
+                                finished.toJavaLocalDateTime(),
+                            ).toMillis()
+                        }
+                    if (outputDurationMs != null && outputDurationMs > 0) {
+                        val tps = outputTokens.toFloat() / outputDurationMs * 1000
                         StatsItem(
                             icon = {
                                 Icon(
@@ -112,7 +116,15 @@ fun ChatMessageNerdLine(
                                 Text(text = "${tps.toFixed(1)}/s")
                             }
                         )
+                    }
 
+                    // 总耗时（含工具执行）：这是用户真实感知的等待时间，与上面的输出速度是两回事
+                    if (message.finishedAt != null) {
+                        val totalMs = Duration.between(
+                            message.createdAt.toJavaLocalDateTime(),
+                            message.finishedAt!!.toJavaLocalDateTime()
+                        ).toMillis()
+                        val seconds = (totalMs / 1000f).toFixed(1)
                         StatsItem(
                             icon = {
                                 Icon(

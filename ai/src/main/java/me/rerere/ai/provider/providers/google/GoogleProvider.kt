@@ -53,7 +53,9 @@ import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
+import me.rerere.ai.util.retryAfterMsOrNull
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
 import me.rerere.ai.util.parseContextLength
@@ -77,6 +79,7 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import org.apache.commons.text.StringEscapeUtils
 import kotlin.time.Clock
+import java.io.IOException
 import kotlin.uuid.Uuid
 
 private const val TAG = "GoogleProvider"
@@ -194,7 +197,11 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
         val response = client.newCall(request).await()
         if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+            throw HttpException(
+                message = "Failed to get response: ${response.code} ${response.body?.string()}",
+                code = response.code,
+                retryAfterMs = response.retryAfterMsOrNull(),
+            )
         }
 
         val bodyStr = response.body?.string() ?: ""
@@ -240,7 +247,9 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 .build()
         )
 
-        Log.i(TAG, "streamText: ${json.encodeToString(requestBody)}")
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Log.d(TAG, "streamText: ${json.encodeToString(requestBody)}")
+        }
 
         val responseId = Uuid.random().toString()
         val decoder = GoogleStreamDecoder(responseId, params.model.modelId)
@@ -289,13 +298,19 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                             val bodyElement = json.parseToJsonElement(bodyStr)
                             println(bodyElement)
                             if (bodyElement is JsonObject) {
-                                exception = Exception(
-                                    bodyElement["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
-                                        ?: "unknown"
+                                exception = HttpException(
+                                    message = bodyElement["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
+                                        ?: "unknown",
+                                    code = response.code,
+                                    retryAfterMs = response.retryAfterMsOrNull(),
                                 )
                             }
                         } else {
-                            exception = Exception("Unknown error: ${response.code}")
+                            exception = HttpException(
+                                message = "Unknown error: ${response.code}",
+                                code = response.code,
+                                retryAfterMs = response.retryAfterMsOrNull(),
+                            )
                         }
                     }
                 } catch (e: Throwable) {

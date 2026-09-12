@@ -28,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -78,6 +79,7 @@ import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantAffectScope
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.data.model.replaceRegexes
+import me.yui.yuihub.ui.components.richtext.LocalMarkdownAccentColor
 import me.yui.yuihub.ui.components.richtext.MarkdownBlock
 import me.yui.yuihub.ui.components.richtext.ZoomableAsyncImage
 import me.yui.yuihub.ui.components.richtext.buildMarkdownPreviewHtml
@@ -94,6 +96,9 @@ import me.yui.yuihub.utils.JsonInstant
 import me.yui.yuihub.utils.openUrl
 import me.yui.yuihub.utils.urlDecode
 import kotlin.time.Duration.Companion.milliseconds
+
+// 用户气泡固定为 iMessage 蓝（用户从配色方案中选定）；不跟随主题色，各主题下表现一致
+private val UserBubbleColor = Color(0xFF0A84FF)
 
 @Composable
 fun ChatMessage(
@@ -130,7 +135,7 @@ fun ChatMessage(
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = if (message.role == MessageRole.USER) Alignment.End else Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (!message.parts.isEmptyUIMessage()) {
             Row(
@@ -184,11 +189,7 @@ fun ChatMessage(
             enter = slideInVertically { it / 2 } + fadeIn(),
             exit = slideOutVertically { it / 2 } + fadeOut()
         ) {
-            Column(
-                modifier = Modifier
-                    .animateContentSize()
-                    .padding(top = 8.dp)
-            ) {
+            Column {
                 ChatMessageActionButtons(
                     message = message,
                     onRegenerate = onRegenerate,
@@ -276,6 +277,10 @@ private fun MessagePartsBlock(
     val settings = LocalSettings.current
     val partsState by rememberUpdatedState(parts)
 
+    // 流式输出期间内容持续增长：animateContentSize 会不断重启动画、高度追不上文字，
+    // 生成结束后（loading=false）再启用尺寸动画
+    val sizeAnimModifier = if (loading) Modifier else Modifier.animateContentSize()
+
     val handleClickCitation: (String) -> Unit = remember {
         handler@{ citationId ->
             partsState.forEach { part ->
@@ -297,10 +302,16 @@ private fun MessagePartsBlock(
         }
     }
     LaunchedEffect(settings.displaySetting) {
+        var lastHapticAt = 0L
         snapshotFlow { partsState }
             .debounce(50.milliseconds)
             .collect { parts ->
-                if (parts.isNotEmpty() && loading && settings.displaySetting.enableMessageGenerationHapticEffect) {
+                // 上限约 3 次/秒：流式输出下按批触发，避免连续数十次马达脉冲
+                val now = System.currentTimeMillis()
+                if (parts.isNotEmpty() && loading && settings.displaySetting.enableMessageGenerationHapticEffect &&
+                    now - lastHapticAt >= 300
+                ) {
+                    lastHapticAt = now
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                 }
             }
@@ -355,33 +366,37 @@ private fun MessagePartsBlock(
                             if (role == MessageRole.USER) {
                                 BoxWithConstraints {
                                     Surface(
-                                        modifier = Modifier
-                                            .animateContentSize()
+                                        modifier = sizeAnimModifier
                                             .widthIn(max = maxWidth * 0.82f),
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = settings.displaySetting.bubbleOpacity),
+                                        shape = RoundedCornerShape(20.dp),
+                                        color = UserBubbleColor.copy(alpha = settings.displaySetting.bubbleOpacity),
+                                        contentColor = Color.White,
                                         onClick = { onUserMessageClick?.invoke() },
                                     ) {
-                                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                                            MarkdownBlock(
-                                                content = part.text.replaceRegexes(
-                                                    assistant = assistant,
-                                                    scope = AssistantAffectScope.USER,
-                                                    visual = true,
-                                                ),
-                                                onClickCitation = handleClickCitation
-                                            )
+                                        // 蓝色气泡内链接/行内代码改用白色（默认跟随主题 primary 会看不清）
+                                        CompositionLocalProvider(LocalMarkdownAccentColor provides Color.White) {
+                                            // MarkdownBlock 自带 4dp 横向内边距，这里 8dp 使有效左右空隙为 12dp
+                                            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp)) {
+                                                MarkdownBlock(
+                                                    content = part.text.replaceRegexes(
+                                                        assistant = assistant,
+                                                        scope = AssistantAffectScope.USER,
+                                                        visual = true,
+                                                    ),
+                                                    onClickCitation = handleClickCitation
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             } else {
                                 if (settings.displaySetting.showAssistantBubble) {
                                     Surface(
-                                        modifier = Modifier.animateContentSize(),
-                                        shape = RoundedCornerShape(22.dp),
+                                        modifier = sizeAnimModifier,
+                                        shape = RoundedCornerShape(20.dp),
                                         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.displaySetting.bubbleOpacity),
                                     ) {
-                                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                                             MarkdownBlock(
                                                 content = part.text.replaceRegexes(
                                                     assistant = assistant,
@@ -400,8 +415,7 @@ private fun MessagePartsBlock(
                                             visual = true,
                                         ),
                                         onClickCitation = handleClickCitation,
-                                        modifier = Modifier
-                                            .animateContentSize()
+                                        modifier = sizeAnimModifier
                                     )
                                 }
                             }

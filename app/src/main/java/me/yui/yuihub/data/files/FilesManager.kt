@@ -102,7 +102,7 @@ class FilesManager(
     fun getFile(entity: ManagedFileEntity): File =
         File(context.filesDir, entity.relativePath)
 
-    fun createChatFilesByContents(uris: List<Uri>): List<Uri> {
+    suspend fun createChatFilesByContents(uris: List<Uri>): List<Uri> = withContext(Dispatchers.IO) {
         val newUris = mutableListOf<Uri>()
         val dir = context.filesDir.resolve(FileFolders.UPLOAD)
         if (!dir.exists()) {
@@ -141,7 +141,7 @@ class FilesManager(
                 )
             }
         }
-        return newUris
+        newUris
     }
 
     fun createChatFilesByByteArrays(byteArrays: List<ByteArray>): List<Uri> {
@@ -230,7 +230,7 @@ class FilesManager(
         Pair(count, size)
     }
 
-    fun createChatTextFile(text: String): UIMessagePart.Document {
+    suspend fun createChatTextFile(text: String): UIMessagePart.Document = withContext(Dispatchers.IO) {
         val dir = context.filesDir.resolve(FileFolders.UPLOAD)
         if (!dir.exists()) {
             dir.mkdirs()
@@ -244,7 +244,7 @@ class FilesManager(
             displayName = "pasted_text.txt",
             mimeType = "text/plain"
         )
-        return UIMessagePart.Document(
+        UIMessagePart.Document(
             url = file.toUri().toString(),
             fileName = "pasted_text.txt",
             mime = "text/plain"

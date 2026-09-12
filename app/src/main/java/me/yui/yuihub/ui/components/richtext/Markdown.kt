@@ -46,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -85,6 +86,7 @@ import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
@@ -231,6 +233,13 @@ private fun parseMarkdown(content: String): MarkdownParseResult {
     return MarkdownParseResult(preprocessed, astTree, astTree.containsHtml())
 }
 
+/**
+ * 宿主可覆盖 Markdown 内联元素的强调色（链接、行内代码、列表符号等）。
+ * 使用场景：彩色气泡内需要前景色与气泡一致时（如蓝色用户气泡传入白色）；
+ * 为 null 时使用主题的 primary。
+ */
+val LocalMarkdownAccentColor = staticCompositionLocalOf<Color?> { null }
+
 @Composable
 fun MarkdownBlock(
     content: String,
@@ -246,6 +255,8 @@ fun MarkdownBlock(
     LaunchedEffect(Unit) {
         snapshotFlow { updatedContent }
             .distinctUntilChanged()
+            // 首个值就是当前的 content，已在 remember 里同步解析过，避免重复解析
+            .drop(1)
             .mapLatest { parseMarkdown(it) }
             .catch { exception -> exception.printStackTrace() }
             .flowOn(Dispatchers.Default)
@@ -410,9 +421,10 @@ private fun MarkdownNode(
         // Checkbox
         GFMTokenTypes.CHECK_BOX -> {
             val isChecked = node.getTextInNode(content).trim() == "[x]"
+            val accent = LocalMarkdownAccentColor.current ?: MaterialTheme.colorScheme.primary
             Surface(
                 shape = RoundedCornerShape(2.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                color = accent.copy(alpha = 0.1f),
                 modifier = modifier,
             ) {
                 Box(
@@ -425,7 +437,7 @@ private fun MarkdownNode(
                         Icon(
                             imageVector = HugeIcons.Tick01,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = accent
                         )
                     }
                 }
@@ -458,7 +470,7 @@ private fun MarkdownNode(
             }
         }
 
-        // 链接
+        // 链接（文本型渲染路径）
         MarkdownElementTypes.INLINE_LINK -> {
             val linkText = node.findChildOfTypeRecursive(MarkdownElementTypes.LINK_TEXT)
                 ?.findChildOfTypeRecursive(GFMTokenTypes.GFM_AUTOLINK, MarkdownTokenTypes.TEXT)?.getTextInNode(content)
@@ -468,7 +480,7 @@ private fun MarkdownNode(
             val context = LocalContext.current
             Text(
                 text = linkText,
-                color = MaterialTheme.colorScheme.primary,
+                color = LocalMarkdownAccentColor.current ?: MaterialTheme.colorScheme.primary,
                 textDecoration = TextDecoration.Underline,
                 modifier = modifier.clickable {
                     val intent = Intent(Intent.ACTION_VIEW, linkDest.toUri())
@@ -716,7 +728,7 @@ private fun ListItemNode(
                 Text(
                     text = bulletText,
                     modifier = Modifier.alignByBaseline(),
-                    color = MaterialTheme.colorScheme.primary,
+                    color = LocalMarkdownAccentColor.current ?: MaterialTheme.colorScheme.primary,
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -792,20 +804,27 @@ private fun Paragraph(
     val textStyle = LocalTextStyle.current
     val density = LocalDensity.current
     val latexColorArgb = LocalContentColor.current.toArgb()
+    val accentOverride = LocalMarkdownAccentColor.current
     FlowRow(
         modifier = modifier.then(
             if (node.nextSibling() != null) Modifier.padding(bottom = LocalTextStyle.current.fontSize.toDp())
             else Modifier
         )
     ) {
-        val annotatedString = remember(content, enableLatexRendering, latexColorArgb) {
+        val annotatedString = remember(content, enableLatexRendering, latexColorArgb, accentOverride) {
+            // 强调色覆盖：把主题 primary 换成宿主指定色（如蓝色气泡内的白色链接/行内代码）
+            val effectiveColorScheme = if (accentOverride != null) {
+                colorScheme.copy(primary = accentOverride)
+            } else {
+                colorScheme
+            }
             buildAnnotatedString {
                 node.children.fastForEach { child ->
                     appendMarkdownNodeContent(
                         node = child,
                         content = content,
                         inlineContents = inlineContents,
-                        colorScheme = colorScheme,
+                        colorScheme = effectiveColorScheme,
                         onClickCitation = onClickCitation,
                         style = textStyle,
                         density = density,

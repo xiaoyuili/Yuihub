@@ -9,19 +9,13 @@ import me.yui.yuihub.data.db.entity.MemoryEntity
 
 @Dao
 interface MemoryDAO {
-    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId")
+    @Query("SELECT * FROM MemoryEntity WHERE assistant_id = :assistantId ORDER BY updated_at DESC")
     fun getMemoriesOfAssistantFlow(assistantId: String): Flow<List<MemoryEntity>>
 
-    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId")
+    @Query("SELECT * FROM MemoryEntity WHERE assistant_id = :assistantId ORDER BY updated_at DESC")
     suspend fun getMemoriesOfAssistant(assistantId: String): List<MemoryEntity>
 
-    @Query("SELECT * FROM memoryentity")
-    fun getAllMemoriesFlow(): Flow<List<MemoryEntity>>
-
-    @Query("SELECT * FROM memoryentity")
-    suspend fun getAllMemories(): List<MemoryEntity>
-
-    @Query("SELECT * FROM memoryentity WHERE id = :id")
+    @Query("SELECT * FROM MemoryEntity WHERE id = :id")
     suspend fun getMemoryById(id: Int): MemoryEntity?
 
     @Insert
@@ -30,20 +24,12 @@ interface MemoryDAO {
     @Update
     suspend fun updateMemory(memory: MemoryEntity)
 
-    @Query("DELETE FROM memoryentity WHERE id = :id")
+    @Query("DELETE FROM MemoryEntity WHERE id = :id")
     suspend fun deleteMemory(id: Int)
 
-    @Query("DELETE FROM memoryentity WHERE assistant_id = :assistantId")
+    @Query("DELETE FROM MemoryEntity WHERE id IN (:ids)")
+    suspend fun deleteMemories(ids: List<Int>)
+
+    @Query("DELETE FROM MemoryEntity WHERE assistant_id = :assistantId")
     suspend fun deleteMemoriesOfAssistant(assistantId: String)
-
-    @Query(
-        "UPDATE memoryentity SET last_accessed_at = :now, access_count = access_count + 1 WHERE id IN (:ids)"
-    )
-    suspend fun updateAccessStats(ids: List<Int>, now: Long)
-
-    @Query("UPDATE memoryentity SET embedding = :embedding WHERE id = :id")
-    suspend fun updateEmbedding(id: Int, embedding: String)
-
-    @Query("SELECT * FROM memoryentity WHERE assistant_id = :assistantId AND embedding IS NULL")
-    suspend fun getMemoriesWithoutEmbedding(assistantId: String): List<MemoryEntity>
 }

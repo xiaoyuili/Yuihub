@@ -62,6 +62,14 @@ class StreamChunkHandler(private val model: Model? = null) {
     private val serverToolInputBuffers = mutableMapOf<String, StringBuilder>()
 
     /**
+     * 本次响应流收到的最新用量。
+     * 消息上的 usage 会被后续请求覆盖（工具循环多条消息场景），
+     * 调用方需要「本次请求」的用量时从这里取。
+     */
+    var attemptUsage: TokenUsage? = null
+        private set
+
+    /**
      * 将一个 [chunk] 合并进消息列表末尾的助手消息，并返回新的消息列表。
      *
      * @throws IllegalArgumentException 当 [messages] 为空时抛出
@@ -289,9 +297,13 @@ class StreamChunkHandler(private val model: Model? = null) {
 
             is StreamChunk.ImageEnd -> this.also { imagePartIndexes.remove(chunk.id) }
             is StreamChunk.Annotations -> copy(annotations = (annotations + chunk.annotations).distinct())
-            is StreamChunk.Usage -> copy(usage = usage.merge(chunk.usage))
+            is StreamChunk.Usage -> {
+                attemptUsage = chunk.usage
+                copy(usage = usage.merge(chunk.usage))
+            }
             is StreamChunk.Finish -> copy(
-                finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+                finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
+                finishReason = chunk.finishReason,
             ).finishReasoning().also {
                 // Finish 同时结束尚未显式结束的 reasoning，并释放本次响应流的索引状态。
                 textPartIndexes.clear()

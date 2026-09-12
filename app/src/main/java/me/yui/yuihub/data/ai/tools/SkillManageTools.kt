@@ -22,16 +22,9 @@ fun createSkillManageTools(skillManager: SkillManager): List<Tool> = listOf(
     Tool(
         name = "manage_skill",
         description = """
-            Manage skills (specialized instruction packs stored as SKILL.md files).
-            Use `action` to control the operation:
-            - `list`: show all skills with their names and descriptions
-            - `read`: read a skill's SKILL.md (pass `name`; optional `path` for another file in the skill dir)
-            - `save`: create or overwrite a skill (pass `name` + `content`; optional `path` to write a file inside the skill dir)
-            - `delete`: remove a whole skill (pass `name`)
-            A skill's SKILL.md must start with YAML frontmatter containing `name` and `description`,
-            followed by the instructions body. The `description` decides when the skill gets used,
-            so make it state what task the skill covers and when to apply it.
-            Skill names may contain letters, digits, '-' and '_'.
+            Manage skills (instruction packs stored as SKILL.md).
+            `action`: list | read | save | delete — read/save/delete need `name`; save needs `content`; optional `path` targets another file inside the skill dir.
+            SKILL.md = YAML frontmatter (`name`, `description`) + instructions body. `description` decides when the skill gets used — state the task and when to apply it. Names: letters, digits, '-', '_'.
         """.trimIndent(),
         parameters = {
             InputSchema.Obj(

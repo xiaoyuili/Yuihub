@@ -17,12 +17,9 @@ fun createSubagentTool(
 ): Tool = Tool(
     name = SPAWN_AGENT_TOOL_NAME,
     description = """
-        Delegate a self-contained subtask to a fresh child agent that shares this workspace, model, and tools
-        but starts with an empty conversation (no parent history). Use it to parallelize independent work
-        such as research, file inspection, or a focused implementation, then synthesize the child's final answer.
-        The prompt must stand alone: include all files, constraints, and expected output format.
-        Do not spawn a child for trivial one-step lookups you can do yourself.
-        Children cannot spawn further children.
+        Delegate a self-contained subtask to a fresh child agent (empty history; shares workspace, model and tools).
+        Use it to parallelize independent work (research, file inspection, a focused implementation), then synthesize its final answer.
+        The prompt must stand alone - include all files, constraints and expected output format. Don't spawn for trivial one-step lookups. Children cannot spawn children.
     """.trimIndent(),
     parameters = {
         InputSchema.Obj(

@@ -4,7 +4,6 @@ import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.util.json
@@ -24,9 +23,19 @@ data class UIMessage(
     val finishedAt: LocalDateTime? = null,
     val modelId: Uuid? = null,
     val usage: TokenUsage? = null,
-    // 请求期间生成的内部消息；该标记仅在内存中使用
-    @Transient
+    // 合成消息标记：时间提醒/工作区提示等在请求期拼接、不落库；
+    // 记忆快照会随消息持久化该标记，使请求期转换器跨重启一致地跳过它。
     val isSynthetic: Boolean = false,
+    // 纯模型输出耗时（毫秒，累加各次流式调用的「首字之后」时长，不含 TTFT/排队/prefill 与工具执行等待）。
+    // 用于计算真实的 token 输出速度；旧数据为 null 时回退到 createdAt→finishedAt。
+    val generationDurationMs: Long? = null,
+    // 纯模型输出 token 数（跨工具循环各次请求累加）：usage 在同一条消息上被后续请求覆盖，
+    // 直接用 completionTokens 会丢失工具循环里前几次请求的输出，速度被严重低估。
+    // 旧数据为 null 时回退 usage.completionTokens。
+    val generationOutputTokens: Int? = null,
+    // 供应商返回的结束原因（stop/length/content_filter/tool_calls 等）：
+    // 此前被丢弃，导致「思考完就断」的截断/过滤场景静默无提示。
+    val finishReason: String? = null,
 ) {
     fun summaryAsText(maxLength: Int = Int.MAX_VALUE): String {
         val text = "[${role.name}]: " + parts.joinToString(separator = "\n") { part ->

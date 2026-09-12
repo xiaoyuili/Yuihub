@@ -26,6 +26,7 @@ import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.utils.JsonInstant
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
 class ConversationRepository(
@@ -44,6 +45,9 @@ class ConversationRepository(
         private const val PAGE_SIZE = 20
         private const val INITIAL_LOAD_SIZE = 40
     }
+
+    // 加载时有页读不出来的会话（如超大 blob 行）：整表回写会删掉读不到的节点，需要降级为只 upsert
+    private val incompleteLoads = ConcurrentHashMap.newKeySet<String>()
 
     suspend fun getRecentConversations(assistantId: Uuid, limit: Int = 10): List<Conversation> {
         return conversationDAO.getRecentConversationsOfAssistant(
@@ -300,13 +304,19 @@ class ConversationRepository(
     }
 
     suspend fun updateConversation(conversation: Conversation) {
+        val incomplete = incompleteLoads.contains(conversation.id.toString())
         database.withTransaction {
             conversationDAO.update(
                 conversationToConversationEntity(conversation)
             )
-            // 删除旧的节点，插入新的节点
-            messageNodeDAO.deleteByConversation(conversation.id.toString())
-            saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
+            if (incomplete) {
+                // 加载不完整：只按主键 upsert，不删除既有节点，避免把读不到的节点写丢
+                saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
+            } else {
+                // 删除旧的节点，插入新的节点
+                messageNodeDAO.deleteByConversation(conversation.id.toString())
+                saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
+            }
         }
         messageFtsManager.indexConversation(conversation)
     }
@@ -402,10 +412,8 @@ class ConversationRepository(
     }
 
     suspend fun togglePinStatus(conversationId: Uuid) {
-        conversationDAO.updatePinStatus(
-            id = conversationId.toString(),
-            isPinned = !(getConversationById(conversationId)?.isPinned ?: false)
-        )
+        // 单条 SQL 原子翻转，两次快速点按不会丢失切换
+        conversationDAO.togglePinStatus(conversationId.toString())
     }
 
     /**
@@ -437,7 +445,8 @@ class ConversationRepository(
             .mapNotNull { runCatching { Uuid.parse(it) }.getOrNull() }
             .toSet()
 
-        return database.withTransaction {
+        var loadIncomplete = false
+        val loadedNodes = database.withTransaction {
             val nodes = mutableListOf<MessageNode>()
             var offset = 0
             val pageSize = 64
@@ -446,10 +455,12 @@ class ConversationRepository(
                     messageNodeDAO.getNodesOfConversationPaged(conversationId, pageSize, offset)
                 } catch (e: SQLiteBlobTooBigException) {
                     e.printStackTrace()
+                    loadIncomplete = true
                     offset += pageSize
                     continue
                 } catch (e: IllegalStateException) {
                     e.printStackTrace()
+                    loadIncomplete = true
                     offset += pageSize
                     continue
                 }
@@ -470,6 +481,12 @@ class ConversationRepository(
             }
             nodes
         }
+        if (loadIncomplete) {
+            incompleteLoads.add(conversationId)
+        } else {
+            incompleteLoads.remove(conversationId)
+        }
+        return loadedNodes
     }
 
     private suspend fun saveMessageNodes(conversationId: String, nodes: List<MessageNode>) {
@@ -489,21 +506,23 @@ class ConversationRepository(
     // 按消息 id 幂等记账；删除对话不清空，历史统计独立累积
     suspend fun recordTokenUsage(conversationId: String, messages: List<UIMessage>) {
         val now = System.currentTimeMillis()
-        messages.forEach { message ->
-            val usage = message.usage ?: return@forEach
-            if (usage.promptTokens == 0 && usage.completionTokens == 0 && usage.cachedTokens == 0) return@forEach
-            tokenLedgerDAO.insertIgnore(
-                TokenLedgerEntity(
-                    messageId = message.id.toString(),
-                    conversationId = conversationId,
-                    day = message.createdAt.date.toString(),
-                    promptTokens = usage.promptTokens.toLong(),
-                    completionTokens = usage.completionTokens.toLong(),
-                    cachedTokens = usage.cachedTokens.toLong(),
-                    createdAt = now,
-                )
+        // 批量写入：之前每条消息一次 insert，消息多时是 N 次事务
+        val rows = messages.mapNotNull { message ->
+            val usage = message.usage ?: return@mapNotNull null
+            if (usage.promptTokens == 0 && usage.completionTokens == 0 && usage.cachedTokens == 0) {
+                return@mapNotNull null
+            }
+            TokenLedgerEntity(
+                messageId = message.id.toString(),
+                conversationId = conversationId,
+                day = message.createdAt.date.toString(),
+                promptTokens = usage.promptTokens.toLong(),
+                completionTokens = usage.completionTokens.toLong(),
+                cachedTokens = usage.cachedTokens.toLong(),
+                createdAt = now,
             )
         }
+        if (rows.isNotEmpty()) tokenLedgerDAO.insertIgnore(rows)
     }
 }
 

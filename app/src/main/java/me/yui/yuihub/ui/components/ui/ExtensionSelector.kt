@@ -43,7 +43,8 @@ fun ExtensionSelector(
     onUpdate: (Assistant) -> Unit,
     conversation: Conversation? = null,
     onUpdateConversation: ((Conversation) -> Unit)? = null,
-    onNavigateToPrompts: () -> Unit = {},
+    onNavigateToModeInjections: () -> Unit = {},
+    onNavigateToLorebooks: () -> Unit = {},
     onNavigateToSkills: () -> Unit = {},
     onNavigateToMcp: () -> Unit = {},
 ) {
@@ -135,13 +136,13 @@ fun ExtensionSelector(
                                     onUpdate(assistant.copy(modeInjectionIds = newIds))
                                 }
                             },
-                            onManage = onNavigateToPrompts,
+                            onManage = onNavigateToModeInjections,
                         )
                     } else {
                         ExtensionEmptyState(
                             message = stringResource(R.string.extension_selector_mode_injections_empty),
-                            buttonText = stringResource(R.string.extension_selector_go_to_extensions),
-                            onAction = onNavigateToPrompts,
+                            buttonText = stringResource(R.string.extension_selector_go_to_mode_injections),
+                            onAction = onNavigateToModeInjections,
                         )
                     }
                 }
@@ -163,13 +164,13 @@ fun ExtensionSelector(
                                     onUpdate(assistant.copy(lorebookIds = newIds))
                                 }
                             },
-                            onManage = onNavigateToPrompts,
+                            onManage = onNavigateToLorebooks,
                         )
                     } else {
                         ExtensionEmptyState(
                             message = stringResource(R.string.extension_selector_lorebooks_empty),
-                            buttonText = stringResource(R.string.extension_selector_go_to_extensions),
-                            onAction = onNavigateToPrompts,
+                            buttonText = stringResource(R.string.extension_selector_go_to_lorebooks),
+                            onAction = onNavigateToLorebooks,
                         )
                     }
                 }

@@ -88,7 +88,7 @@ import me.yui.yuihub.ui.hooks.useEditState
 import me.yui.yuihub.utils.DEFAULT_CONTEXT_LENGTH
 import me.yui.yuihub.utils.base64Decode
 import me.yui.yuihub.utils.effectiveContextLength
-import me.yui.yuihub.utils.estimateTokenCount
+import me.yui.yuihub.utils.estimateWindowTokens
 import me.yui.yuihub.utils.navigateToChatPage
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -262,9 +262,6 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                     onClearAllErrors = { vm.clearAllErrors() },
                 )
             }
-            BackHandler(drawerState.isOpen) {
-                scope.launch { drawerState.close() }
-            }
         }
     }
 }
@@ -346,8 +343,6 @@ private fun ChatPageContent(
                     loading = loadingJob != null,
                     settings = setting,
                     hazeState = hazeState,
-                    // 模糊关闭时滚动聊天列表，输入区域变半透明让出视野
-                    dimmed = !setting.displaySetting.enableBlurEffect && chatListState.isScrollInProgress,
                     completionProviders = completionProviders,
                     onCancelClick = {
                         vm.stopGeneration()
@@ -448,13 +443,8 @@ private fun ChatPageContent(
                         showFilesSheet = true
                     },
                     contextUsage = run {
-                        val used = conversation.messageNodes.asReversed()
-                            .map { it.currentMessage }
-                            .firstOrNull { it.role == MessageRole.ASSISTANT }
-                            ?.usage
-                            ?.promptTokens
-                            ?: 0
-                        val estimated = if (used > 0) used else estimateTokenCount(conversation.currentMessages)
+                        // 与自动压缩触发判断同源：发送窗口占用（检查点 + 边界后原文）
+                        val estimated = conversation.estimateWindowTokens(currentChatModel)
                         ContextUsage(
                             usedTokens = estimated,
                             windowTokens = currentChatModel?.effectiveContextLength()

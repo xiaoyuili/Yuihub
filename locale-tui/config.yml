@@ -12,17 +12,6 @@ modules:
       - "app/src/main/java/**/*.java"
       - "app/src/main/AndroidManifest.xml"
       - "app/src/main/res/xml/*.xml"
-  - name: "ai"
-    res_path: "ai/src/main/res"
-    source_patterns:
-      - "ai/src/main/java/**/*.kt"
-      - "ai/src/main/java/**/*.java"
-  - name: "highlight"
-    res_path: "highlight/src/main/res"
-    source_patterns:
-      - "highlight/src/main/java/**/*.kt"
-      - "highlight/src/main/java/**/*.java"
-      - "highlight/src/main/AndroidManifest.xml"
   - name: "search"
     res_path: "search/src/main/res"
     source_patterns:
@@ -34,13 +23,6 @@ modules:
     source_patterns:
       - "oauth/src/main/java/**/*.kt"
       - "oauth/src/main/AndroidManifest.xml"
-  - name: "rag"
-    res_path: "rag/src/main/res"
-    source_patterns:
-      - "rag/src/main/java/**/*.kt"
-      - "rag/src/main/java/**/*.java"
-      - "rag/src/main/AndroidManifest.xml"
-
 # 支持的语言列表
 languages:
   - code: "values"
@@ -48,14 +30,6 @@ languages:
     is_source: true
   - code: "values-zh"
     name: "Chinese (Simplified)"
-  - code: "values-zh-rTW"
-    name: "Chinese (Traditional)"
-  - code: "values-ja"
-    name: "Japanese"
-  - code: "values-ko-rKR"
-    name: "Korean"
-  - code: "values-ru"
-    name: "Russian"
 
 # AI 翻译配置
 translation:

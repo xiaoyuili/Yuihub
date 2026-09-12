@@ -5,6 +5,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
@@ -19,6 +20,7 @@ import me.yui.yuihub.CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID
 import me.yui.yuihub.R
 import me.yui.yuihub.RouteActivity
 import org.koin.android.ext.android.inject
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatGenerationFgs"
@@ -37,6 +39,11 @@ class ChatGenerationForegroundService : Service() {
         private const val EXTRA_CONVERSATION_ID = "conversation_id"
 
         const val NOTIFICATION_ID = 2002
+
+        private val activeGenerationCount = AtomicInteger(0)
+
+        /** 是否仍有生成任务在前台服务中运行（供通知管理判断能否取消共享通知） */
+        fun hasActiveGenerations(): Boolean = activeGenerationCount.get() > 0
 
         fun acquire(context: Context, generationId: Uuid, conversationId: Uuid): Boolean {
             val intent = Intent(context, ChatGenerationForegroundService::class.java).apply {
@@ -85,6 +92,7 @@ class ChatGenerationForegroundService : Service() {
 
     override fun onDestroy() {
         activeGenerations.clear()
+        activeGenerationCount.set(0)
         releaseWakeLock()
         releaseWifiLock()
         if (isForeground) {
@@ -112,13 +120,17 @@ class ChatGenerationForegroundService : Service() {
         val generationId = intent.getStringExtra(EXTRA_GENERATION_ID) ?: return stopService()
         val conversationId = intent.getStringExtra(EXTRA_CONVERSATION_ID) ?: return stopService()
         activeGenerations[generationId] = conversationId
+        activeGenerationCount.incrementAndGet()
         updateForegroundNotification(conversationId)
         acquireWakeLock()
         acquireWifiLock()
     }
 
     private fun release(intent: Intent) {
-        intent.getStringExtra(EXTRA_GENERATION_ID)?.let(activeGenerations::remove)
+        val removed = intent.getStringExtra(EXTRA_GENERATION_ID)?.let { activeGenerations.remove(it) }
+        if (removed != null) {
+            activeGenerationCount.updateAndGet { count -> (count - 1).coerceAtLeast(0) }
+        }
         if (activeGenerations.isEmpty()) {
             releaseWakeLock()
             releaseWifiLock()
@@ -215,6 +227,8 @@ class ChatGenerationForegroundService : Service() {
         val intent = Intent(this, RouteActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("conversationId", conversationId)
+            // data 使每个会话的 PendingIntent 相互独立
+            data = Uri.parse("yuihub://conversation/$conversationId")
         }
         return PendingIntent.getActivity(
             this,

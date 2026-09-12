@@ -8,10 +8,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MultiChoiceSegmentedButtonRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -137,34 +139,44 @@ fun LocalBackupTab(
             item(
                 headlineContent = { Text(stringResource(R.string.backup_page_backup_items)) },
                 supportingContent = {
-                    MultiChoiceSegmentedButtonRow(
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        BackupItem.entries.forEachIndexed { index, item ->
-                            SegmentedButton(
-                                shape = SegmentedButtonDefaults.itemShape(
-                                    index = index,
-                                    count = BackupItem.entries.size
-                                ),
-                                onCheckedChange = { checked ->
-                                    val newItems = if (checked) {
-                                        selectedBackupItems + item
-                                    } else {
-                                        selectedBackupItems - item
-                                    }
-                                    vm.updateLocalBackupItems(newItems)
-                                },
-                                checked = item in selectedBackupItems
-                            ) {
-                                Text(
-                                    when (item) {
-                                        BackupItem.DATABASE -> stringResource(R.string.backup_page_chat_records)
-                                        BackupItem.FILES -> stringResource(R.string.backup_page_files)
-                                        BackupItem.SETTINGS -> stringResource(R.string.backup_page_settings)
-                                    }
-                                )
+                    Column {
+                        MultiChoiceSegmentedButtonRow(
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            BackupItem.entries.forEachIndexed { index, item ->
+                                SegmentedButton(
+                                    shape = SegmentedButtonDefaults.itemShape(
+                                        index = index,
+                                        count = BackupItem.entries.size
+                                    ),
+                                    onCheckedChange = { checked ->
+                                        val newItems = if (checked) {
+                                            selectedBackupItems + item
+                                        } else {
+                                            selectedBackupItems - item
+                                        }
+                                        vm.updateLocalBackupItems(newItems)
+                                    },
+                                    checked = item in selectedBackupItems
+                                ) {
+                                    Text(
+                                        when (item) {
+                                            BackupItem.DATABASE -> stringResource(R.string.backup_page_chat_records)
+                                            BackupItem.FILES -> stringResource(R.string.backup_page_files)
+                                            BackupItem.SETTINGS -> stringResource(R.string.backup_page_settings)
+                                        }
+                                    )
+                                }
                             }
                         }
+                        // 工作区（rootfs 与 /workspace 文件）不在备份范围内，而 WorkspaceEntity 随数据库恢复，
+                        // 不说明会让人误以为恢复后工作区文件还在
+                        Text(
+                            text = stringResource(R.string.backup_page_scope_note),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
                     }
                 },
             )

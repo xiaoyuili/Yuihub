@@ -13,6 +13,15 @@ import me.rerere.document.PptxParser
 import java.io.File
 
 object DocumentAsPromptTransformer : InputMessageTransformer {
+    // 解析缓存：同一文件（路径+mtime+size 不变）在进程内只解析一次
+    // （每个 step 都会重建请求，历史文档不应重复解析）；文件被修改后 key 变化自动失效。
+    private const val CACHE_MAX_ENTRIES = 4
+    private const val CACHE_MAX_CHARS = 800_000
+    private val parseCache = object : LinkedHashMap<String, String>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: Map.Entry<String, String>): Boolean =
+            size > CACHE_MAX_ENTRIES
+    }
+
     override suspend fun transform(
         ctx: TransformerContext,
         messages: List<UIMessage>,
@@ -73,7 +82,9 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
         if (!file.exists() || !file.isFile) {
             return "[ERROR, file not found: ${document.fileName}]"
         }
-        return runCatching {
+        val cacheKey = "${file.absolutePath}:${file.length()}:${file.lastModified()}"
+        synchronized(parseCache) { parseCache[cacheKey] }?.let { return it }
+        val content = runCatching {
             when (document.mime) {
                 "application/pdf" -> parsePdfAsText(file)
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> parseDocxAsText(file)
@@ -82,7 +93,11 @@ object DocumentAsPromptTransformer : InputMessageTransformer {
                 else -> file.readText()
             }
         }.getOrElse {
-            "[ERROR, failed to read file: ${document.fileName}]"
+            return "[ERROR, failed to read file: ${document.fileName}]"
         }
+        if (content.length <= CACHE_MAX_CHARS) {
+            synchronized(parseCache) { parseCache[cacheKey] = content }
+        }
+        return content
     }
 }

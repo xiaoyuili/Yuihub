@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
@@ -180,6 +181,8 @@ class ChatNotificationManager(
 
     private fun cancelLiveUpdateNotification(conversationId: Uuid) {
         liveUpdateLastSentAt.remove(conversationId)
+        // 其它会话仍在生成时，2002 号通知由前台服务持有，不能取消
+        if (ChatGenerationForegroundService.hasActiveGenerations()) return
         // 前台服务持有通知时系统会保留它；启动失败时则清理普通 ongoing 通知。
         context.cancelNotification(ChatGenerationForegroundService.NOTIFICATION_ID)
     }
@@ -188,10 +191,12 @@ class ChatNotificationManager(
         val intent = Intent(context, RouteActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("conversationId", conversationId.toString())
+            // data 使每个会话的 PendingIntent 相互独立，不依赖 hashCode（避免碰撞）
+            data = Uri.parse("yuihub://conversation/$conversationId")
         }
         return PendingIntent.getActivity(
             context,
-            conversationId.hashCode(),
+            0,
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )

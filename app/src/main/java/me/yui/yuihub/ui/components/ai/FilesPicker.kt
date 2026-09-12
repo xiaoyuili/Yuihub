@@ -358,9 +358,13 @@ private fun InjectionQuickConfigSheet(
                 conversation = conversation,
                 onUpdateConversation = onUpdateConversation,
                 modifier = Modifier.weight(1f),
-                onNavigateToPrompts = {
+                onNavigateToModeInjections = {
                     onDismissAll()
-                    navController.navigate(Screen.Prompts)
+                    navController.navigate(Screen.ModeInjections)
+                },
+                onNavigateToLorebooks = {
+                    onDismissAll()
+                    navController.navigate(Screen.Lorebooks)
                 },
                 onNavigateToSkills = {
                     onDismissAll()

@@ -7,6 +7,9 @@ import kotlinx.coroutines.flow.update
 import me.rerere.ai.ui.UIMessage
 import kotlin.uuid.Uuid
 
+// 已完成记录没有消费方，最多保留最近 10 条，避免每次子代理运行的消息常驻内存（运行中的不清理）
+private const val MAX_FINISHED_RUNS = 10
+
 /**
  * 子代理运行状态。消息列表随子代理生成实时更新, 供聊天 UI 展示「过程演示」,
  * 避免长时间运行时用户以为卡住。
@@ -51,9 +54,21 @@ class SubagentManager {
 
     fun finish(childId: Uuid, result: String) {
         _runs.update { map ->
-            map[childId] ?: return@update map
-            map + (childId to map.getValue(childId).copy(finished = true, result = result))
+            val run = map[childId] ?: return@update map
+            pruneFinished(map + (childId to run.copy(finished = true, result = result)))
         }
+    }
+
+    /** 按开始时间保留最近的已完成记录，其余的整条移除 */
+    private fun pruneFinished(runs: Map<Uuid, SubagentRun>): Map<Uuid, SubagentRun> {
+        val finished = runs.values.filter { it.finished }
+        if (finished.size <= MAX_FINISHED_RUNS) return runs
+        val staleIds = finished
+            .sortedByDescending { it.startedAt }
+            .drop(MAX_FINISHED_RUNS)
+            .map { it.childId }
+            .toSet()
+        return runs.filterKeys { it !in staleIds }
     }
 
     /** 运行中的子代理（按开始时间排序）, 用于会话页顶部提示 */

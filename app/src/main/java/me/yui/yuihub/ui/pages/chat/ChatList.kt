@@ -13,10 +13,10 @@ import me.rerere.hugeicons.stroke.Cancel01
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -99,6 +99,7 @@ import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.service.ChatError
 import me.yui.yuihub.data.ai.prompts.compactionCheckpointBody
 import me.yui.yuihub.data.ai.prompts.isCompactionCheckpoint
+import me.yui.yuihub.data.ai.prompts.isMemorySnapshot
 import me.yui.yuihub.ui.components.message.ChatMessage
 import me.yui.yuihub.ui.components.message.CompactionRow
 import me.yui.yuihub.ui.components.ui.ErrorCardsDisplay
@@ -144,7 +145,9 @@ fun ChatList(
         targetState = previewMode,
         label = "ChatListMode",
         transitionSpec = {
-            (fadeIn() + scaleIn(initialScale = 0.8f) togetherWith fadeOut() + scaleOut(targetScale = 0.8f))
+            // 0.96 起步的轻微缩放 + 淡入：不做大幅度缩放（整列表从 0.8 凭空出现观感廉价）
+            (fadeIn(tween(160)) + scaleIn(initialScale = 0.96f, animationSpec = tween(160))) togetherWith
+                fadeOut(tween(120))
         }
     ) { target ->
         if (target) {
@@ -266,7 +269,18 @@ private fun ChatListNormal(
             .flatMap { it.models }
             .associateBy { it.id }
     }
-    val lastMessageIndex = conversation.messageNodes.lastIndex
+    // 记忆快照是模型侧上下文，不在界面展示；活跃压缩边界之前的旧历史同样隐藏
+    // （请求侧由 requestWindowMessages 替换为检查点，检查点作为独立行渲染在列表顶部）
+    val visibleNodes = remember(conversation.messageNodes, conversation.compressionSummaries) {
+        val boundaryIndex = conversation.activeCompression()
+            ?.let { cp -> conversation.messageNodes.indexOfFirst { it.id == cp.boundaryNodeId } }
+            ?.takeIf { it >= 0 }
+        conversation.messageNodes
+            .drop((boundaryIndex ?: -1) + 1)
+            .filter { !it.currentMessage.isMemorySnapshot() }
+    }
+    val lastNodeId = visibleNodes.lastOrNull()?.id
+    val activeCheckpoint = conversation.activeCompression()
 
     Box(
         modifier = Modifier
@@ -310,10 +324,20 @@ private fun ChatListNormal(
                     .hazeSource(state = hazeState)
                     .padding(top = innerPadding.calculateTopPadding()),
             ) {
+            // 活跃压缩检查点：新段起点渲染为「上下文压缩」流程行（harness 式），
+            // 边界前的旧历史已由 visibleNodes 隐藏（旧版本落库的检查点节点仍走下方分支渲染）
+            if (activeCheckpoint != null) {
+                item(key = "compaction_${activeCheckpoint.id}") {
+                    CompactionRow(
+                        title = stringResource(R.string.tool_ui_compress_context_title),
+                        summary = activeCheckpoint.content,
+                    )
+                }
+            }
             itemsIndexed(
-                items = conversation.messageNodes,
-                key = { index, item -> item.id },
-            ) { index, node ->
+                items = visibleNodes,
+                key = { _, item -> item.id },
+            ) { _, node ->
                 if (node.currentMessage.isCompactionCheckpoint()) {
                     // 自动压缩检查点：渲染为可见的「上下文压缩」流程行（harness 式）
                     CompactionRow(
@@ -339,7 +363,7 @@ private fun ChatListNormal(
                             node = node,
                             model = node.currentMessage.modelId?.let(modelById::get),
                             assistant = assistant,
-                            loading = loading && index == lastMessageIndex,
+                            loading = loading && node.id == lastNodeId,
                             onRegenerate = {
                                 onRegenerate(node.currentMessage)
                             },
@@ -355,8 +379,12 @@ private fun ChatListNormal(
                             onShare = {
                                 selecting = true  // 使用 CoroutineScope 延迟状态更新
                                 selectedItems.clear()
-                                selectedItems.addAll(conversation.messageNodes.map { it.id }
-                                    .subList(0, conversation.messageNodes.indexOf(node) + 1))
+                                selectedItems.addAll(
+                                    conversation.messageNodes
+                                        .subList(0, conversation.messageNodes.indexOf(node) + 1)
+                                        .filter { !it.currentMessage.isMemorySnapshot() }
+                                        .map { it.id }
+                                )
                             },
                             onUpdate = {
                                 onUpdateMessage(it)
@@ -367,7 +395,7 @@ private fun ChatListNormal(
                             },
                             onToolApproval = onToolApproval,
                             onToolAnswer = onToolAnswer,
-                            lastMessage = index == lastMessageIndex,
+                            lastMessage = node.id == lastNodeId,
                         )
                     }
                 }
@@ -437,12 +465,8 @@ private fun ChatListNormal(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .offset(y = -(48).dp),
-                enter = slideInVertically(
-                    initialOffsetY = { it * 2 },
-                ),
-                exit = slideOutVertically(
-                    targetOffsetY = { it * 2 },
-                ),
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             ) {
                 HorizontalFloatingToolbar(
                     expanded = true,
@@ -471,7 +495,11 @@ private fun ChatListNormal(
                                 if (selectedItems.isNotEmpty()) {
                                     selectedItems.clear()
                                 } else {
-                                    selectedItems.addAll(conversation.messageNodes.map { it.id })
+                                    selectedItems.addAll(
+                                        conversation.messageNodes
+                                            .filter { !it.currentMessage.isMemorySnapshot() }
+                                            .map { it.id }
+                                    )
                                 }
                             }
                         ) {
@@ -600,12 +628,22 @@ private fun ChatListPreview(
     var searchQuery by remember { mutableStateOf("") }
 
     // 过滤消息，同时保留原始 index 避免后续 O(n) indexOf 查找
-    val filteredMessages = remember(conversation.messageNodes, searchQuery) {
+    // （与主列表同一窗口过滤：快照前旧历史隐藏，保证跳转序号对齐）
+    val filteredMessages = remember(conversation.messageNodes, conversation.compressionSummaries, searchQuery) {
+        val boundaryIndex = conversation.activeCompression()
+            ?.let { cp -> conversation.messageNodes.indexOfFirst { it.id == cp.boundaryNodeId } }
+            ?.takeIf { it >= 0 }
+        // 跳转目标索引与普通列表（已过滤快照）的序号对齐，避免快照导致跳转偏移
+        val visibleNodes = conversation.messageNodes
+            .drop((boundaryIndex ?: -1) + 1)
+            .filter { !it.currentMessage.isMemorySnapshot() }
+            .mapIndexed { index, node -> index to node }
         if (searchQuery.isBlank()) {
-            conversation.messageNodes.mapIndexed { index, node -> index to node }
+            visibleNodes
         } else {
-            conversation.messageNodes.mapIndexed { index, node -> index to node }
-                .filter { (_, node) -> node.currentMessage.toText().contains(searchQuery, ignoreCase = true) }
+            visibleNodes.filter { (_, node) ->
+                node.currentMessage.toText().contains(searchQuery, ignoreCase = true)
+            }
         }
     }
 
@@ -719,11 +757,11 @@ private fun BoxScope.MessageJumper(
         visible = show,
         modifier = Modifier.align(if (onLeft) Alignment.CenterStart else Alignment.CenterEnd),
         enter = slideInHorizontally(
-            initialOffsetX = { if (onLeft) -it * 2 else it * 2 },
-        ),
+            initialOffsetX = { if (onLeft) -it else it },
+        ) + fadeIn(),
         exit = slideOutHorizontally(
-            targetOffsetX = { if (onLeft) -it * 2 else it * 2 },
-        )
+            targetOffsetX = { if (onLeft) -it else it },
+        ) + fadeOut()
     ) {
         Column(
             modifier = Modifier.padding(8.dp),

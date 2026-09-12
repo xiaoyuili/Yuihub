@@ -640,7 +640,7 @@ fun ChatDrawerContent(
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(folders) { folder ->
+                    items(folders, key = { it.id }) { folder ->
                         val isCurrent = folder.id == conversationToMoveFolder?.folderId
                         Surface(
                             onClick = { doMove(folder.id) },
@@ -789,7 +789,7 @@ fun ChatDrawerContent(
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(settings.assistants) { assistant ->
+                    items(settings.assistants, key = { it.id }) { assistant ->
                         AssistantItem(
                             assistant = assistant,
                             isCurrentAssistant = assistant.id == conversationToMove?.assistantId,
@@ -865,7 +865,7 @@ private fun FolderBar(
                 onLongClick = {},
             )
         }
-        items(folders) { folder ->
+        items(folders, key = { it.id }) { folder ->
             var menuExpanded by remember { mutableStateOf(false) }
             Box {
                 FolderChip(

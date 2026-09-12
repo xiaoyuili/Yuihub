@@ -9,7 +9,7 @@ import me.yui.yuihub.data.db.entity.TokenLedgerEntity
 @Dao
 interface TokenLedgerDAO {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertIgnore(row: TokenLedgerEntity): Long
+    suspend fun insertIgnore(rows: List<TokenLedgerEntity>)
 
     @Query(
         "SELECT COALESCE(SUM(prompt_tokens), 0) AS promptTokens, " +

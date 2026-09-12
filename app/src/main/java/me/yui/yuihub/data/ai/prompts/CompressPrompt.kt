@@ -13,6 +13,17 @@ internal const val COMPACTION_CHECKPOINT_PREAMBLE =
 internal const val COMPACTION_SUMMARY_OPEN = "<compressed-summary>"
 internal const val COMPACTION_SUMMARY_CLOSE = "</compressed-summary>"
 
+// 检查点完整文本 = 前导语 + <compressed-summary> 正文；请求期构造，不落库为消息
+fun buildCompactionCheckpointText(summaryContent: String): String = buildString {
+    appendLine(COMPACTION_CHECKPOINT_PREAMBLE)
+    appendLine()
+    append(COMPACTION_SUMMARY_OPEN)
+    appendLine()
+    append(summaryContent)
+    appendLine()
+    append(COMPACTION_SUMMARY_CLOSE)
+}
+
 // 是否为自动压缩产生的检查点消息（UI 据此渲染为压缩流程行而非用户气泡）
 fun UIMessage.isCompactionCheckpoint(): Boolean {
     if (role != MessageRole.USER || parts.size != 1) return false

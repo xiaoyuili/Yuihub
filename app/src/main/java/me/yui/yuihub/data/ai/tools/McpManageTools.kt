@@ -37,15 +37,9 @@ fun createMcpManageTools(
     Tool(
         name = "manage_mcp_server",
         description = """
-            Manage MCP server registrations.
-            Use `action` to control the operation:
-            - `list`: show registered servers with id, name, transport, url and enabled state
-            - `save`: add a server (pass `name` + `url` + `transport`), or update an existing one when `id` is given
-            - `delete`: remove a server (pass `id`, or `name` to match by name)
-            `transport` must be `streamable_http` or `sse`. Optional `headers` is a JSON object of
-            request headers (use it for API keys / Authorization). Optional `enable` defaults to true.
-            Saved servers connect in the background; their tools become available shortly after.
-            Only register servers the user asked for or clearly needs — a server can expose many tools.
+            Manage MCP server registrations (remote transports only).
+            `action`: list | save | delete. save needs `name` + `url` (+ `id` to update; `transport` streamable_http|sse, optional `headers` JSON object for auth, `enable`).
+            Saved servers connect in the background; their tools appear shortly after. Only register servers the user asked for — a server can expose many tools.
         """.trimIndent(),
         parameters = {
             InputSchema.Obj(

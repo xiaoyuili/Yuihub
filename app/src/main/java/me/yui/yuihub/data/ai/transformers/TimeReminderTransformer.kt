@@ -35,22 +35,30 @@ internal fun applyTimeReminder(
     val tz = TimeZone.currentSystemDefault()
 
     var firstUserFound = false
+    // 记录上一条非合成消息的下标：时间间隔应按真实消息计算，
+    // 不能被时间提醒/记忆快照等合成消息稀释
+    var lastNonSyntheticIndex = -1
     for (i in messages.indices) {
         val current = messages[i]
-        if (current.role == MessageRole.USER) {
+        if (current.role == MessageRole.USER && !current.isSynthetic) {
             val currInstant = current.createdAt.toInstant(tz)
             if (!firstUserFound) {
                 firstUserFound = true
                 result.add(buildTimeReminderMessage(null, currInstant))
             } else {
-                val previous = messages[i - 1]
-                val prevInstant = previous.createdAt.toInstant(tz)
-                val gapSeconds = (currInstant - prevInstant).inWholeSeconds
+                val previous = messages.getOrNull(lastNonSyntheticIndex)
+                if (previous != null) {
+                    val prevInstant = previous.createdAt.toInstant(tz)
+                    val gapSeconds = (currInstant - prevInstant).inWholeSeconds
 
-                if (gapSeconds > thresholdSeconds) {
-                    result.add(buildTimeReminderMessage(gapSeconds, currInstant))
+                    if (gapSeconds > thresholdSeconds) {
+                        result.add(buildTimeReminderMessage(gapSeconds, currInstant))
+                    }
                 }
             }
+        }
+        if (!current.isSynthetic) {
+            lastNonSyntheticIndex = i
         }
         result.add(current)
     }

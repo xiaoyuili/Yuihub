@@ -1,7 +1,11 @@
 package me.yui.yuihub.utils
 
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toInstant
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
+import me.yui.yuihub.data.model.Conversation
 
 // 模型上下文长度的默认兜底值（用户未设置时的 256K）
 const val DEFAULT_CONTEXT_LENGTH: Int = 256 * 1024
@@ -39,6 +43,21 @@ fun formatContextLength(tokens: Int?): String = when {
     else -> tokens.toString()
 }
 
+
+// 发送窗口占用估算：真实 usage 优先；但压缩检查点之后还没有新的助手回复时，
+// usage 是压缩前旧值（虚高），回退本地估算。压缩触发判断与占用环 UI 共用。
+fun Conversation.estimateWindowTokens(model: Model?): Int {
+    val window = requestWindowMessages()
+    val lastAssistant = window.lastOrNull { it.role == MessageRole.ASSISTANT }
+    val usageTokens = lastAssistant?.usage?.promptTokens ?: 0
+    val checkpoint = activeCompression()
+    val usageUsable = usageTokens > 0 && lastAssistant != null && (checkpoint == null || run {
+        val tz = TimeZone.currentSystemDefault()
+        val lastAt = (lastAssistant.finishedAt ?: lastAssistant.createdAt).toInstant(tz)
+        lastAt.epochSeconds > checkpoint.createdAt.epochSecond
+    })
+    return if (usageUsable) usageTokens else estimateTokenCount(window)
+}
 
 // 本地估算消息 token 数：CJK 字符按 1.5 字符/token，其余按 4 字符/token（粗略，用于无 usage 时的触发判断）
 fun estimateTokenCount(messages: List<UIMessage>): Int {

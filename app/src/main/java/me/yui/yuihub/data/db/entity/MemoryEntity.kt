@@ -2,9 +2,11 @@ package me.yui.yuihub.data.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity
+// 索引：记忆查询一直按 assistant_id 过滤
+@Entity(indices = [Index("assistant_id")])
 data class MemoryEntity(
     @PrimaryKey(true)
     val id: Int = 0,
@@ -16,12 +18,8 @@ data class MemoryEntity(
     val createdAt: Long = 0L,
     @ColumnInfo("updated_at", defaultValue = "0")
     val updatedAt: Long = 0L,
-    @ColumnInfo("last_accessed_at", defaultValue = "0")
-    val lastAccessedAt: Long = 0L,
-    @ColumnInfo("access_count", defaultValue = "0")
-    val accessCount: Int = 0,
     @ColumnInfo("importance", defaultValue = "0.5")
     val importance: Float = 0.5f,
-    @ColumnInfo("embedding")
-    val embedding: String? = null,
+    @ColumnInfo("category", defaultValue = "other")
+    val category: String = "other",
 )

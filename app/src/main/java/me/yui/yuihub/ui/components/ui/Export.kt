@@ -88,6 +88,36 @@ fun <T> ExportDialog(
                         }
                     }
                 }
+                if (exporter.alternative != null) {
+                    OutlinedCard(
+                        onClick = {
+                            exporter.exportAlternativeToFile()
+                            onDismiss()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                        ) {
+                            Icon(HugeIcons.File01, null)
+                            Column {
+                                Text(
+                                    text = stringResource(R.string.export_st_format),
+                                    style = MaterialTheme.typography.titleSmall
+                                )
+                                Text(
+                                    text = stringResource(R.string.export_st_format_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {

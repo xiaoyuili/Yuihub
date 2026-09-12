@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.yui.yuihub.data.ai.prompts.isMemorySnapshot
 import me.yui.yuihub.data.db.AppDatabase
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.MessageNode
@@ -36,6 +37,8 @@ class MessageFtsManager(private val database: AppDatabase) {
         db.execSQL("DELETE FROM message_fts WHERE conversation_id = ?", arrayOf(conversationId))
         conversation.messageNodes.forEach { node ->
             node.messages.forEach { message ->
+                // 记忆快照是模型侧上下文，不进全文搜索
+                if (message.isMemorySnapshot()) return@forEach
                 val text = message.extractFtsText()
                 if (text.isNotBlank()) {
                     db.execSQL(

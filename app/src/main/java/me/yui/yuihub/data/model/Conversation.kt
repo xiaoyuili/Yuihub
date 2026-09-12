@@ -8,6 +8,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.util.InstantSerializer
+import me.yui.yuihub.data.ai.prompts.buildCompactionCheckpointText
 import me.yui.yuihub.data.datastore.DEFAULT_ASSISTANT_ID
 import java.time.Instant
 import kotlin.uuid.Uuid
@@ -15,6 +16,9 @@ import kotlin.uuid.Uuid
 /**
  * 一次自动压缩后的对话摘要，独立于消息节点存储，
  * 在聊天页顶部渲染为专属摘要卡片。
+ *
+ * 轨迹只追加：压缩不删除/改写任何历史节点，只在请求组装时把边界前的节点
+ * 替换为本检查点（新段起点，旧前缀字节保留在轨迹中可回溯）。
  */
 @Serializable
 data class CompressionSummary(
@@ -22,6 +26,8 @@ data class CompressionSummary(
     val content: String = "",
     // 本次压缩覆盖的消息节点数
     val messageCount: Int = 0,
+    // 压缩边界：被压缩范围内的最后一个节点 id；请求只发送该节点之后的内容
+    val boundaryNodeId: Uuid? = null,
     @Serializable(with = InstantSerializer::class)
     val createdAt: Instant = Instant.now(),
 )
@@ -63,12 +69,45 @@ data class Conversation(
             return messageNodes.map { node -> node.messages[node.selectIndex] }
         }
 
-    fun getMessageNodeByMessage(message: UIMessage): MessageNode? {
-        return messageNodes.firstOrNull { node -> node.messages.contains(message) }
-    }
-
     fun getMessageNodeByMessageId(messageId: Uuid): MessageNode? {
         return messageNodes.firstOrNull { node -> node.messages.any { it.id == messageId } }
+    }
+
+    /**
+     * 当前生效的压缩检查点；边界节点不存在（被 regenerate 截断/分支切换删除）时失效，
+     * 回退全量发送。
+     */
+    fun activeCompression(): CompressionSummary? {
+        val checkpoint = compressionSummaries.lastOrNull() ?: return null
+        val boundaryId = checkpoint.boundaryNodeId ?: return null
+        return if (messageNodes.any { it.id == boundaryId }) checkpoint else null
+    }
+
+    /**
+     * 请求发送窗口（缓存分段：检查点是新段起点，边界前的旧前缀保留在轨迹中但不发送）：
+     * [检查点合成消息] + 边界节点之后的全部消息；无有效检查点时返回全量。
+     */
+    fun requestWindowMessages(): List<UIMessage> {
+        val checkpoint = activeCompression() ?: return currentMessages
+        val boundaryIndex = messageNodes.indexOfFirst { it.id == checkpoint.boundaryNodeId }
+        if (boundaryIndex < 0) return currentMessages
+        val checkpointMessage = UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(UIMessagePart.Text(buildCompactionCheckpointText(checkpoint.content))),
+            isSynthetic = true,
+        )
+        return listOf(checkpointMessage) + messageNodes.drop(boundaryIndex + 1).map { it.messages[it.selectIndex] }
+    }
+
+    /**
+     * 边界之后的节点流（发送窗口对应的存储侧视图）；无有效检查点时为全量。
+     * UI 过滤与压缩输入都以它为准。
+     */
+    fun windowNodes(): List<MessageNode> {
+        val checkpoint = activeCompression() ?: return messageNodes
+        val boundaryIndex = messageNodes.indexOfFirst { it.id == checkpoint.boundaryNodeId }
+        if (boundaryIndex < 0) return messageNodes
+        return messageNodes.drop(boundaryIndex + 1)
     }
 
     fun updateCurrentMessages(messages: List<UIMessage>): Conversation {

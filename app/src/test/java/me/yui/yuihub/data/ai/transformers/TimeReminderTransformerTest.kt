@@ -114,4 +114,27 @@ class TimeReminderTransformerTest {
         val result = applyTimeReminder(emptyList())
         assertEquals(0, result.size)
     }
+
+    @Test
+    fun `synthetic messages should not affect gap calculation`() {
+        val messages = listOf(
+            userMessage("Hello", LocalDateTime(2026, 2, 22, 10, 0, 0)),
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text("snapshot")),
+                createdAt = LocalDateTime(2026, 2, 22, 11, 30, 0),
+                isSynthetic = true,
+            ),
+            userMessage("World", LocalDateTime(2026, 2, 22, 12, 0, 0)),
+        )
+        val result = applyTimeReminder(messages)
+        // [首条提醒, Hello, snapshot, 间隔提醒(2h), World]
+        assertEquals(5, result.size)
+        assertEquals("Hello", getMessageText(result[1]))
+        // 合成消息自身之前不插提醒
+        assertEquals("snapshot", getMessageText(result[2]))
+        // 间隔按真实上一条消息（Hello）计算，而不是被合成消息稀释成 30 分钟
+        assertTrue(getMessageText(result[3]).contains("2 h since last message"))
+        assertEquals("World", getMessageText(result[4]))
+    }
 }

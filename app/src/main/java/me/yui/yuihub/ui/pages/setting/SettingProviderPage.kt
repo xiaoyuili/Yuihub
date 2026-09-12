@@ -1,6 +1,9 @@
 package me.yui.yuihub.ui.pages.setting
 
 import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Camera01
 import me.rerere.hugeicons.stroke.DragDropHorizontal
@@ -49,6 +52,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -225,6 +229,7 @@ private fun ImportProviderButton(
 ) {
     val toaster = LocalToaster.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showImportDialog by remember { mutableStateOf(false) }
 
     val scanQrCodeLauncher = rememberLauncherForActivityResult(ScanQRCode()) { result ->
@@ -235,7 +240,9 @@ private fun ImportProviderButton(
         ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            handleImageQRCode(it, onAdd, toaster, context)
+            scope.launch {
+                handleImageQRCode(it, onAdd, toaster, context)
+            }
         }
     }
 
@@ -389,15 +396,15 @@ private fun handleQRResult(
     }
 }
 
-private fun handleImageQRCode(
+private suspend fun handleImageQRCode(
     uri: Uri,
     onAdd: (ProviderSetting) -> Unit,
     toaster: com.dokar.sonner.ToasterState,
     context: android.content.Context
 ) {
     runCatching {
-        // 使用ImageUtils解析二维码
-        val qrContent = ImageUtils.decodeQRCodeFromUri(context, uri)
+        // 使用ImageUtils解析二维码（整图解码较重，切到IO线程）
+        val qrContent = withContext(Dispatchers.IO) { ImageUtils.decodeQRCodeFromUri(context, uri) }
 
         if (qrContent.isNullOrEmpty()) {
             toaster.show(

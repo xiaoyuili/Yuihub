@@ -63,6 +63,10 @@ internal fun List<UIMessage>.transformThinkTags(
         ?: return@map message
     val match = THINKING_REGEX.find(textPart.text) ?: return@map message
     val hasClosingTag = match.groups[2]?.value == "</think>"
+    // 未闭合的 <think> 会被正则的 ($ 分支) 吐到字符串末尾，整段变成 reasoning、可见正文置空
+    // ——即「思考完不回复」。宁可见不可丢：不闭合时保留原文，不拆思考。
+    // （流式中保留原文可避免每 chunk 重复处理；结束后仍不闭合说明模型未按约定输出，更应直接展示）
+    if (!hasClosingTag) return@map message
     val reasoning = UIMessagePart.Reasoning(
         reasoning = match.groupValues[1].trim(),
         createdAt = message.createdAt.toInstant(timeZone = TimeZone.currentSystemDefault()),

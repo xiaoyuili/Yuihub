@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
@@ -26,6 +27,7 @@ import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.hooks.ChatInputState
 import me.yui.yuihub.utils.ImageUtils
 import me.yui.yuihub.utils.isAllowedFileType
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import java.io.File
 import kotlin.uuid.Uuid
@@ -48,6 +50,7 @@ internal fun rememberChatAttachmentPickerActions(
     val resources = LocalResources.current
     val toaster = LocalToaster.current
     val filesManager: FilesManager = koinInject()
+    val scope = rememberCoroutineScope()
     val cameraPermission = rememberPermissionState(PermissionCamera)
     PermissionManager(permissionState = cameraPermission)
 
@@ -55,8 +58,10 @@ internal fun rememberChatAttachmentPickerActions(
     var cameraOutputFile by remember { mutableStateOf<File?>(null) }
     val (_, launchCameraCrop) = useCropLauncher(
         onCroppedImageReady = { croppedUri ->
-            inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
-            onAttachmentAdded()
+            scope.launch {
+                inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
+                onAttachmentAdded()
+            }
         },
         onCleanup = {
             cameraOutputFile?.delete()
@@ -67,11 +72,16 @@ internal fun rememberChatAttachmentPickerActions(
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { captureSuccessful ->
         if (captureSuccessful && cameraOutputUri != null) {
             if (setting.displaySetting.skipCropImage) {
-                inputState.addImages(filesManager.createChatFilesByContents(listOf(cameraOutputUri!!)))
-                cameraOutputFile?.delete()
-                cameraOutputFile = null
-                cameraOutputUri = null
-                onAttachmentAdded()
+                val pendingUri = cameraOutputUri
+                if (pendingUri != null) {
+                    scope.launch {
+                        inputState.addImages(filesManager.createChatFilesByContents(listOf(pendingUri)))
+                        cameraOutputFile?.delete()
+                        cameraOutputFile = null
+                        cameraOutputUri = null
+                        onAttachmentAdded()
+                    }
+                }
             } else {
                 launchCameraCrop(cameraOutputUri!!)
             }
@@ -96,8 +106,10 @@ internal fun rememberChatAttachmentPickerActions(
     var preCropTempFile by remember { mutableStateOf<File?>(null) }
     val (_, launchImageCrop) = useCropLauncher(
         onCroppedImageReady = { croppedUri ->
-            inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
-            onAttachmentAdded()
+            scope.launch {
+                inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
+                onAttachmentAdded()
+            }
         },
         onCleanup = {
             preCropTempFile?.delete()
@@ -109,8 +121,10 @@ internal fun rememberChatAttachmentPickerActions(
             if (selectedUris.isNotEmpty()) {
                 Log.d("ImagePickButton", "Selected URIs: $selectedUris")
                 if (setting.displaySetting.skipCropImage) {
-                    inputState.addImages(filesManager.createChatFilesByContents(selectedUris))
-                    onAttachmentAdded()
+                    scope.launch {
+                        inputState.addImages(filesManager.createChatFilesByContents(selectedUris))
+                        onAttachmentAdded()
+                    }
                 } else if (selectedUris.size == 1) {
                     val tempFile = File(context.appTempFolder, "pick_temp_${System.currentTimeMillis()}.jpg")
                     runCatching {
@@ -130,8 +144,10 @@ internal fun rememberChatAttachmentPickerActions(
                         launchImageCrop(selectedUris.first())
                     }
                 } else {
-                    inputState.addImages(filesManager.createChatFilesByContents(selectedUris))
-                    onAttachmentAdded()
+                    scope.launch {
+                        inputState.addImages(filesManager.createChatFilesByContents(selectedUris))
+                        onAttachmentAdded()
+                    }
                 }
             } else {
                 Log.d("ImagePickButton", "No images selected")
@@ -141,46 +157,52 @@ internal fun rememberChatAttachmentPickerActions(
     val videoPickerLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
             if (selectedUris.isNotEmpty()) {
-                inputState.addVideos(filesManager.createChatFilesByContents(selectedUris))
-                onAttachmentAdded()
+                scope.launch {
+                    inputState.addVideos(filesManager.createChatFilesByContents(selectedUris))
+                    onAttachmentAdded()
+                }
             }
         }
 
     val audioPickerLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
             if (selectedUris.isNotEmpty()) {
-                inputState.addAudios(filesManager.createChatFilesByContents(selectedUris))
-                onAttachmentAdded()
+                scope.launch {
+                    inputState.addAudios(filesManager.createChatFilesByContents(selectedUris))
+                    onAttachmentAdded()
+                }
             }
         }
 
     val filePickerLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isNotEmpty()) {
-                val documents = uris.mapNotNull { uri ->
-                    val fileName = filesManager.getFileNameFromUri(uri) ?: "file"
-                    val mime = filesManager.getFileMimeType(uri) ?: "text/plain"
-                    if (isAllowedFileType(fileName, mime)) {
-                        val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
-                            ?: run {
-                                toaster.show(
-                                    resources.getString(R.string.chat_input_file_read_failed, fileName),
-                                    type = ToastType.Error
-                                )
-                                return@mapNotNull null
-                            }
-                        UIMessagePart.Document(url = localUri.toString(), fileName = fileName, mime = mime)
-                    } else {
-                        toaster.show(
-                            resources.getString(R.string.chat_input_unsupported_file_type, fileName),
-                            type = ToastType.Error
-                        )
-                        null
+                scope.launch {
+                    val documents = uris.mapNotNull { uri ->
+                        val fileName = filesManager.getFileNameFromUri(uri) ?: "file"
+                        val mime = filesManager.getFileMimeType(uri) ?: "text/plain"
+                        if (isAllowedFileType(fileName, mime)) {
+                            val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
+                                ?: run {
+                                    toaster.show(
+                                        resources.getString(R.string.chat_input_file_read_failed, fileName),
+                                        type = ToastType.Error
+                                    )
+                                    return@mapNotNull null
+                                }
+                            UIMessagePart.Document(url = localUri.toString(), fileName = fileName, mime = mime)
+                        } else {
+                            toaster.show(
+                                resources.getString(R.string.chat_input_unsupported_file_type, fileName),
+                                type = ToastType.Error
+                            )
+                            null
+                        }
                     }
-                }
-                if (documents.isNotEmpty()) {
-                    inputState.addFiles(documents)
-                    onAttachmentAdded()
+                    if (documents.isNotEmpty()) {
+                        inputState.addFiles(documents)
+                        onAttachmentAdded()
+                    }
                 }
             }
         }

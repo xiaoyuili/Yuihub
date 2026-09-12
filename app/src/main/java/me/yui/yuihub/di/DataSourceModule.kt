@@ -28,14 +28,13 @@ import me.yui.yuihub.data.db.migrations.Migration_11_12
 import me.yui.yuihub.data.db.migrations.Migration_13_14
 import me.yui.yuihub.data.db.migrations.Migration_14_15
 import me.yui.yuihub.data.db.migrations.Migration_15_16
+import me.yui.yuihub.data.db.migrations.Migration_32_33
 import me.yui.yuihub.data.ai.mcp.McpManager
 import me.yui.yuihub.data.network.SettingsProxySelector
 import me.yui.yuihub.data.network.SettingsProxyAuthenticator
 import me.yui.yuihub.data.network.SettingsSocks5Authenticator
 import me.yui.yuihub.AppScope
-import me.yui.yuihub.data.ai.evolution.EvolutionConsolidator
-import me.yui.yuihub.data.ai.evolution.EvolutionExtractor
-import me.yui.yuihub.data.ai.memory.EmbeddingService
+import me.yui.yuihub.data.ai.memory.MemoryConsolidator
 import me.yui.yuihub.data.ai.memory.MemoryExtractor
 import me.yui.yuihub.data.sync.LocalBackupService
 import me.rerere.search.SearchService
@@ -55,7 +54,7 @@ val dataSourceModule = module {
         val context: Context = get()
         Room.databaseBuilder(context, AppDatabase::class.java, "rikka_hub")
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-            .addMigrations(Migration_6_7, Migration_11_12, Migration_13_14, Migration_14_15, Migration_15_16)
+            .addMigrations(Migration_6_7, Migration_11_12, Migration_13_14, Migration_14_15, Migration_15_16, Migration_32_33)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
                     val dictDir = SimpleDictManager.extractDict(context)
@@ -151,10 +150,6 @@ val dataSourceModule = module {
 
     single {
         get<AppDatabase>().tokenLedgerDao()
-    }
-
-    single {
-        get<AppDatabase>().evolutionLessonDao()
     }
 
     single {
@@ -259,8 +254,9 @@ val dataSourceModule = module {
     }
 
     single {
-        EmbeddingService(
-            client = get(),
+        MemoryConsolidator(
+            memoryRepository = get(),
+            providerManager = get(),
             json = get(),
         )
     }
@@ -268,25 +264,6 @@ val dataSourceModule = module {
     single {
         MemoryExtractor(
             memoryRepository = get(),
-            conversationRepository = get(),
-            settingsStore = get(),
-            providerManager = get(),
-            json = get(),
-            scope = get<AppScope>(),
-        )
-    }
-
-    single {
-        EvolutionConsolidator(
-            evolutionRepository = get(),
-            providerManager = get(),
-            json = get(),
-        )
-    }
-
-    single {
-        EvolutionExtractor(
-            evolutionRepository = get(),
             conversationRepository = get(),
             settingsStore = get(),
             providerManager = get(),

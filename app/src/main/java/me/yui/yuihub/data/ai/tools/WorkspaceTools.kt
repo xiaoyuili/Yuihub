@@ -215,11 +215,11 @@ private fun createPresentFileTool(
 ) = Tool(
     name = "workspace_present_file",
     description = """
-        Send a file to the user as a visible file card in the chat, so they can open, export or share it.
-        Use this whenever you produce a file the user should receive (APK, HTML, images, documents, archives...).
+        Send a file to the user as a file card in the chat (they can open, export or share it).
+        Use ONLY when the user asks to receive a file or asks for a deliverable to be handed over.
+        Do not send files on your own initiative; if the user only needs to know where a file is, mention its path in your reply instead.
         Paths must be absolute inside Rootfs; use /workspace for the workspace files area.
-        Call it after the file is fully written; include a short note describing the file.
-        Note: the file card is rendered by the app automatically; do not paste the file content in your reply.
+        Call it after the file is fully written; `note` is a short description. Do not paste the file content in your reply.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -260,29 +260,18 @@ private fun createShellTool(
 ) = Tool(
     name = "workspace_shell",
     description = buildString {
-        append("Run a shell command in the assistant's bound workspace Rootfs. The workspace files area is mounted at /workspace. ")
+        append("Run a shell command in the assistant's bound workspace Rootfs; the workspace files area is mounted at /workspace. ")
         append("Use cwd for a path relative to the workspace files root. ")
         if (!defaultCwd.isNullOrBlank()) {
-            append("Defaults to '$defaultCwd'. ")
+            append("The default working directory is stated in the <workspace> prompt. ")
         }
-        append("Output is capped; if truncated, re-run with head/tail/grep to fetch only the part you need. ")
-        append("Long-running installs (apt/npm/pip) need a larger timeout parameter. ")
+        append("Output is capped: if truncated, re-run with head/tail/grep to fetch only the needed part; large installs (apt/npm/pip) need a larger timeout (300-600). ")
         append("Requires Rootfs to be installed and ready.")
         appendLine()
-        append("When starting a web service (Python/Node/etc), bind it to 0.0.0.0 so it is reachable from both ")
-        append("the in-app viewer and the phone browser. The device shares this network stack, so 127.0.0.1 works directly. ")
-        append("Always tell the user the full URL in the form http://127.0.0.1:<port> (with scheme), ")
-        append("e.g. 'python3 -m http.server 5000 --bind 0.0.0.0' → tell user http://127.0.0.1:5000")
+        append("Background services are supported: start detached with 'nohup <cmd> >/workspace/svc.log 2>&1 &', verify with a short sleep + curl, stop with 'pkill -f <pattern>'; never wait on the service command itself. ")
+        append("Bind web services to 0.0.0.0 and tell the user the full URL as http://127.0.0.1:<port>.")
         appendLine()
-        append("Long-running background services ARE supported: start them detached with ")
-        append("'nohup <cmd> >/workspace/svc.log 2>&1 &' (they survive after the command returns). ")
-        append("Then verify with a short sleep + curl. Stop them with 'pkill -f <pattern>'. ")
-        append("Never wait on the service command itself; check it with curl instead.")
-        appendLine()
-        append("Tooling notes: 'ps aux' may print 'Unable to get system boot time' under proot — ")
-        append("its PID column is still valid but prefer 'pgrep -f <pattern>' to check a process. ")
-        append("/proc/net/tcp may be empty; to check a listening port use 'curl -s -m 2 http://127.0.0.1:<port>' instead. ")
-        append("curl may be missing on first use; install it with 'apt-get install -y curl'.")
+        append("Proot notes: prefer 'pgrep -f <pattern>' over ps; check a port with 'curl -s -m 2 http://127.0.0.1:<port>' (/proc/net/tcp may be empty); curl may be missing - install with 'apt-get install -y curl'.")
     },
     parameters = {
         InputSchema.Obj(
@@ -295,11 +284,7 @@ private fun createShellTool(
                     put("type", "string")
                     put(
                         "description",
-                        if (!defaultCwd.isNullOrBlank()) {
-                            "Working directory relative to the workspace files root. Defaults to '$defaultCwd'."
-                        } else {
-                            "Working directory relative to the workspace files root. Defaults to root."
-                        }
+                        "Working directory relative to the workspace files root. Defaults to the workspace's current working directory stated in the <workspace> prompt, or root if none."
                     )
                 })
                 put("timeout", buildJsonObject {

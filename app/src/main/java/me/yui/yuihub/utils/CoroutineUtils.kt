@@ -1,6 +1,7 @@
 package me.yui.yuihub.utils
 
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,10 +20,10 @@ fun <T> Flow<T>.toMutableStateFlow(
                 stateFlow.value = value
             }
         }.onFailure {
+            if (it is CancellationException) throw it
             it.printStackTrace()
             Log.e(TAG, "Error while collecting flow: ${it.message}", it)
-
-            Runtime.getRuntime().halt(1)
+            // 采集失败时保留上一个可用值：绝不能终止进程（数据解码失败不应静默杀进程）
         }
     }
     return stateFlow

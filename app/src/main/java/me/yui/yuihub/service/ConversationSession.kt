@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import me.yui.yuihub.data.model.Conversation
 import java.util.concurrent.atomic.AtomicInteger
@@ -28,6 +29,10 @@ class ConversationSession(
     // 会话状态
     val state = MutableStateFlow(initial)
     val messageQueue = MessageQueue()
+
+    // 会话状态写锁：所有「读当前状态→计算→写回」的变更串行化，
+    // 避免生成流与用户操作（切分支/编辑等）并发时互相覆盖
+    val mutationLock = Mutex()
 
     // 从队列取出到写入会话历史之间，附件仍需作为有效引用保留。
     @Volatile

@@ -1,6 +1,7 @@
 package me.yui.yuihub.data.ai
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +22,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.Provider
@@ -31,6 +33,9 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.StreamChunkHandler
+import me.rerere.ai.util.HttpException
+import me.rerere.ai.util.ProviderRetryPolicy
+import me.rerere.common.android.Logging
 import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.limitContext
 import me.yui.yuihub.R
@@ -45,11 +50,10 @@ import me.yui.yuihub.data.ai.tools.buildMemoryTools
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.model.Assistant
-import me.yui.yuihub.data.model.AssistantMemory
-import me.yui.yuihub.data.model.EvolutionLesson
 import me.yui.yuihub.data.repository.MemoryRepository
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
@@ -78,6 +82,10 @@ class GenerationHandler(
     private val json: Json,
     private val memoryRepo: MemoryRepository,
 ) {
+    private val retryPolicy = ProviderRetryPolicy(
+        maxRetries = MAX_PROVIDER_NETWORK_RETRIES,
+        initialDelayMs = INITIAL_PROVIDER_RETRY_DELAY_MS,
+    )
     fun generateText(
         settings: Settings,
         model: Model,
@@ -85,8 +93,6 @@ class GenerationHandler(
         inputTransformers: List<InputMessageTransformer> = emptyList(),
         outputTransformers: List<OutputMessageTransformer> = emptyList(),
         assistant: Assistant,
-        memories: List<AssistantMemory>? = null,
-        evolutionLessons: List<EvolutionLesson> = emptyList(),
         tools: List<Tool> = emptyList(),
         maxSteps: Int = 256,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
@@ -106,19 +112,21 @@ class GenerationHandler(
 
             val toolsInternal = buildList {
                 Log.i(TAG, "generateInternal: build tools($assistant)")
-                if (assistant?.enableMemory == true) {
-                    val memoryAssistantId = if (assistant.useGlobalMemory) {
-                        MemoryRepository.GLOBAL_MEMORY_ID
-                    } else {
-                        assistant.id.toString()
-                    }
+                if (assistant.enableMemory) {
+                    val memoryAssistantId = assistant.id.toString()
                     buildMemoryTools(
                         json = json,
-                        onCreation = { content ->
-                            memoryRepo.addMemory(memoryAssistantId, content)
+                        onCreation = { content, category, importance ->
+                            memoryRepo.addMemory(
+                                memoryAssistantId,
+                                content,
+                                importance = importance ?: 0.6f,
+                                category = category,
+                            )
                         },
-                        onUpdate = { id, content ->
-                            memoryRepo.updateContent(id, content)
+                        onUpdate = { id, content, category, importance ->
+                            memoryRepo.updateMemory(id, content, importance = importance, category = category)
+                                ?: throw IllegalStateException("Memory record #$id no longer exists")
                         },
                         onDelete = { id ->
                             memoryRepo.deleteMemory(id)
@@ -166,8 +174,6 @@ class GenerationHandler(
                     providerImpl = providerImpl,
                     provider = provider,
                     tools = toolsInternal,
-                    memories = memories ?: emptyList(),
-                    evolutionLessons = evolutionLessons,
                     stream = assistant.streamOutput,
                     processingStatus = processingStatus,
                     conversationSystemPrompt = conversationSystemPrompt,
@@ -314,13 +320,14 @@ class GenerationHandler(
                                 error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
                             }
                             Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
+                            val toolStartMs = SystemClock.elapsedRealtime()
                             val result = withToolProgress(processingStatus, toolDef.name) {
                                 toolDef.execute(args)
                             }
-                            val hasShellAccess = toolsInternal.any { it.name == "workspace_shell" }
+                            Log.i(TAG, "generateText: tool ${toolDef.name} took ${SystemClock.elapsedRealtime() - toolStartMs}ms")
                             pushExecuted(
                                 tool.copy(
-                                    output = maybeTruncateToolOutput(tool.toolCallId, result, hasShellAccess)
+                                    output = maybeTruncateToolOutput(tool.toolCallId, result)
                                 )
                             )
                         }.onFailure {
@@ -337,7 +344,8 @@ class GenerationHandler(
                                                         "error",
                                                         JsonPrimitive(buildString {
                                                             append("[${it.javaClass.name}] ${it.message}")
-                                                            append("\n${it.stackTraceToString()}")
+                                                            // 堆栈全量进历史会白占上下文：截到 2K 保留关键帧
+                                                            append("\n${it.stackTraceToString().take(2048)}")
                                                         })
                                                     )
                                                 }
@@ -382,8 +390,6 @@ class GenerationHandler(
         providerImpl: Provider<ProviderSetting>,
         provider: ProviderSetting,
         tools: List<Tool>,
-        memories: List<AssistantMemory>,
-        evolutionLessons: List<EvolutionLesson> = emptyList(),
         stream: Boolean,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         conversationSystemPrompt: String? = null,
@@ -392,6 +398,8 @@ class GenerationHandler(
         conversationLorebookIds: Set<Uuid> = emptySet(),
         workspaceCwd: String? = null,
     ) {
+        // 分段计时（构建/首字/流续/工具），用于定位『一顿顿』的开销分布
+        val buildStartMs = SystemClock.elapsedRealtime()
         val internalMessages = buildList {
             val system = buildString {
                 val effectiveSystemPrompt =
@@ -428,8 +436,7 @@ class GenerationHandler(
             conversationLorebookIds = conversationLorebookIds,
             processingStatus = processingStatus,
             workspaceCwd = workspaceCwd,
-        ).prependMemories(memories.takeIf { assistant.enableMemory })
-            .prependEvolutionLessons(evolutionLessons.takeIf { assistant.enableEvolution })
+        )
 
         var messages: List<UIMessage> = messages
         val params = TextGenerationParams(
@@ -449,6 +456,10 @@ class GenerationHandler(
             },
             sessionId = conversationId?.toString(),
         )
+        val buildMs = SystemClock.elapsedRealtime() - buildStartMs
+        // 前缀指纹：对最终发送的 system 文本与工具 schema 做 SHA-256（DSH 字节级前缀稳定的观测手段）；
+        // 同一会话连续轮次不变 → 供应商端前缀缓存命中；变化 → 前缀断裂，可在日志中直接定位
+        val prefixFp = prefixFingerprint(internalMessages, tools)
         try {
             if (stream) {
                 // 每次重试都从本次模型调用开始前的消息快照重新合并，避免将重试响应
@@ -469,6 +480,8 @@ class GenerationHandler(
                 while (true) {
                     val streamChunkHandler = StreamChunkHandler(model)
                     var attemptMessages = responseBaseMessages
+                    val attemptStartMs = SystemClock.elapsedRealtime()
+                    var firstChunkMs = -1L
                     try {
                         providerImpl.streamText(
                             providerSetting = provider,
@@ -476,6 +489,9 @@ class GenerationHandler(
                             params = params
                         ).collect { chunk ->
                             try {
+                                if (firstChunkMs < 0) {
+                                    firstChunkMs = SystemClock.elapsedRealtime() - attemptStartMs
+                                }
                                 if (retryCount > 0) {
                                     processingStatus.value = null
                                 }
@@ -489,6 +505,28 @@ class GenerationHandler(
                             }
                         }
                         messages = attemptMessages
+                        // 速度统计口径（vc220）：
+                        // 分子 = 本次请求的输出 tokens（usage 在同一条消息上被后续请求覆盖，
+                        //   工具循环必须逐次累加才完整）；
+                        // 分母 = 首字之后的纯生成时长，不含排队/连接/prefill ——
+                        //   这些是「等待模型开始输出」的时间，不该算进输出速度。
+                        val attemptDurationMs = SystemClock.elapsedRealtime() - attemptStartMs
+                        val pureGenerationMs = (attemptDurationMs - firstChunkMs).coerceAtLeast(0L)
+                        val attemptTokens = streamChunkHandler.attemptUsage?.completionTokens ?: 0
+                        val lastMessage = messages.lastOrNull()
+                        if (lastMessage?.role == MessageRole.ASSISTANT) {
+                            messages = messages.dropLast(1) + lastMessage.copy(
+                                generationDurationMs = (lastMessage.generationDurationMs ?: 0L) + pureGenerationMs,
+                                generationOutputTokens = (lastMessage.generationOutputTokens ?: 0) + attemptTokens,
+                            )
+                            onUpdateMessages(messages)
+                        }
+                        val perfLine = "generateInternal: build=${buildMs}ms prefix=$prefixFp ttft=${firstChunkMs}ms " +
+                            "gen=${pureGenerationMs}ms total=${attemptDurationMs}ms out=$attemptTokens retries=$retryCount"
+                        Log.i(TAG, perfLine)
+                        Log.i(TAG, "generateInternal: msgs=${messageFingerprints(internalMessages)}")
+                        // 双写应用内日志缓冲：手机上无需 adb 即可对比连续两轮的 prefix/msgs 定位缓存断裂点
+                        Logging.log(TAG, "$perfLine msgs=${messageFingerprints(internalMessages)}")
                         break
                     } catch (error: Throwable) {
                         if (error is StreamChunkHandlingException) {
@@ -503,6 +541,7 @@ class GenerationHandler(
                     }
                 }
             } else {
+                val attemptStartMs = SystemClock.elapsedRealtime()
                 val result = executeProviderRequestWithRetry(
                     processingStatus = processingStatus,
                     enabled = settings.networkSetting.enableAutoRetry,
@@ -513,7 +552,17 @@ class GenerationHandler(
                         params = params,
                     )
                 }
+                val attemptDurationMs = SystemClock.elapsedRealtime() - attemptStartMs
                 messages = messages.handleTextGenerationResult(result = result, model = model)
+                val lastMessage = messages.lastOrNull()
+                if (lastMessage?.role == MessageRole.ASSISTANT) {
+                    // 非流式无法拆分 TTFT，分母用总时长（速度偏低是口径限制，不做假修正）
+                    messages = messages.dropLast(1) + lastMessage.copy(
+                        generationDurationMs = (lastMessage.generationDurationMs ?: 0L) + attemptDurationMs,
+                        generationOutputTokens = (lastMessage.generationOutputTokens ?: 0) +
+                            (result.usage?.completionTokens ?: 0),
+                    )
+                }
                 onUpdateMessages(messages)
             }
         } finally {
@@ -550,12 +599,13 @@ class GenerationHandler(
         // 用户主动停止生成时，底层连接也可能以 IOException("canceled") 收尾；
         // 先检查协程状态，确保取消不会被当作网络波动重新拉起。
         currentCoroutineContext().ensureActive()
-        if (!enabled || error !is IOException || retryCount >= MAX_PROVIDER_NETWORK_RETRIES) {
-            throw error
+        if (!enabled) throw error
+        // 重试决策（错误分类/退避/抖动/Retry-After）收敛在 ProviderRetryPolicy 中间件，
+        // 生成循环只负责执行与展示
+        val (retryDelay, nextRetryCount, reason) = when (val decision = retryPolicy.decide(error, retryCount)) {
+            is ProviderRetryPolicy.Decision.Retry -> Triple(decision.delayMs, decision.attempt, decision.reason)
+            ProviderRetryPolicy.Decision.Fail -> throw error
         }
-
-        val nextRetryCount = retryCount + 1
-        val retryDelay = INITIAL_PROVIDER_RETRY_DELAY_MS shl retryCount
         processingStatus.value = context.getString(
             R.string.chat_generation_network_retrying,
             getNetworkErrorMessage(error),
@@ -564,7 +614,7 @@ class GenerationHandler(
         )
         Log.w(
             TAG,
-            "Provider connection failed, retrying in ${retryDelay}ms " +
+            "Provider request failed ($reason), retrying in ${retryDelay}ms " +
                     "($nextRetryCount/$MAX_PROVIDER_NETWORK_RETRIES)",
             error,
         )
@@ -572,7 +622,11 @@ class GenerationHandler(
         return nextRetryCount
     }
 
-    private fun getNetworkErrorMessage(error: IOException): String {
+    private fun getNetworkErrorMessage(error: Throwable): String {
+        if (error is HttpException) {
+            // 限流/服务端错误展示供应商返回的摘要，比分类文案更有诊断价值
+            return error.message?.take(160) ?: "HTTP ${error.code ?: "?"}"
+        }
         val messageRes = when (error) {
             is UnknownHostException -> R.string.chat_generation_network_unknown_host
             is SocketTimeoutException -> R.string.chat_generation_network_timeout
@@ -581,6 +635,51 @@ class GenerationHandler(
         }
         return context.getString(messageRes)
     }
+
+    /**
+     * 请求前缀指纹：对最终发送的 system 文本与工具定义（名称+描述+schema）做 SHA-256。
+     * DSH 字节级前缀稳定的观测手段：同一会话连续轮次该值不变 → 前缀缓存命中；
+     * 变化 → 从 token 0 断裂，结合日志能直接定位是哪次改动破坏了缓存。
+     */
+    private fun prefixFingerprint(messages: List<UIMessage>, tools: List<Tool>): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        messages.firstOrNull { it.role == MessageRole.SYSTEM }?.let { system ->
+            system.parts.forEach { part ->
+                if (part is UIMessagePart.Text) digest.update(part.text.toByteArray())
+            }
+        }
+        tools.forEach { tool ->
+            digest.update(tool.name.toByteArray())
+            digest.update(tool.description.toByteArray())
+            tool.parameters()?.let { schema ->
+                digest.update(json.encodeToString(InputSchema.serializer(), schema).toByteArray())
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }.take(8)
+    }
+
+    /**
+     * 逐消息指纹：每条消息 role+文本 的 SHA-256 前 4 位。
+     * 对比连续两轮的序列，从右往左第一个不同处即缓存断裂点（用于定位 48% 类命中率问题）。
+     */
+    private fun messageFingerprints(messages: List<UIMessage>): String =
+        messages.joinToString(",", "[", "]") { message ->
+            val digest = MessageDigest.getInstance("SHA-256")
+            digest.update(message.role.name.toByteArray())
+            message.parts.forEach { part ->
+                when (part) {
+                    is UIMessagePart.Text -> digest.update(part.text.toByteArray())
+                    is UIMessagePart.Reasoning -> digest.update(part.reasoning.toByteArray())
+                    is UIMessagePart.Tool -> {
+                        digest.update(part.toolName.toByteArray())
+                        digest.update(part.input.toByteArray())
+                        digest.update(part.output.hashCode().toString().toByteArray())
+                    }
+                    else -> digest.update(part.hashCode().toString().toByteArray())
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }.take(4)
+        }
 
     /**
      * 工具执行期间展示进度状态: 「执行 <工具名>…」并每秒刷新已用时,
@@ -628,13 +727,14 @@ class GenerationHandler(
     private fun maybeTruncateToolOutput(
         toolCallId: String,
         output: List<UIMessagePart>,
-        hasShellAccess: Boolean,
     ): List<UIMessagePart> {
         val textParts = output.filterIsInstance<UIMessagePart.Text>()
         val nonTextParts = output.filter { it !is UIMessagePart.Text }
         val totalChars = textParts.sumOf { it.text.length }
 
-        if (totalChars <= MAX_TOOL_OUTPUT_CHARS || !hasShellAccess) return output
+        // 截断始终生效：超大输出原样进历史会撑爆窗口并抖动缓存；
+        // 与是否绑定 workspace 无关（MCP/搜索工具同样受限）
+        if (totalChars <= MAX_TOOL_OUTPUT_CHARS) return output
 
         Log.i(TAG, "maybeTruncateToolOutput: truncating tool $toolCallId output ($totalChars chars)")
 
@@ -650,8 +750,8 @@ class GenerationHandler(
                 buildString {
                     appendLine("[Tool output truncated: $totalChars characters total]")
                     appendLine("Full output saved to: /tool_outputs/$fileName")
-                    appendLine("Use shell to read: `cat /tool_outputs/$fileName`")
-                    appendLine("Use shell to search: `grep \"pattern\" /tool_outputs/$fileName`")
+                    append("If you have shell access, read it in chunks: `cat /tool_outputs/$fileName` or `grep \"pattern\" /tool_outputs/$fileName`.")
+                    appendLine()
                     appendLine()
                     append(preview)
                 }
@@ -659,46 +759,4 @@ class GenerationHandler(
         ) + nonTextParts
     }
 
-}
-
-// 记忆按相关性每轮检索、内容会变化，因此不放进 system（会重写整个缓存前缀），
-// 而是前置拼到最后一条 user 消息：动态内容留在会话尾部，system+历史保持稳定的缓存前缀。
-private fun List<UIMessage>.prependMemories(memories: List<AssistantMemory>?): List<UIMessage> {
-    if (memories.isNullOrEmpty()) return this
-    val block = buildMemoryPrompt(memories)
-    val index = indexOfLast { it.role == MessageRole.USER }
-    if (index < 0) return this
-    return toMutableList().also { list ->
-        val target = list[index]
-        val textIndex = target.parts.indexOfFirst { it is UIMessagePart.Text }
-        val parts = if (textIndex >= 0) {
-            target.parts.toMutableList().also { parts ->
-                val text = parts[textIndex] as UIMessagePart.Text
-                parts[textIndex] = text.copy(text = block + "\n\n" + text.text)
-            }
-        } else {
-            listOf(UIMessagePart.Text(block)) + target.parts
-        }
-        list[index] = target.copy(parts = parts)
-    }
-}
-
-private fun List<UIMessage>.prependEvolutionLessons(lessons: List<EvolutionLesson>?): List<UIMessage> {
-    if (lessons.isNullOrEmpty()) return this
-    val block = buildEvolutionPrompt(lessons)
-    val index = indexOfLast { it.role == MessageRole.USER }
-    if (index < 0) return this
-    return toMutableList().also { list ->
-        val target = list[index]
-        val textIndex = target.parts.indexOfFirst { it is UIMessagePart.Text }
-        val parts = if (textIndex >= 0) {
-            target.parts.toMutableList().also { parts ->
-                val text = parts[textIndex] as UIMessagePart.Text
-                parts[textIndex] = text.copy(text = block + "\n\n" + text.text)
-            }
-        } else {
-            listOf(UIMessagePart.Text(block)) + target.parts
-        }
-        list[index] = target.copy(parts = parts)
-    }
 }

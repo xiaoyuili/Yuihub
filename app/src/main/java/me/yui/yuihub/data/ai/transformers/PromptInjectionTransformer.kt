@@ -7,8 +7,7 @@ import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.InjectionPosition
 import me.yui.yuihub.data.model.PromptInjection
 import me.yui.yuihub.data.model.Lorebook
-import me.yui.yuihub.data.model.extractContextForMatching
-import me.yui.yuihub.data.model.isTriggered
+import me.yui.yuihub.data.ai.lorebook.LorebookEngine
 import kotlin.uuid.Uuid
 
 /**
@@ -34,6 +33,19 @@ object PromptInjectionTransformer : InputMessageTransformer {
 
 /**
  * 核心注入逻辑（可测试的纯函数）
+ *
+ * ## 缓存稳定性设计（分段追加模型）
+ *
+ * 请求前缀缓存命中的前提是「同一激活集合拼出完全相同的字节」。为此：
+ * 1. **只追加，不重写**：任何注入都不会修改既有消息的字节。模式注入作为独立消息
+ *    插在 system 之后（新开一段：system 段缓存保留，模式段重建）；世界书触发条目
+ *    统一作为当前轮次尾部补充段（变化只影响尾部，system+早期历史前缀始终命中）。
+ * 2. **匹配上下文跨步稳定**：排除合成消息、记忆快照，以及**仍在生成中的助手消息**
+ *    （finishedAt == null）——否则工具循环里助手回复边流边扫，条目集合会在同一轮内反复变化。
+ * 3. **确定性随机**：种子由「助手 id + 用户消息数」派生，同一轮内所有 step 得到同一结果，
+ *    仅在新用户消息时重新掷；不会每步重掷导致前缀每步失效。
+ * 4. **稳定排序**：激活结果按书籍内条目顺序排序，相同集合永远渲染相同内容。
+ * 5. 未命中任何条目时直接原样返回，零改动。
  */
 internal fun transformMessages(
     messages: List<UIMessage>,
@@ -57,13 +69,21 @@ internal fun transformMessages(
         return messages
     }
 
-    // 按位置和优先级分组
-    val byPosition = injections
-        .sortedByDescending { it.priority }
-        .groupBy { it.position }
+    // 拆分流：模式注入按声明位置；世界书条目一律归入尾部补充段（不重排历史）
+    val (modeOnly, lorebookOnly) = injections.partition { it is PromptInjection.ModeInjection }
 
-    // 应用注入
-    return applyInjections(messages, byPosition)
+    var result = messages
+    if (modeOnly.isNotEmpty()) {
+        val byPosition = modeOnly
+            .sortedByDescending { it.priority }
+            .groupBy { it.position }
+        result = applyModeInjections(result, byPosition)
+    }
+    if (lorebookOnly.isNotEmpty()) {
+        val byPriority = lorebookOnly.sortedByDescending { it.priority }
+        result = applyLorebookTailSegment(result, byPriority)
+    }
+    return result
 }
 
 /**
@@ -99,16 +119,27 @@ internal fun collectInjections(
         it.enabled && effectiveLorebookIds.contains(it.id)
     }
     if (enabledLorebooks.isNotEmpty()) {
-        // 提取上下文用于匹配（只取非 SYSTEM 消息）
-        val nonSystemMessages = messages.filter { it.role != MessageRole.SYSTEM }
+        // 匹配上下文：排除 SYSTEM / 合成消息（记忆快照、时间提醒、注入自身），
+        // 并排除仍在生成中的助手消息（finishedAt == null）——
+        // 否则多步工具循环里助手回复边流边扫，条目集合会在同一轮内反复变化，破坏缓存。
+        val matchableMessages = messages.filter { message ->
+            message.role != MessageRole.SYSTEM &&
+                !message.isSynthetic &&
+                !(message.role == MessageRole.ASSISTANT && message.finishedAt == null)
+        }
+        // 确定性种子：同一轮内跨 step 稳定，仅在新用户消息时变化
+        val userTurns = messages.count { it.role == MessageRole.USER }
+        val seed = assistant.id.hashCode().toLong() * 1_000_003L + userTurns
 
         enabledLorebooks.forEach { lorebook ->
-            lorebook.entries
-                .filter { entry ->
-                    val context = extractContextForMatching(nonSystemMessages, entry.scanDepth)
-                    entry.isTriggered(context)
-                }
-                .forEach { injections.add(it) }
+            injections.addAll(
+                LorebookEngine.resolveEntries(
+                    lorebook = lorebook,
+                    messages = matchableMessages,
+                    assistantPrompt = assistant.systemPrompt,
+                    seed = seed,
+                )
+            )
         }
     }
 
@@ -116,83 +147,37 @@ internal fun collectInjections(
 }
 
 /**
- * 应用注入到消息列表
+ * 应用模式注入（分段追加模型）
+ *
+ * - BEFORE/AFTER_SYSTEM_PROMPT、TOP_OF_CHAT → 作为独立消息插入在 system 之后（新开一段，
+ *   不重写 system 字节）：模式切换时 system 段缓存保留，仅模式段及其后重建。
+ * - BOTTOM_OF_CHAT → 尾部补充段（最后一条消息之前）。
+ * - AT_DEPTH → 保持原语义（从最新消息往前数），位置随轮次后移，尾部断裂已知。
  */
-internal fun applyInjections(
+internal fun applyModeInjections(
     messages: List<UIMessage>,
     byPosition: Map<InjectionPosition, List<PromptInjection>>
 ): List<UIMessage> {
     val result = messages.toMutableList()
 
-    // 找到系统消息的索引（通常是第一条）
-    val systemIndex = result.indexOfFirst { it.role == MessageRole.SYSTEM }
-
-    // 处理 BEFORE_SYSTEM_PROMPT 和 AFTER_SYSTEM_PROMPT
-    if (systemIndex >= 0) {
-        val beforeContent = byPosition[InjectionPosition.BEFORE_SYSTEM_PROMPT]
-            ?.joinToString("\n") { it.content } ?: ""
-        val afterContent = byPosition[InjectionPosition.AFTER_SYSTEM_PROMPT]
-            ?.joinToString("\n") { it.content } ?: ""
-
-        if (beforeContent.isNotEmpty() || afterContent.isNotEmpty()) {
-            val systemMessage = result[systemIndex]
-            val originalText = systemMessage.parts
-                .filterIsInstance<UIMessagePart.Text>()
-                .joinToString("") { it.text }
-
-            val newText = buildString {
-                if (beforeContent.isNotEmpty()) {
-                    append(beforeContent)
-                    appendLine()
-                }
-                append(originalText)
-                if (afterContent.isNotEmpty()) {
-                    appendLine()
-                    append(afterContent)
-                }
-            }
-
-            result[systemIndex] = systemMessage.copy(
-                parts = listOf(UIMessagePart.Text(newText)),
-                isSynthetic = true,
-            )
-        }
-    } else {
-        // 没有系统消息时，创建一个新的系统消息
-        val beforeContent = byPosition[InjectionPosition.BEFORE_SYSTEM_PROMPT]
-            ?.joinToString("\n") { it.content } ?: ""
-        val afterContent = byPosition[InjectionPosition.AFTER_SYSTEM_PROMPT]
-            ?.joinToString("\n") { it.content } ?: ""
-
-        val combinedContent = buildString {
-            if (beforeContent.isNotEmpty()) {
-                append(beforeContent)
-            }
-            if (afterContent.isNotEmpty()) {
-                if (isNotEmpty()) appendLine()
-                append(afterContent)
-            }
-        }
-
-        if (combinedContent.isNotEmpty()) {
-            result.add(0, UIMessage.system(combinedContent).copy(isSynthetic = true))
-        }
-    }
-
-    // 处理 TOP_OF_CHAT：在第一条用户消息之前插入
-    val topInjections = byPosition[InjectionPosition.TOP_OF_CHAT]
-    if (!topInjections.isNullOrEmpty()) {
-        // 重新计算索引（因为可能插入了系统消息）
-        var insertIndex = result.indexOfFirst { it.role == MessageRole.USER }
-            .takeIf { it >= 0 } ?: result.size
+    // 头部段：BEFORE/AFTER/TOP 合并为 system 后的独立段，按 position 语义排序
+    val headInjections = listOf(
+        InjectionPosition.BEFORE_SYSTEM_PROMPT,
+        InjectionPosition.AFTER_SYSTEM_PROMPT,
+        InjectionPosition.TOP_OF_CHAT,
+    ).flatMap { byPosition[it].orEmpty() }
+    if (headInjections.isNotEmpty()) {
+        // 找到系统消息的索引（通常是第一条）；不存在时插在最前
+        val systemIndex = result.indexOfFirst { it.role == MessageRole.SYSTEM }
+        var insertIndex = if (systemIndex >= 0) systemIndex + 1 else 0
         insertIndex = findSafeInsertIndex(result, insertIndex)
-        createMergedInjectionMessages(topInjections).forEach { message ->
+        createMergedInjectionMessages(headInjections).forEach { message ->
             result.add(insertIndex, message)
             insertIndex++
         }
     }
 
-    // 处理 BOTTOM_OF_CHAT：在最后一条消息之前插入
+    // 尾部：BOTTOM_OF_CHAT 在最后一条消息之前插入
     val bottomInjections = byPosition[InjectionPosition.BOTTOM_OF_CHAT]
     if (!bottomInjections.isNullOrEmpty()) {
         var insertIndex = (result.size - 1).coerceAtLeast(0)
@@ -203,7 +188,7 @@ internal fun applyInjections(
         }
     }
 
-    // 处理 AT_DEPTH：在指定深度位置插入（从最新消息往前数）
+    // AT_DEPTH：在指定深度位置插入（从最新消息往前数）
     // 按 injectDepth 分组，相同深度的合并，按深度从大到小处理（避免索引变化问题）
     val atDepthInjections = byPosition[InjectionPosition.AT_DEPTH]
     if (!atDepthInjections.isNullOrEmpty()) {
@@ -221,6 +206,27 @@ internal fun applyInjections(
         }
     }
 
+    return result
+}
+
+/**
+ * 世界书触发条目 → 当前轮次尾部补充段（分段追加模型）
+ *
+ * 不再按 position 重排历史（旧实现 BEFORE/AFTER_SYSTEM 会重写 system 消息、TOP_OF_CHAT
+ * 插入点随截断漂移）：所有激活条目统一追加在最新用户消息之前，变化只影响尾部，
+ * system+早期历史的前缀字节始终命中。position 字段保留用于导入导出兼容，运行时不区分。
+ */
+internal fun applyLorebookTailSegment(
+    messages: List<UIMessage>,
+    entries: List<PromptInjection>,
+): List<UIMessage> {
+    val result = messages.toMutableList()
+    var insertIndex = (result.size - 1).coerceAtLeast(0)
+    insertIndex = findSafeInsertIndex(result, insertIndex)
+    createMergedInjectionMessages(entries).forEach { message ->
+        result.add(insertIndex, message)
+        insertIndex++
+    }
     return result
 }
 

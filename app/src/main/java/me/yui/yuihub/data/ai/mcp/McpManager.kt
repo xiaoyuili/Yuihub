@@ -113,6 +113,9 @@ class McpManager(
                     .filter { tool -> tool.enable }
                     .map { tool -> Triple(server.id, server.commonOptions.name, tool) }
             }
+            // 工具块字节序影响前缀缓存：server 端返回顺序抖动（同步刷新时回写存储）不应打乱列表，
+            // 按 server 配置序分组后按工具名稳定排序
+            .sortedWith(compareBy({ it.first }, { it.third.name }))
     }
 
     suspend fun callTool(serverId: Uuid, toolName: String, args: JsonObject): List<UIMessagePart> {

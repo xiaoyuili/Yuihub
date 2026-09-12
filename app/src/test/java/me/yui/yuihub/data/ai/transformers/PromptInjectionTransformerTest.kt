@@ -94,6 +94,11 @@ class PromptInjectionTransformerTest {
             .joinToString("") { it.text }
     }
 
+    // 注入为「分段追加」：模式段在 system 后、世界书段在尾部，不再拼进 system 文本；
+    // 内容存在性断言统一在整条消息列表文本上进行
+    private fun allMessagesText(messages: List<UIMessage>): String =
+        messages.joinToString("\n") { getMessageText(it) }
+
     private fun createAssistantWithUnexecutedTool(toolCallId: String, toolName: String): UIMessage {
         return UIMessage(
             role = MessageRole.ASSISTANT,
@@ -213,7 +218,7 @@ class PromptInjectionTransformerTest {
         )
 
         assertEquals(messages, disabledResult)
-        assertTrue(getMessageText(enabledResult.first()).contains("Conversation content"))
+        assertTrue(allMessagesText(enabledResult).contains("Conversation content"))
     }
 
     @Test
@@ -243,10 +248,10 @@ class PromptInjectionTransformerTest {
             lorebooks = emptyList(),
             conversationModeInjectionIds = setOf(conversationInjectionId)
         )
-        val systemText = getMessageText(result.first())
+        val allText = allMessagesText(result)
 
-        assertFalse(systemText.contains("Assistant content"))
-        assertTrue(systemText.contains("Conversation content"))
+        assertFalse(allText.contains("Assistant content"))
+        assertTrue(allText.contains("Conversation content"))
     }
 
     @Test
@@ -281,7 +286,7 @@ class PromptInjectionTransformerTest {
         )
 
         assertEquals(messages, disabledResult)
-        assertTrue(getMessageText(enabledResult.first()).contains("Conversation lorebook content"))
+        assertTrue(allMessagesText(enabledResult).contains("Conversation lorebook content"))
     }
 
     @Test
@@ -321,16 +326,16 @@ class PromptInjectionTransformerTest {
             lorebooks = listOf(assistantLorebook, conversationLorebook),
             conversationLorebookIds = setOf(conversationLorebookId)
         )
-        val systemText = getMessageText(result.first())
+        val allText = allMessagesText(result)
 
-        assertFalse(systemText.contains("Assistant lorebook content"))
-        assertTrue(systemText.contains("Conversation lorebook content"))
+        assertFalse(allText.contains("Assistant lorebook content"))
+        assertTrue(allText.contains("Conversation lorebook content"))
     }
     // endregion
 
     // region AFTER_SYSTEM_PROMPT tests
     @Test
-    fun `mode injection with AFTER_SYSTEM_PROMPT should append to system message`() {
+    fun `mode injection with AFTER_SYSTEM_PROMPT should insert independent segment after system`() {
         val injectionId = Uuid.random()
         val injection = createModeInjection(
             id = injectionId,
@@ -350,17 +355,19 @@ class PromptInjectionTransformerTest {
             lorebooks = emptyList()
         )
 
-        assertEquals(2, result.size)
-        assertTrue(result[0].isSynthetic)
-        val systemText = getMessageText(result[0])
-        assertTrue(systemText.startsWith("Original system prompt"))
-        assertTrue(systemText.endsWith("Appended content"))
+        // 分段追加：system 字节不动，注入作为独立消息新开一段
+        assertEquals(3, result.size)
+        assertEquals("Original system prompt", getMessageText(result[0]))
+        assertFalse(result[0].isSynthetic)
+        assertTrue(result[1].isSynthetic)
+        assertEquals("Appended content", getMessageText(result[1]))
+        assertEquals(MessageRole.USER, result[2].role)
     }
     // endregion
 
     // region BEFORE_SYSTEM_PROMPT tests
     @Test
-    fun `mode injection with BEFORE_SYSTEM_PROMPT should prepend to system message`() {
+    fun `mode injection with BEFORE_SYSTEM_PROMPT should insert independent segment after system`() {
         val injectionId = Uuid.random()
         val injection = createModeInjection(
             id = injectionId,
@@ -380,14 +387,16 @@ class PromptInjectionTransformerTest {
             lorebooks = emptyList()
         )
 
-        assertEquals(2, result.size)
-        val systemText = getMessageText(result[0])
-        assertTrue(systemText.startsWith("Prepended content"))
-        assertTrue(systemText.contains("Original system prompt"))
+        // BEFORE/AFTER 统一为新开段：不重写 system 字节
+        assertEquals(3, result.size)
+        assertEquals("Original system prompt", getMessageText(result[0]))
+        assertFalse(result[0].isSynthetic)
+        assertEquals("Prepended content", getMessageText(result[1]))
+        assertTrue(result[1].isSynthetic)
     }
 
     @Test
-    fun `injection without existing system message should create new system message`() {
+    fun `injection without existing system message should insert independent segment at start`() {
         val injectionId = Uuid.random()
         val injection = createModeInjection(
             id = injectionId,
@@ -407,10 +416,11 @@ class PromptInjectionTransformerTest {
             lorebooks = emptyList()
         )
 
+        // 无 system 时插入在最前，但保持注入自身的 role 映射（非 SYSTEM），不伪造 system 消息
         assertEquals(3, result.size)
-        assertEquals(MessageRole.SYSTEM, result[0].role)
         assertTrue(result[0].isSynthetic)
         assertEquals("New system content", getMessageText(result[0]))
+        assertEquals("Hello", getMessageText(result[1]))
     }
     // endregion
 
@@ -680,11 +690,11 @@ class PromptInjectionTransformerTest {
             lorebooks = emptyList()
         )
 
-        val systemText = getMessageText(result[0])
+        val allText = allMessagesText(result)
         // Higher priority should come first when joining
-        assertTrue(systemText.contains("Priority 3"))
-        assertTrue(systemText.indexOf("Priority 3") < systemText.indexOf("Priority 2"))
-        assertTrue(systemText.indexOf("Priority 2") < systemText.indexOf("Priority 1"))
+        assertTrue(allText.contains("Priority 3"))
+        assertTrue(allText.indexOf("Priority 3") < allText.indexOf("Priority 2"))
+        assertTrue(allText.indexOf("Priority 2") < allText.indexOf("Priority 1"))
     }
     // endregion
 
@@ -713,8 +723,8 @@ class PromptInjectionTransformerTest {
             lorebooks = listOf(lorebook)
         )
 
-        val systemText = getMessageText(result[0])
-        assertTrue(systemText.contains("Magic system explanation"))
+        val allText = allMessagesText(result)
+        assertTrue(allText.contains("Magic system explanation"))
     }
 
     @Test
@@ -771,8 +781,8 @@ class PromptInjectionTransformerTest {
             lorebooks = listOf(lorebook)
         )
 
-        val systemText = getMessageText(result[0])
-        assertTrue(systemText.contains("Always active content"))
+        val allText = allMessagesText(result)
+        assertTrue(allText.contains("Always active content"))
     }
 
     @Test
@@ -800,8 +810,8 @@ class PromptInjectionTransformerTest {
             lorebooks = listOf(lorebook)
         )
 
-        val systemText = getMessageText(result[0])
-        assertTrue(systemText.contains("Case insensitive match"))
+        val allText = allMessagesText(result)
+        assertTrue(allText.contains("Case insensitive match"))
     }
 
     @Test
@@ -859,8 +869,8 @@ class PromptInjectionTransformerTest {
             lorebooks = listOf(lorebook)
         )
 
-        val systemText = getMessageText(result[0])
-        assertTrue(systemText.contains("Regex match content"))
+        val allText = allMessagesText(result)
+        assertTrue(allText.contains("Regex match content"))
     }
 
     @Test
@@ -926,8 +936,8 @@ class PromptInjectionTransformerTest {
             lorebooks = listOf(lorebook)
         )
 
-        val systemText = getMessageText(result[0])
-        assertTrue(systemText.contains("Triggered content"))
+        val allText = allMessagesText(result)
+        assertTrue(allText.contains("Triggered content"))
     }
 
     @Test
@@ -964,11 +974,11 @@ class PromptInjectionTransformerTest {
             lorebooks = listOf(lorebook)
         )
 
-        val systemText = getMessageText(result[0])
+        val allText = allMessagesText(result)
         // shallowEntry (scanDepth=1) 不应触发，因为最后1条消息不含关键词
-        assertTrue(!systemText.contains("Shallow scan content"))
+        assertTrue(!allText.contains("Shallow scan content"))
         // deepEntry (scanDepth=10) 应该触发，因为早期消息包含关键词
-        assertTrue(systemText.contains("Deep scan content"))
+        assertTrue(allText.contains("Deep scan content"))
     }
 
     @Test
@@ -1039,12 +1049,14 @@ class PromptInjectionTransformerTest {
             lorebooks = emptyList()
         )
 
+        // BEFORE/AFTER/TOP 统一为新开段（system 字节不动），同 role 合并为一条消息
         assertEquals(3, result.size)
-        val systemText = getMessageText(result[0])
-        assertTrue(systemText.startsWith("Before"))
-        assertTrue(systemText.contains("System"))
-        assertTrue(systemText.endsWith("After"))
-        assertEquals("Top", getMessageText(result[1]))
+        assertEquals("System", getMessageText(result[0]))
+        assertFalse(result[0].isSynthetic)
+        val segment = getMessageText(result[1])
+        assertTrue(segment.startsWith("Before"))
+        assertTrue(segment.contains("After"))
+        assertTrue(segment.endsWith("Top"))
     }
 
     @Test
@@ -1081,9 +1093,9 @@ class PromptInjectionTransformerTest {
             lorebooks = listOf(lorebook)
         )
 
-        val systemText = getMessageText(result[0])
-        assertTrue(systemText.contains("Mode content"))
-        assertTrue(systemText.contains("WorldBook content"))
+        val allText = allMessagesText(result)
+        assertTrue(allText.contains("Mode content"))
+        assertTrue(allText.contains("WorldBook content"))
     }
     // endregion
 
@@ -1122,21 +1134,21 @@ class PromptInjectionTransformerTest {
     }
     // endregion
 
-    // region applyInjections tests
+    // region applyModeInjections tests
     @Test
-    fun `applyInjections with empty map should return original messages`() {
+    fun `applyModeInjections with empty map should return original messages`() {
         val messages = listOf(
             UIMessage.system("System"),
             UIMessage.user("Hello")
         )
 
-        val result = applyInjections(messages, emptyMap())
+        val result = applyModeInjections(messages, emptyMap())
 
         assertEquals(messages, result)
     }
 
     @Test
-    fun `applyInjections should handle messages without system message`() {
+    fun `applyModeInjections should handle messages without system message`() {
         val injection = createModeInjection(
             position = InjectionPosition.BEFORE_SYSTEM_PROMPT,
             content = "Before content"
@@ -1147,14 +1159,15 @@ class PromptInjectionTransformerTest {
             UIMessage.assistant("Hi!")
         )
 
-        val result = applyInjections(
+        val result = applyModeInjections(
             messages,
             mapOf(InjectionPosition.BEFORE_SYSTEM_PROMPT to listOf(injection))
         )
 
+        // 无 system 时插入在最前，保持注入自身 role 映射（USER），不伪造 system 消息
         assertEquals(3, result.size)
-        assertEquals(MessageRole.SYSTEM, result[0].role)
         assertEquals("Before content", getMessageText(result[0]))
+        assertTrue(result[0].isSynthetic)
     }
     // endregion
 

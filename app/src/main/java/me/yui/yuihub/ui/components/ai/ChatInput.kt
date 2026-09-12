@@ -6,8 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -18,6 +16,7 @@ import androidx.compose.foundation.content.consume
 import androidx.compose.foundation.content.contentReceiver
 import androidx.compose.foundation.content.hasMediaType
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,16 +25,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -60,19 +58,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,6 +89,7 @@ import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.blur.material3.Material3
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.provider.ModelAbility
@@ -114,6 +116,7 @@ import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.service.MessageQueueState
 import me.yui.yuihub.service.QueuedMessage
 import me.yui.yuihub.ui.hooks.ChatInputState
+import me.yui.yuihub.ui.theme.LocalDarkMode
 import me.yui.yuihub.utils.AUTO_COMPRESS_THRESHOLD_RATIO
 import me.yui.yuihub.utils.formatContextLength
 import org.koin.compose.koinInject
@@ -129,7 +132,6 @@ fun ChatInput(
     enableSearch: Boolean,
     onUpdateSearchMode: (SearchMode) -> Unit,
     modifier: Modifier = Modifier,
-    dimmed: Boolean = false,
     completionProviders: List<ChatCompletionProvider> = emptyList(),
     onUpdateChatModel: (Model) -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
@@ -148,9 +150,20 @@ fun ChatInput(
     val toaster = LocalToaster.current
     val assistant = settings.getCurrentAssistant()
     var showReasoningPanel by remember { mutableStateOf(false) }
-    val hazeTintColor = MaterialTheme.colorScheme.surfaceContainerLow
+
+    // 悬浮玻璃：半透明磨砂 + 大而柔的投影
+    val isDark = LocalDarkMode.current
+    val glassTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+    // 边缘线：亮色下用中性描边（纯白边在浅色背景上看不见）
+    val glassBorderColor = if (isDark) {
+        Color.White.copy(alpha = 0.18f)
+    } else {
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+    }
+    val glassShadowColor = Color.Black.copy(alpha = if (isDark) 0.35f else 0.16f)
     val inputHazeStyle = HazeBlurStyle.Material3 {
-        blurRadius(12.dp)
+        blurRadius(16.dp)
+        backgroundColor(glassTint)
     }
 
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -161,13 +174,6 @@ fun ChatInput(
         modelId = assistant.chatModelId ?: settings.chatModelId,
         providers = settings.providers,
         type = ModelType.CHAT,
-    )
-
-    // 模糊关闭时滚动聊天列表：输入区域整体变半透明让出视野，停止后恢复
-    val inputAlpha by animateFloatAsState(
-        targetValue = if (dimmed) 0.35f else 1f,
-        animationSpec = tween(durationMillis = 200),
-        label = "chatInputDimAlpha",
     )
 
     fun sendMessage() {
@@ -187,7 +193,6 @@ fun ChatInput(
     ) {
         Column(
             modifier = modifier
-                .graphicsLayer { alpha = inputAlpha }
                 .imePadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 8.dp)
@@ -212,18 +217,22 @@ fun ChatInput(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = containerShape,
+                        clip = false,
+                        ambientColor = glassShadowColor,
+                        spotColor = glassShadowColor,
+                    )
                     .clip(containerShape)
-                    .then(
-                        if (settings.displaySetting.enableBlurEffect) Modifier.hazeBlur(
-                            input = HazeInput.Sources(hazeState),
-                            style = inputHazeStyle,
-                        )
-                        else Modifier
+                    .hazeBlur(
+                        input = HazeInput.Sources(hazeState),
+                        style = inputHazeStyle,
                     ),
                 shape = containerShape,
                 tonalElevation = 0.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                color = if (settings.displaySetting.enableBlurEffect) Color.Transparent else hazeTintColor,
+                border = BorderStroke(1.dp, glassBorderColor),
+                color = Color.Transparent,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -308,7 +317,7 @@ fun ChatInput(
                             }
 
                             contextUsage?.let { usage ->
-                                ContextUsageRingButton(
+                                ContextUsageBarButton(
                                     usedTokens = usage.usedTokens,
                                     windowTokens = usage.windowTokens,
                                 )
@@ -325,25 +334,18 @@ fun ChatInput(
                             )
                         }
 
-                        AnimatedVisibility(
-                            visible = true,
-                            enter = fadeIn() + scaleIn(),
-                            exit = fadeOut() + scaleOut(),
-                        ) {
-                            SendButton(
-                                loading = loading,
-                                empty = state.isEmpty(),
-                                onClick = { sendMessage() },
-                                onLongClick = { sendMessageWithoutAnswer() },
-                            )
-                        }
+                        SendButton(
+                            loading = loading,
+                            empty = state.isEmpty(),
+                            onClick = { sendMessage() },
+                            onLongClick = { sendMessageWithoutAnswer() },
+                        )
                     }
                 }
             }
 
         }
     }
-
     ModelListSheet(
         state = modelListState,
         onSelect = onUpdateChatModel,
@@ -427,6 +429,7 @@ private fun TextInputRow(
 ) {
     val settings = LocalSettings.current
     val filesManager: FilesManager = koinInject()
+    val scope = rememberCoroutineScope()
     val assistant = settings.getCurrentAssistant()
 
     Column(
@@ -467,11 +470,13 @@ private fun TextInputRow(
                         transferableContent.consume { item ->
                             val uri = item.uri
                             if (uri != null) {
-                                state.addImages(
-                                    filesManager.createChatFilesByContents(
-                                        listOf(uri)
+                                scope.launch {
+                                    state.addImages(
+                                        filesManager.createChatFilesByContents(
+                                            listOf(uri)
+                                        )
                                     )
-                                )
+                                }
                             }
                             uri != null
                         }
@@ -481,8 +486,10 @@ private fun TextInputRow(
                         transferableContent.consume { item ->
                             val text = item.text?.toString()
                             if (text != null && text.length > settings.displaySetting.pasteLongTextThreshold) {
-                                val document = filesManager.createChatTextFile(text)
-                                state.addFiles(listOf(document))
+                                scope.launch {
+                                    val document = filesManager.createChatTextFile(text)
+                                    state.addFiles(listOf(document))
+                                }
                                 true
                             } else {
                                 false
@@ -749,9 +756,9 @@ data class ContextUsage(
     val windowTokens: Int,
 )
 
-// 上下文占用圆环：显示占用比例（无文字），点击弹悬浮窗显示具体用量
+// 上下文占用：细进度条 + 右侧百分比数字；点击弹出具体用量
 @Composable
-private fun ContextUsageRingButton(
+private fun ContextUsageBarButton(
     usedTokens: Int,
     windowTokens: Int,
 ) {
@@ -761,62 +768,63 @@ private fun ContextUsageRingButton(
     } else {
         0f
     }
-    val ringColor = if (windowTokens > 0 && fraction >= AUTO_COMPRESS_THRESHOLD_RATIO) {
+    val isWarning = windowTokens > 0 && fraction >= AUTO_COMPRESS_THRESHOLD_RATIO
+    val barColor = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+    val textColor = if (isWarning) {
         MaterialTheme.colorScheme.error
     } else {
-        MaterialTheme.colorScheme.primary
+        MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val percent = (fraction * 100f).roundToInt()
+    val animatedFraction by animateFloatAsState(
+        targetValue = fraction,
+        animationSpec = tween(450),
+        label = "contextUsageFraction",
+    )
 
     Box(
         modifier = Modifier
-            .size(34.dp)
-            .clip(CircleShape)
-            .clickable { showPopup = true },
+            .height(32.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .clickable { showPopup = true }
+            .padding(horizontal = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        // 轨道：空闲时也清晰可见；弧线为主色，超阈值变红
-        val trackColor = MaterialTheme.colorScheme.outlineVariant
-        Canvas(modifier = Modifier.size(25.dp)) {
-            val stroke = 2.5.dp.toPx()
-            val inset = stroke / 2
-            val arcSize = Size(size.width - stroke, size.height - stroke)
-            val topLeft = Offset(inset, inset)
-            drawArc(
-                color = trackColor,
-                startAngle = -90f,
-                sweepAngle = 360f,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = stroke, cap = StrokeCap.Round),
-            )
-            if (fraction > 0f) {
-                drawArc(
-                    color = ringColor,
-                    startAngle = -90f,
-                    sweepAngle = 360f * fraction,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = arcSize,
-                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Canvas(modifier = Modifier.size(width = 34.dp, height = 5.dp)) {
+                val radius = size.height / 2f
+                drawRoundRect(
+                    color = trackColor,
+                    cornerRadius = CornerRadius(radius),
                 )
+                if (animatedFraction > 0f) {
+                    drawRoundRect(
+                        color = barColor,
+                        size = Size(
+                            width = (size.width * animatedFraction).coerceAtLeast(size.height),
+                            height = size.height,
+                        ),
+                        cornerRadius = CornerRadius(radius),
+                    )
+                }
             }
+            Text(
+                text = "$percent%",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.5.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFeatureSettings = "tnum",
+                ),
+                color = textColor,
+                maxLines = 1,
+                modifier = Modifier.widthIn(min = 28.dp),
+            )
         }
-        val percent = (fraction * 100f).roundToInt()
-        Text(
-            text = percent.toString(),
-            fontSize = when {
-                percent >= 100 -> 7.sp
-                percent >= 10 -> 8.sp
-                else -> 9.sp
-            },
-            lineHeight = 9.sp,
-            color = if (windowTokens > 0 && fraction >= AUTO_COMPRESS_THRESHOLD_RATIO) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
     }
 
     DropdownMenu(

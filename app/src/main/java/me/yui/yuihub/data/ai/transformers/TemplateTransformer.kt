@@ -14,6 +14,12 @@ import java.io.StringReader
 import java.io.StringWriter
 import kotlin.time.toJavaInstant
 
+/** 模板为纯 '{{ message }}'（直通）时无需逐消息求值 */
+private fun isPassthroughTemplate(source: String?): Boolean {
+    val body = source?.trim()?.removePrefix("{{")?.removeSuffix("}}")?.trim() ?: return false
+    return body == "message"
+}
+
 class TemplateTransformer(
     private val engine: PebbleEngine,
     private val settingsStore: SettingsStore
@@ -22,6 +28,8 @@ class TemplateTransformer(
         ctx: TransformerContext,
         messages: List<UIMessage>,
     ): List<UIMessage> {
+        // 默认模板 '{{ message }}' 是直通：跳过 Pebble 逐消息求值（每个 step 对全部历史消息都有开销）
+        if (isPassthroughTemplate(ctx.assistant.messageTemplate)) return messages
         val template = engine.getTemplate(ctx.assistant.id.toString())
         val timeZone = TimeZone.currentSystemDefault()
         return messages.map { message ->

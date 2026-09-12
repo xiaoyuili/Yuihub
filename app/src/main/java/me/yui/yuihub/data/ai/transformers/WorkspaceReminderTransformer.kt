@@ -47,22 +47,18 @@ class WorkspaceReminderTransformer(
 
 private fun buildWorkspacePrompt(workspace: WorkspaceEntity, cwd: String? = null): String = buildString {
     appendLine("<workspace>")
-    appendLine("You have access to a persistent Linux workspace named \"${workspace.name}\", running in a sandboxed proot rootfs environment.")
-    appendLine("- The workspace files area is mounted at `/workspace`. Use it as your working directory; files written there persist across turns of this conversation.")
-    appendLine("- All paths passed to workspace tools must be absolute and inside the Rootfs (for example `/workspace/notes.md`).")
-    appendLine("- Available tools:")
-    appendLine("  - `workspace_read_file`: read file contents.")
-    appendLine("  - `workspace_write_file` / `workspace_edit_file`: create files, or make precise edits to existing files.")
-    appendLine("  - `workspace_shell`: run shell commands (the files area is mounted at /workspace).")
-    appendLine("- Prefer `workspace_shell` for tasks that standard Unix tools handle well, and prefer `workspace_edit_file` for targeted edits over rewriting whole files.")
-    appendLine("- The skills directory is mounted at `/skills`. Each skill is a subdirectory `/skills/<skill-name>/` containing a `SKILL.md` (with `name` and `description` frontmatter) plus any supporting files. Read a skill's `SKILL.md` before using it, and follow its instructions.")
-    appendLine("- Files the user uploaded are mounted at `/upload`. Treat `/upload` as READ-ONLY: read uploaded files from `/upload/<file-name>`, but never modify, overwrite, or delete anything there. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy.")
+    appendLine("You have a persistent Linux workspace \"${workspace.name}\" (sandboxed proot rootfs).")
+    appendLine("- Files area: `/workspace` — your working directory; it persists across turns. All workspace-tool paths must be absolute inside the Rootfs (e.g. `/workspace/notes.md`).")
+    appendLine("- Tools: `workspace_read_file` / `workspace_write_file` / `workspace_edit_file` (prefer edit for targeted changes over rewriting whole files), `workspace_shell` (prefer it for tasks standard Unix tools handle well), `workspace_present_file`.")
+    appendLine("- Call `workspace_present_file` only when the user asks to receive a file; never send files on your own initiative.")
+    appendLine("- Skills live at `/skills/<skill-name>/SKILL.md` — read a skill before using it, and follow its instructions.")
+    appendLine("- User uploads are mounted at `/upload` (READ-ONLY): read from there, but never modify, overwrite or delete; copy into `/workspace` first if you need to change one.")
     workspace.mountDirList().forEach { mount ->
         val mode = if (mount.readOnly) "READ-ONLY" else "read-write"
-        appendLine("- Host directory `${mount.sourcePath}` is mounted at `${mount.target}` ($mode). It lives outside the workspace files area, so changes there are visible to the user's other Android apps.")
+        appendLine("- Host directory `${mount.sourcePath}` is mounted at `${mount.target}` ($mode); changes there are visible to the user's other Android apps.")
     }
     if (!cwd.isNullOrBlank()) {
-        appendLine("- Current working directory: `$cwd`. Use this as the default context for file operations and shell commands.")
+        appendLine("- Current working directory: `$cwd` — the default context for file operations and shell commands.")
     }
     append("</workspace>")
 }
@@ -79,34 +75,25 @@ private fun buildPackageMirrorPrompt(setup: PackageMirrorSetup): String {
     return buildString {
         appendLine()
         appendLine("<package_mirrors>")
-        appendLine("This workspace's package managers are already pointed at fast domestic (China) mirrors. Use them as-is; never switch a working install back to the official endpoints.")
+        appendLine("This workspace's package managers already point at fast domestic (China) mirrors — keep them; never switch a working install back to official endpoints.")
         if (setup.aptRepoUrl.isNotBlank()) {
-            appendLine("- apt: ${aptLine(setup)}")
+            appendLine("- apt: `${setup.aptRepoUrl}` (already rewritten in the sources list; run `apt-get update` before the first install of a session)")
         }
         if (setup.npmRegistry.isNotBlank()) {
-            appendLine("- npm: registry `${setup.npmRegistry}` (configured in `/root/.npmrc`, which also mirrors node/electron/sharp/puppeteer prebuilt binaries)")
+            appendLine("- npm: `${setup.npmRegistry}` (already in `/root/.npmrc`, mirrors prebuilt binaries too)")
         }
         if (setup.pipIndexUrl.isNotBlank()) {
-            appendLine("- pip: index `${setup.pipIndexUrl}` (configured in `/etc/pip.conf`)")
+            appendLine("- pip: `${setup.pipIndexUrl}` (already in `/etc/pip.conf`)")
         }
         if (setup.goProxy.isNotBlank()) {
-            appendLine("- Go: `GOPROXY=${setup.goProxy},direct` (exported by `/etc/profile.d/yuihub-mirrors.sh`, already active in every shell this tool runs)")
+            appendLine("- Go: `GOPROXY=${setup.goProxy},direct` (already exported)")
         }
-        appendLine("A slow, hanging, or unreachable download here is a mirror problem, NOT a broken environment. Never report the sandbox as unusable and never give up after one timeout: retry the same install against a domestic mirror, and raise the `timeout` parameter for package installs.")
-        appendLine("How to redirect a single download:")
-        appendLine("  - npm: `npm install --registry=https://registry.npmmirror.com <pkg>")
-        appendLine("  - pip: `pip install -i ${setup.pipIndexUrl.ifBlank { "https://pypi.tuna.tsinghua.edu.cn/simple" }} <pkg>`")
-        appendLine("  - Go: `go env -w GOPROXY=https://goproxy.cn,direct`")
-        appendLine("  - Maven/Gradle deps: add a `maven.aliyun.com/repository/public` repository; Gradle wrapper distributions: rewrite the distributionUrl host to `mirrors.cloud.tencent.com` (path unchanged).")
-        appendLine("  - GitHub release/archive downloads (the usual cause of hangs): prefix the URL with `https://gh-proxy.com/`.")
-        appendLine("  - apt: rewrite the `URIs:` line in `/etc/apt/sources.list.d/ubuntu.sources` to another mirror, then `apt-get update`. Other mirrors known to serve this image: ${otherAptMirrors(setup)}")
-        appendLine("Note: the Ubuntu base image ships without `ca-certificates`. If a tool fails with TLS/certificate errors, run `apt-get install -y ca-certificates` first, then retry.")
+        appendLine("A slow, hanging or unreachable download is a mirror problem, NOT a broken environment — never report the sandbox as unusable and never give up after one timeout: retry against a domestic mirror and raise the `timeout` parameter for installs.")
+        appendLine("One-off redirects: GitHub release/archive hangs → prefix `https://gh-proxy.com/`; npm `--registry=https://registry.npmmirror.com`; pip `-i ${setup.pipIndexUrl.ifBlank { "https://pypi.tuna.tsinghua.edu.cn/simple" }}`; Maven/Gradle deps → add `maven.aliyun.com/repository/public`; Gradle wrapper → rewrite the host to `mirrors.cloud.tencent.com`; apt → swap the `URIs:` line in `/etc/apt/sources.list.d/ubuntu.sources` then `apt-get update` (other mirrors: ${otherAptMirrors(setup)}).")
+        appendLine("The base image ships without `ca-certificates`: on TLS errors run `apt-get install -y ca-certificates` first, then retry.")
         append("</package_mirrors>")
     }
 }
-
-private fun aptLine(setup: PackageMirrorSetup): String =
-    "`${setup.aptRepoUrl}` (already rewritten in `/etc/apt/sources.list` and `/etc/apt/sources.list.d/*.sources`; run `apt-get update` before the first install of a session)"
 
 /** 备选 apt 站：从候选清单里取，排除当前已生效的主机。 */
 private fun otherAptMirrors(setup: PackageMirrorSetup): String {

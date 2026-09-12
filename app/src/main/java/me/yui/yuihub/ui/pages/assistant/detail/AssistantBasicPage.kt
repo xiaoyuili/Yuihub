@@ -1,5 +1,6 @@
 package me.yui.yuihub.ui.pages.assistant.detail
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,6 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -22,6 +24,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TopAppBarDefaults
@@ -96,6 +99,9 @@ internal fun AssistantBasicContent(
     workspaces: List<WorkspaceEntity>,
     onUpdate: (Assistant) -> Unit,
 ) {
+    var showTimeReminderDialog by remember(assistant.id) { mutableStateOf(false) }
+    var timeReminderIntervalInput by remember(assistant.id) { mutableStateOf("") }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -340,6 +346,67 @@ internal fun AssistantBasicContent(
             FormItem(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 label = {
+                    Text(stringResource(R.string.assistant_page_time_reminder))
+                },
+                description = {
+                    Text(stringResource(R.string.assistant_page_time_reminder_desc))
+                },
+                tail = {
+                    Switch(
+                        checked = assistant.enableTimeReminder,
+                        onCheckedChange = {
+                            onUpdate(
+                                assistant.copy(
+                                    enableTimeReminder = it
+                                )
+                            )
+                        }
+                    )
+                }
+            )
+
+            if (assistant.enableTimeReminder) {
+                HorizontalDivider()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            timeReminderIntervalInput = assistant.timeReminderIntervalMinutes.toString()
+                            showTimeReminderDialog = true
+                        }
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.assistant_page_time_reminder_interval),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = stringResource(R.string.assistant_page_time_reminder_interval_desc),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        text = stringResource(
+                            R.string.assistant_page_time_reminder_interval_value,
+                            assistant.timeReminderIntervalMinutes,
+                        ),
+                    )
+                }
+            }
+        }
+
+        Card(
+            colors = CustomColors.cardColorsOnSurfaceContainer
+        ) {
+            FormItem(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                label = {
                     Text(stringResource(R.string.assistant_page_gradient_background))
                 },
                 description = {
@@ -412,5 +479,42 @@ internal fun AssistantBasicContent(
                 }
             }
         }
+    }
+
+    if (showTimeReminderDialog) {
+        val interval = timeReminderIntervalInput.toIntOrNull()?.takeIf { it > 0 }
+        AlertDialog(
+            onDismissRequest = { showTimeReminderDialog = false },
+            title = { Text(stringResource(R.string.assistant_page_time_reminder_interval)) },
+            text = {
+                TextField(
+                    value = timeReminderIntervalInput,
+                    onValueChange = { timeReminderIntervalInput = it },
+                    label = { Text(stringResource(R.string.assistant_page_time_reminder_interval_label)) },
+                    supportingText = { Text(stringResource(R.string.assistant_page_time_reminder_interval_hint)) },
+                    isError = interval == null,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = interval != null,
+                    onClick = {
+                        interval?.let {
+                            onUpdate(assistant.copy(timeReminderIntervalMinutes = it))
+                        }
+                        showTimeReminderDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.assistant_page_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimeReminderDialog = false }) {
+                    Text(stringResource(R.string.assistant_page_cancel))
+                }
+            },
+        )
     }
 }

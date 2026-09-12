@@ -16,6 +16,10 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
@@ -27,7 +31,6 @@ import me.yui.yuihub.AppScope
 import me.yui.yuihub.data.ai.mcp.McpServerConfig
 import me.yui.yuihub.data.ai.prompts.DEFAULT_COMPRESS_PROMPT
 import me.yui.yuihub.data.ai.prompts.DEFAULT_TITLE_PROMPT
-import me.yui.yuihub.data.ai.prompts.LEARNING_MODE_PROMPT
 import me.yui.yuihub.data.datastore.migration.PreferenceStoreV1Migration
 import me.yui.yuihub.data.datastore.migration.PreferenceStoreV2Migration
 import me.yui.yuihub.data.model.Assistant
@@ -100,9 +103,6 @@ class SettingsStore(
         // MCP
         val MCP_SERVERS = stringPreferencesKey("mcp_servers")
 
-        // Embedding
-        val EMBEDDING_CONFIG = stringPreferencesKey("embedding_config")
-
         // 提示词注入
         val MODE_INJECTIONS = stringPreferencesKey("mode_injections")
         val LOREBOOKS = stringPreferencesKey("lorebooks")
@@ -117,8 +117,15 @@ class SettingsStore(
         val LAUNCH_COUNT = intPreferencesKey("launch_count")
     }
 
+    private val updateMutex = Mutex()
+
     private val dataStore = context.settingsStore
 
+    // 上次触发过模板缓存失效的助手列表，用于把失效范围收窄到真正相关的变更
+    private var templateCacheAssistants: List<Assistant>? = null
+
+    // 共享上游：settingsFlowRaw 会被多处 .first() / collect 使用，
+    // 不 share 的话每次订阅都会重读 DataStore 并全量反序列化一遍
     val settingsFlowRaw = dataStore.data
         .catch { exception ->
             if (exception is IOException) {
@@ -166,9 +173,6 @@ class SettingsStore(
                 mcpServers = preferences[MCP_SERVERS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
-                embeddingConfig = preferences[EMBEDDING_CONFIG]?.let {
-                    JsonInstant.decodeFromString(it)
-                } ?: EmbeddingConfig(),
                 modeInjections = preferences[MODE_INJECTIONS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -241,15 +245,28 @@ class SettingsStore(
                 lorebooks = settings.lorebooks.distinctBy { it.id },
             )
         }
-        .onEach {
-            get<PebbleEngine>().templateCache.invalidateAll()
+        .onEach { settings ->
+            // Pebble 模板缓存按助手 messageTemplate 构建，只有助手配置变化才需要失效；
+            // 之前对任意设置变更（甚至 launchCount）都清空，等于白扔缓存
+            if (settings.assistants != templateCacheAssistants) {
+                templateCacheAssistants = settings.assistants
+                get<PebbleEngine>().templateCache.invalidateAll()
+            }
         }
+        .shareIn(scope, SharingStarted.Eagerly, replay = 1)
 
     val settingsFlow = settingsFlowRaw
         .distinctUntilChanged()
         .toMutableStateFlow(scope, Settings.dummy())
 
-    suspend fun update(settings: Settings) {
+    suspend fun update(settings: Settings) = updateMutex.withLock { updateLocked(settings) }
+
+    suspend fun update(fn: (Settings) -> Settings) = updateMutex.withLock {
+        // 读-改-写整体串行，避免并发 update 互相覆盖
+        updateLocked(fn(settingsFlow.value))
+    }
+
+    private suspend fun updateLocked(settings: Settings) {
         if(settings.init) {
             Log.w(TAG, "Cannot update dummy settings")
             return
@@ -288,10 +305,9 @@ class SettingsStore(
 
             preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(settings.searchServices)
             preferences[SEARCH_COMMON] = JsonInstant.encodeToString(settings.searchCommonOptions)
-            preferences[SEARCH_SELECTED] = settings.searchServiceSelected.coerceIn(0, settings.searchServices.size - 1)
+            preferences[SEARCH_SELECTED] = settings.searchServiceSelected.coerceIn(0, maxOf(settings.searchServices.size - 1, 0))
 
             preferences[MCP_SERVERS] = JsonInstant.encodeToString(settings.mcpServers)
-            preferences[EMBEDDING_CONFIG] = JsonInstant.encodeToString(settings.embeddingConfig)
             preferences[MODE_INJECTIONS] = JsonInstant.encodeToString(settings.modeInjections)
             preferences[LOREBOOKS] = JsonInstant.encodeToString(settings.lorebooks)
             preferences[KEEP_AWAKE_ENABLED] = settings.keepAwakeEnabled
@@ -300,14 +316,10 @@ class SettingsStore(
         }
     }
 
-    suspend fun update(fn: (Settings) -> Settings) {
-        update(fn(settingsFlow.value))
-    }
-
     suspend fun updateAssistant(assistantId: Uuid) {
-        dataStore.edit { preferences ->
-            preferences[SELECT_ASSISTANT] = assistantId.toString()
-        }
+        // 走统一的读-改-写：既受 updateMutex 保护，也会同步内存态；
+        // 直接 dataStore.edit 会被并发的 update 用旧 assistantId 覆盖回去
+        update { it.copy(assistantId = assistantId) }
     }
 
     suspend fun updateAssistantModel(assistantId: Uuid, modelId: Uuid) {
@@ -400,8 +412,7 @@ data class Settings(
     val searchCommonOptions: SearchCommonOptions = SearchCommonOptions(),
     val searchServiceSelected: Int = 0,
     val mcpServers: List<McpServerConfig> = emptyList(),
-    val embeddingConfig: EmbeddingConfig = EmbeddingConfig(),
-    val modeInjections: List<PromptInjection.ModeInjection> = DEFAULT_MODE_INJECTIONS,
+    val modeInjections: List<PromptInjection.ModeInjection> = emptyList(),
     val lorebooks: List<Lorebook> = emptyList(),
     val keepAwakeEnabled: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
@@ -464,19 +475,11 @@ data class DisplaySetting(
     val sendOnEnter: Boolean = false,
     val enableAutoScroll: Boolean = true,
     val enableLatexRendering: Boolean = true,
-    val enableBlurEffect: Boolean = false,
     val chatFontFamily: ChatFontFamily = ChatFontFamily.DEFAULT,
     val chatCustomFontPath: String = "",
     val chatCustomFontName: String = "",
     val enableVolumeKeyScroll: Boolean = false,
     val volumeKeyScrollRatio: Float = 1.0f,
-)
-
-@Serializable
-data class EmbeddingConfig(
-    val url: String = "",
-    val apiKey: String = "",
-    val model: String = "",
 )
 
 @Serializable
@@ -571,12 +574,3 @@ internal val DEFAULT_ASSISTANTS = listOf(
 )
 
 internal val DEFAULT_ASSISTANTS_IDS = DEFAULT_ASSISTANTS.map { it.id }
-
-val DEFAULT_MODE_INJECTIONS = listOf(
-    PromptInjection.ModeInjection(
-        id = Uuid.parse("b87eaf16-f5cd-4ac1-9e4f-b11ae3a61d74"),
-        content = LEARNING_MODE_PROMPT,
-        position = InjectionPosition.AFTER_SYSTEM_PROMPT,
-        name = "Learning Mode"
-    )
-)

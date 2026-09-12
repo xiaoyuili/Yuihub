@@ -4,7 +4,6 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 import kotlin.time.Instant
 
@@ -63,23 +62,36 @@ class ThinkTagTransformerTest {
     }
 
     @Test
-    fun `unclosed prefix tag should remain unfinished while streaming`() {
-        val message = UIMessage.assistant("<think>reason in progress")
+    fun `unclosed prefix tag should keep the text visible while streaming`() {
+        val text = "<think>reason in progress"
+        val message = UIMessage.assistant(text)
 
         val result = listOf(message).transformThinkTags(now, generationFinished = false).single()
 
-        assertEquals("reason in progress", result.parts.filterIsInstance<UIMessagePart.Reasoning>().single().reasoning)
-        assertNull(result.parts.filterIsInstance<UIMessagePart.Reasoning>().single().finishedAt)
+        // 不闭合时不得整段吞成思考：否则可见正文变空，表现为「思考完不回复」
+        assertEquals(emptyList<UIMessagePart.Reasoning>(), result.parts.filterIsInstance<UIMessagePart.Reasoning>())
+        assertEquals(text, result.parts.filterIsInstance<UIMessagePart.Text>().single().text)
     }
 
     @Test
-    fun `generation finish should close reasoning created by visual transform`() {
-        val message = UIMessage.assistant("<think>reason in progress")
-        val visualResult = listOf(message).transformThinkTags(now, generationFinished = false)
+    fun `unclosed prefix tag should stay visible after generation finish`() {
+        val text = "<think>reason in progress"
+        val message = UIMessage.assistant(text)
 
-        val finishedResult = visualResult.transformThinkTags(now, generationFinished = true).single()
+        val result = listOf(message).transformThinkTags(now, generationFinished = true).single()
 
-        assertEquals(now, finishedResult.parts.filterIsInstance<UIMessagePart.Reasoning>().single().finishedAt)
+        assertEquals(emptyList<UIMessagePart.Reasoning>(), result.parts.filterIsInstance<UIMessagePart.Reasoning>())
+        assertEquals(text, result.parts.filterIsInstance<UIMessagePart.Text>().single().text)
+    }
+
+    @Test
+    fun `closed tag should mark reasoning finished immediately`() {
+        val message = UIMessage.assistant("<think>reason</think>answer")
+
+        val visual = listOf(message).transformThinkTags(now, generationFinished = false).single()
+
+        assertEquals("answer", visual.parts.filterIsInstance<UIMessagePart.Text>().single().text)
+        assertEquals(now, visual.parts.filterIsInstance<UIMessagePart.Reasoning>().single().finishedAt)
     }
 
     private fun transform(text: String): UIMessage {

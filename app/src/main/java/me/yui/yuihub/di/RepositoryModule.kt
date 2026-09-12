@@ -5,7 +5,6 @@ import me.yui.yuihub.data.files.FileFolders
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.files.SkillManager
 import me.yui.yuihub.data.repository.ConversationRepository
-import me.yui.yuihub.data.repository.EvolutionRepository
 import me.yui.yuihub.data.repository.FavoriteRepository
 import me.yui.yuihub.data.repository.FolderRepository
 import me.yui.yuihub.data.repository.FilesRepository
@@ -29,11 +28,7 @@ val repositoryModule = module {
     }
 
     single {
-        MemoryRepository(get(), get())
-    }
-
-    single {
-        EvolutionRepository(get())
+        MemoryRepository(get())
     }
 
     single {

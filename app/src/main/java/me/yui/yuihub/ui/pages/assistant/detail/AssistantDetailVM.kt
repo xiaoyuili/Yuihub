@@ -9,11 +9,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import me.yui.yuihub.data.ai.evolution.EvolutionConsolidator
+import me.yui.yuihub.data.ai.memory.MemoryConsolidator
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
@@ -23,8 +22,6 @@ import me.yui.yuihub.data.files.SkillMetadata
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantMemory
 import me.yui.yuihub.data.model.Avatar
-import me.yui.yuihub.data.model.EvolutionLesson
-import me.yui.yuihub.data.repository.EvolutionRepository
 import me.yui.yuihub.data.repository.MemoryRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import kotlin.uuid.Uuid
@@ -35,11 +32,10 @@ class AssistantDetailVM(
     private val id: String,
     private val settingsStore: SettingsStore,
     private val memoryRepository: MemoryRepository,
-    private val evolutionRepository: EvolutionRepository,
+    private val memoryConsolidator: MemoryConsolidator,
     private val filesManager: FilesManager,
     private val skillManager: SkillManager,
     private val workspaceRepository: WorkspaceRepository,
-    private val evolutionConsolidator: EvolutionConsolidator,
 ) : ViewModel() {
     private val assistantId = Uuid.parse(id)
 
@@ -70,20 +66,8 @@ class AssistantDetailVM(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = Assistant()
         )
 
-    val memories = assistant
-        .flatMapLatest { currentAssistant ->
-            if (currentAssistant.useGlobalMemory) {
-                memoryRepository.getGlobalMemoriesFlow()
-            } else {
-                memoryRepository.getMemoriesOfAssistantFlow(assistantId.toString())
-            }
-        }
-        .stateIn(
-            scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
-        )
-
-    val lessons = evolutionRepository
-        .getLessonsFlow(assistantId.toString())
+    val memories = memoryRepository
+        .getMemoriesFlow(assistantId.toString())
         .stateIn(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
         )
@@ -116,21 +100,23 @@ class AssistantDetailVM(
 
     fun addMemory(memory: AssistantMemory) {
         viewModelScope.launch {
-            val memoryAssistantId = if (assistant.value.useGlobalMemory) {
-                MemoryRepository.GLOBAL_MEMORY_ID
-            } else {
-                assistantId.toString()
-            }
             memoryRepository.addMemory(
-                assistantId = memoryAssistantId,
-                content = memory.content
+                assistantId = assistantId.toString(),
+                content = memory.content,
+                importance = memory.importance,
+                category = memory.category,
             )
         }
     }
 
     fun updateMemory(memory: AssistantMemory) {
         viewModelScope.launch {
-            memoryRepository.updateContent(id = memory.id, content = memory.content)
+            memoryRepository.updateMemory(
+                id = memory.id,
+                content = memory.content,
+                importance = memory.importance,
+                category = memory.category,
+            )
         }
     }
 
@@ -140,43 +126,20 @@ class AssistantDetailVM(
         }
     }
 
-    fun addLesson(kind: String, title: String, content: String) {
+    // 手动整理：成功回调（合并数 to 清理数），失败回调 null
+    fun consolidateMemories(onResult: (Pair<Int, Int>?) -> Unit) {
         viewModelScope.launch {
-            evolutionRepository.addLesson(assistantId.toString(), kind, title, content)
-            autoConsolidate(kind)
-        }
-    }
-
-    // 手动新增跨过阈值时也自动整理，不依赖用户点按钮
-    private suspend fun autoConsolidate(kind: String) {
-        val count = evolutionRepository.getLessons(assistantId.toString()).count { it.kind == kind }
-        if (count >= EvolutionConsolidator.MIN_LESSONS_TO_CONSOLIDATE) {
             runCatching {
-                evolutionConsolidator.consolidate(assistantId.toString(), settings.value)
+                memoryConsolidator.consolidate(
+                    assistantId = assistantId.toString(),
+                    settings = settings.value,
+                )
+            }.onSuccess { result ->
+                onResult(result.created to result.removed)
+            }.onFailure { error ->
+                Log.w(TAG, "consolidate memories failed", error)
+                onResult(null)
             }
-        }
-    }
-
-    fun updateLesson(lesson: EvolutionLesson) {
-        viewModelScope.launch {
-            evolutionRepository.updateLesson(lesson.id, lesson.title, lesson.content, lesson.kind)
-        }
-    }
-
-    fun deleteLesson(lesson: EvolutionLesson) {
-        viewModelScope.launch {
-            evolutionRepository.deleteLesson(lesson.id)
-        }
-    }
-
-    // 手动触发自我整理：同类方法合并成更通用的一条并删除被吸收的旧条目
-    fun consolidateLessons(onResult: (Int, Int) -> Unit) {
-        viewModelScope.launch {
-            val result = evolutionConsolidator.consolidate(
-                assistantId = assistantId.toString(),
-                settings = settings.value,
-            )
-            onResult(result.created, result.removed)
         }
     }
 

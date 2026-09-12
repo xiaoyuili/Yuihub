@@ -75,7 +75,6 @@ import me.yui.yuihub.ui.hooks.readStringPreference
 import me.yui.yuihub.ui.pages.assistant.AssistantPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantBasicPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantDetailPage
-import me.yui.yuihub.ui.pages.assistant.detail.AssistantEvolutionPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantExtensionsPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantLocalToolPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantMemoryPage
@@ -85,7 +84,10 @@ import me.yui.yuihub.ui.pages.backup.BackupPage
 import me.yui.yuihub.ui.pages.chat.ChatPage
 import me.yui.yuihub.ui.pages.debug.DebugPage
 import me.yui.yuihub.ui.pages.extensions.ExtensionsPage
-import me.yui.yuihub.ui.pages.extensions.PromptPage
+import me.yui.yuihub.ui.pages.extensions.LorebookDetailPage
+import me.yui.yuihub.ui.pages.extensions.LorebookEntryEditPage
+import me.yui.yuihub.ui.pages.extensions.LorebookPage
+import me.yui.yuihub.ui.pages.extensions.ModeInjectionPage
 import me.yui.yuihub.ui.pages.extensions.skills.SkillDetailPage
 import me.yui.yuihub.ui.pages.extensions.skills.SkillsPage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspacePage
@@ -219,8 +221,16 @@ class RouteActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // Navigate to the chat screen if a conversation ID is provided
-        intent.getStringExtra("conversationId")?.let { text ->
-            navStack?.add(Screen.Chat(text))
+        val conversationId = intent.getStringExtra("conversationId") ?: return
+        val stack = navStack ?: return
+        val target = Screen.Chat(conversationId)
+        if (stack.lastOrNull() == target) return
+        // 栈中已有同一会话时回到那一层，避免重复叠加返回项
+        val existingIndex = stack.indexOfLast { it == target }
+        if (existingIndex >= 0) {
+            repeat(stack.size - 1 - existingIndex) { stack.removeLastOrNull() }
+        } else {
+            stack.add(target)
         }
     }
 
@@ -242,14 +252,15 @@ class RouteActivity : ComponentActivity() {
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
         val startScreen = Screen.Chat(
-            id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
-                Uuid.random().toString()
-            } else {
-                readStringPreference(
-                    "lastConversationId",
+            id = this@RouteActivity.intent?.getStringExtra("conversationId")
+                ?: if (readBooleanPreference("create_new_conversation_on_start", true)) {
                     Uuid.random().toString()
-                ) ?: Uuid.random().toString()
-            }
+                } else {
+                    readStringPreference(
+                        "lastConversationId",
+                        Uuid.random().toString()
+                    ) ?: Uuid.random().toString()
+                }
         )
 
         val backStack = rememberNavBackStack(startScreen)
@@ -359,10 +370,6 @@ class RouteActivity : ComponentActivity() {
                                 AssistantLocalToolPage(key.id)
                             }
 
-                            entry<Screen.AssistantEvolution> { key ->
-                                AssistantEvolutionPage(key.id)
-                            }
-
                             entry<Screen.AssistantInjections> { key ->
                                 AssistantExtensionsPage(key.id)
                             }
@@ -454,8 +461,20 @@ class RouteActivity : ComponentActivity() {
                             }
 
 
-                            entry<Screen.Prompts> {
-                                PromptPage()
+                            entry<Screen.ModeInjections> {
+                                ModeInjectionPage()
+                            }
+
+                            entry<Screen.Lorebooks> {
+                                LorebookPage()
+                            }
+
+                            entry<Screen.LorebookDetail> { key ->
+                                LorebookDetailPage(key.id)
+                            }
+
+                            entry<Screen.LorebookEntryEdit> { key ->
+                                LorebookEntryEditPage(bookId = key.bookId, entryId = key.entryId)
                             }
 
                             entry<Screen.Skills> {
@@ -584,9 +603,6 @@ sealed interface Screen : NavKey {
     data class AssistantLocalTool(val id: String) : Screen
 
     @Serializable
-    data class AssistantEvolution(val id: String) : Screen
-
-    @Serializable
     data class AssistantInjections(val id: String) : Screen
 
     @Serializable
@@ -653,7 +669,16 @@ sealed interface Screen : NavKey {
     data object Extensions : Screen
 
     @Serializable
-    data object Prompts : Screen
+    data object ModeInjections : Screen
+
+    @Serializable
+    data object Lorebooks : Screen
+
+    @Serializable
+    data class LorebookDetail(val id: String) : Screen
+
+    @Serializable
+    data class LorebookEntryEdit(val bookId: String, val entryId: String) : Screen
 
     @Serializable
     data object Skills : Screen

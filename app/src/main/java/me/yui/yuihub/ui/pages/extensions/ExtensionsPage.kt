@@ -17,8 +17,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import me.rerere.hugeicons.HugeIcons
 import me.yui.yuihub.R
-import me.rerere.hugeicons.stroke.Book03
+import me.rerere.hugeicons.stroke.Book01
 import me.rerere.hugeicons.stroke.Folder01
+import me.rerere.hugeicons.stroke.MagicWand01
 import me.rerere.hugeicons.stroke.McpServer
 import me.rerere.hugeicons.stroke.Puzzle
 import me.yui.yuihub.Screen
@@ -56,10 +57,16 @@ fun ExtensionsPage() {
                     title = { Text(stringResource(R.string.extensions_page_section_extensions)) },
                 ) {
                     item(
-                        onClick = { navController.navigate(Screen.Prompts) },
-                        leadingContent = { Icon(HugeIcons.Book03, null) },
-                        headlineContent = { Text(stringResource(R.string.extensions_page_prompts)) },
-                        supportingContent = { Text(stringResource(R.string.extensions_page_prompts_desc)) },
+                        onClick = { navController.navigate(Screen.ModeInjections) },
+                        leadingContent = { Icon(HugeIcons.MagicWand01, null) },
+                        headlineContent = { Text(stringResource(R.string.extensions_page_mode_injection)) },
+                        supportingContent = { Text(stringResource(R.string.extensions_page_mode_injection_desc)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.Lorebooks) },
+                        leadingContent = { Icon(HugeIcons.Book01, null) },
+                        headlineContent = { Text(stringResource(R.string.extensions_page_lorebook)) },
+                        supportingContent = { Text(stringResource(R.string.extensions_page_lorebook_desc)) },
                     )
                     item(
                         onClick = { navController.navigate(Screen.Skills) },

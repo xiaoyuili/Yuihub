@@ -140,12 +140,12 @@ private fun RowScope.FloatingBottomBarItem(
     )
     val lift by animateDpAsState(
         targetValue = if (selected) (-2).dp else 0.dp,
-        animationSpec = spring(dampingRatio = 0.55f, stiffness = 900f),
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 900f),
         label = "tabLift",
     )
     val scale by animateFloatAsState(
         targetValue = if (selected) 1.08f else 1f,
-        animationSpec = spring(dampingRatio = 0.55f, stiffness = 900f),
+        animationSpec = spring(dampingRatio = 0.7f, stiffness = 900f),
         label = "tabScale",
     )
 

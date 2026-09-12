@@ -35,17 +35,29 @@ class ExporterState<T>(
     val fileName: String
         get() = serializer.getExportFileName(data)
 
-    fun exportToFile(fileName: String = this.fileName) {
+    /** 额外导出格式（如 SillyTavern 世界书），不支持时为 null */
+    val alternative: AlternativeExport?
+        get() = serializer.exportAlternative(data)
+
+    private var pendingPayload: String? = null
+
+    fun exportToFile(fileName: String = this.fileName, payload: String = value) {
+        pendingPayload = payload
         createDocumentLauncher.launch(fileName)
     }
 
-    fun exportAndShare(fileName: String = this.fileName) {
+    fun exportAlternativeToFile() {
+        val alt = alternative ?: return
+        exportToFile(alt.fileName, alt.json)
+    }
+
+    fun exportAndShare(fileName: String = this.fileName, payload: String = value) {
         scope.launch {
             val file = withContext(Dispatchers.IO) {
                 val cacheDir = File(context.cacheDir, "export")
                 cacheDir.mkdirs()
                 val file = File(cacheDir, fileName)
-                file.writeText(value)
+                file.writeText(payload)
                 file
             }
             val uri = FileProvider.getUriForFile(
@@ -62,10 +74,16 @@ class ExporterState<T>(
         }
     }
 
+    fun exportAlternativeAndShare() {
+        val alt = alternative ?: return
+        exportAndShare(alt.fileName, alt.json)
+    }
+
     internal fun writeToUri(uri: Uri) {
+        val payload = pendingPayload ?: value
         scope.launch(Dispatchers.IO) {
             context.contentResolver.openOutputStream(uri)?.use { output ->
-                output.write(value.toByteArray())
+                output.write(payload.toByteArray())
             }
         }
     }

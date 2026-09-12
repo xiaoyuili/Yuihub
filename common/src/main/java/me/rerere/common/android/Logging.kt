@@ -22,4 +22,7 @@ object Logging {
             }
         }
     }
+
+    /** 只读快照（新→旧），供应用内日志页展示 */
+    fun snapshot(): List<TextLog> = synchronized(recentLogs) { recentLogs.toList() }
 }

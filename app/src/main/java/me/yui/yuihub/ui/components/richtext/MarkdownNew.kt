@@ -69,6 +69,7 @@ import androidx.core.graphics.toColorInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import me.rerere.hugeicons.HugeIcons
@@ -138,6 +139,8 @@ fun MarkdownNew(
     LaunchedEffect(Unit) {
         snapshotFlow { updatedContent }
             .distinctUntilChanged()
+            // 首个值已在 remember 里同步生成过，避免重复生成
+            .drop(1)
             .mapLatest { generateMarkdownHtml(it) }
             .catch { it.printStackTrace() }
             .flowOn(Dispatchers.Default)

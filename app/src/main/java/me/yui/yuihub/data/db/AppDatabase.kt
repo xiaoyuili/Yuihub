@@ -7,7 +7,6 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import me.rerere.ai.core.TokenUsage
 import me.yui.yuihub.data.db.dao.ConversationDAO
-import me.yui.yuihub.data.db.dao.EvolutionLessonDAO
 import me.yui.yuihub.data.db.dao.FavoriteDAO
 import me.yui.yuihub.data.db.dao.FolderDAO
 import me.yui.yuihub.data.db.dao.GenMediaDAO
@@ -17,7 +16,6 @@ import me.yui.yuihub.data.db.dao.MessageNodeDAO
 import me.yui.yuihub.data.db.dao.TokenLedgerDAO
 import me.yui.yuihub.data.db.dao.WorkspaceDAO
 import me.yui.yuihub.data.db.entity.ConversationEntity
-import me.yui.yuihub.data.db.entity.EvolutionLessonEntity
 import me.yui.yuihub.data.db.entity.FavoriteEntity
 import me.yui.yuihub.data.db.entity.FolderEntity
 import me.yui.yuihub.data.db.entity.GenMediaEntity
@@ -47,9 +45,8 @@ import me.yui.yuihub.utils.JsonInstant
         WorkspaceEntity::class,
         FolderEntity::class,
         TokenLedgerEntity::class,
-        EvolutionLessonEntity::class,
     ],
-    version = 32,
+    version = 34,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -77,6 +74,8 @@ import me.yui.yuihub.utils.JsonInstant
         AutoMigration(from = 29, to = 30, spec = Migration_29_30::class),
         AutoMigration(from = 30, to = 31),
         AutoMigration(from = 31, to = 32),
+        // 33→34：补查询索引（assistant_id / folder_id / is_pinned+update_at、记忆表 assistant_id）
+        AutoMigration(from = 33, to = 34),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -98,8 +97,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun folderDao(): FolderDAO
 
     abstract fun tokenLedgerDao(): TokenLedgerDAO
-
-    abstract fun evolutionLessonDao(): EvolutionLessonDAO
 }
 
 object TokenUsageConverter {

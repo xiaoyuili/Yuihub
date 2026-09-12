@@ -2,9 +2,17 @@ package me.yui.yuihub.data.db.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity
+// 索引：DAO 大量按 assistant_id / folder_id 过滤，并按 is_pinned + update_at 排序
+@Entity(
+    indices = [
+        Index("assistant_id"),
+        Index("folder_id"),
+        Index(value = ["is_pinned", "update_at"]),
+    ]
+)
 data class ConversationEntity(
     @PrimaryKey
     val id: String,

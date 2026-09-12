@@ -16,8 +16,6 @@ internal const val NUMBER_RE = """\b\d+(\.\d+)?"""
 internal const val C_NUMBER_RE =
     """(-?)(\b0[xX][a-fA-F0-9]+|(\b\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)"""
 
-internal const val BINARY_NUMBER_RE = """\b(0b[01]+)"""
-
 internal const val RE_STARTERS_RE =
     """!|!=|!==|%|%=|&|&&|&=|\*|\*=|\+|\+=|,|-|-=|/=|/|:|;|<<|<<=|<=|<|===|==|=|>>>=|>>=|>=|""" +
         """>>>|>>|>|\?|\[|\{|\(|\^|\^=|\||\|=|\|\||~"""
@@ -41,11 +39,6 @@ internal val QUOTE_STRING_MODE: Mode = mode {
     end = "\""
     illegal = """\n"""
     contains = listOf(BACKSLASH_ESCAPE)
-}.frozen()
-
-internal val PHRASAL_WORDS_MODE: Mode = mode {
-    begin = """\b(a|an|the|are|I'm|isn't|don't|doesn't|won't|but|just|should|pretty|simply|""" +
-        """enough|gonna|going|wtf|so|such|will|you|your|they|like|more)\b"""
 }.frozen()
 
 /**
@@ -112,12 +105,6 @@ internal val C_NUMBER_MODE: Mode = mode {
     relevance = 0.0
 }.frozen()
 
-internal val BINARY_NUMBER_MODE: Mode = mode {
-    scope = "number"
-    begin = BINARY_NUMBER_RE
-    relevance = 0.0
-}.frozen()
-
 internal val REGEXP_MODE: Mode = mode {
     scope = "regexp"
     begin = """/(?=[^/\n]*/)"""
@@ -142,12 +129,6 @@ internal val TITLE_MODE: Mode = mode {
 internal val UNDERSCORE_TITLE_MODE: Mode = mode {
     scope = "title"
     begin = UNDERSCORE_IDENT_RE
-    relevance = 0.0
-}.frozen()
-
-/** Keeps method names out of keyword processing. */
-internal val METHOD_GUARD: Mode = mode {
-    begin = """\.\s*""" + UNDERSCORE_IDENT_RE
     relevance = 0.0
 }.frozen()
 
