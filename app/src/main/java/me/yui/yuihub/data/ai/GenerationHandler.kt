@@ -454,7 +454,7 @@ class GenerationHandler(
                 addAll(assistant.customBodies)
                 addAll(model.customBodies)
             },
-            sessionId = conversationId?.toString(),
+            sessionId = (conversationId ?: Uuid.random()).toString(),
         )
         val buildMs = SystemClock.elapsedRealtime() - buildStartMs
         // 前缀指纹：对最终发送的 system 文本与工具 schema 做 SHA-256（DSH 字节级前缀稳定的观测手段）；

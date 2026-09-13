@@ -116,12 +116,14 @@ private const val TAG = "ChatService"
 
 internal fun backgroundTextGenerationParams(
     model: Model,
+    conversationId: Uuid,
     reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
 ): TextGenerationParams = TextGenerationParams(
     model = model,
     reasoningLevel = reasoningLevel,
     customHeaders = model.customHeaders,
     customBody = model.customBodies,
+    sessionId = conversationId.toString(),
 )
 
 internal fun shouldUseExternalWebSearch(assistant: Assistant, model: Model): Boolean {
@@ -1141,7 +1143,7 @@ class ChatService(
                                 .takeLast(4).joinToString("\n\n") { it.summaryAsText(maxLength = 500) })
                     ),
                 ),
-                params = backgroundTextGenerationParams(model, settings.titleModelReasoningLevel),
+                params = backgroundTextGenerationParams(model, conversationId, settings.titleModelReasoningLevel),
             )
 
             // 生成完，conversation可能不是最新了，因此需要重新获取
@@ -1179,8 +1181,6 @@ class ChatService(
             if (memories.isEmpty() && conversation.messageNodes.none { it.currentMessage.isMemorySnapshot() }) return
             val updatedNodes = conversation.messageNodes.withMemorySnapshot(buildMemorySnapshotText(memories)) ?: return
             saveConversation(conversationId, conversation.copy(messageNodes = updatedNodes))
-        }
-    }
 
     // ---- 自动压缩对话历史 ----
 
@@ -1274,7 +1274,7 @@ class ChatService(
                 val result = providerHandler.generateText(
                     providerSetting = provider,
                     messages = listOf(UIMessage.user(prompt)),
-                    params = backgroundTextGenerationParams(model),
+                    params = backgroundTextGenerationParams(model, conversationId),
                 )
                 return result.message.toText().trim().takeIf { it.isNotBlank() }
                     ?: throw IllegalStateException("Failed to generate compressed summary")
