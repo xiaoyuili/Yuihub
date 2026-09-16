@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import me.rerere.common.android.appTempFolder
-import com.whl.quickjs.android.QuickJSLoader
 import me.yui.yuihub.di.appModule
 import me.yui.yuihub.di.dataSourceModule
 import me.yui.yuihub.di.repositoryModule
@@ -71,9 +70,7 @@ class YuiHubApp : Application() {
         // install crash handler
         CrashHandler.install(this)
 
-        // Init QuickJS native library
-        QuickJSLoader.init()
-        StartupTracer.mark("QuickJS so加载")
+        StartupTracer.mark("crashHandler")
 
         // delete temp files
         deleteTempFiles()
