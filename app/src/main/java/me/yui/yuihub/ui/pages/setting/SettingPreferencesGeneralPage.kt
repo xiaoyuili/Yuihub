@@ -27,13 +27,16 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import me.yui.yuihub.R
-import me.yui.yuihub.data.datastore.DisplaySetting
-import me.yui.yuihub.ui.components.nav.BackButton
-import me.yui.yuihub.ui.components.ui.CardGroup
-import me.yui.yuihub.ui.hooks.rememberSharedPreferenceBoolean
-import me.yui.yuihub.ui.theme.CustomColors
-import me.yui.yuihub.utils.plus
+import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.datastore.BackgroundEffectType
+import me.rerere.rikkahub.data.datastore.DisplaySetting
+import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.rikkahub.ui.components.ui.CardGroup
+import me.yui.yuihub.ui.components.ui.Select
+import me.rerere.rikkahub.ui.hooks.rememberSharedPreferenceBoolean
+import me.rerere.rikkahub.ui.theme.CustomColors
+import me.rerere.rikkahub.utils.plus
+>>>>>>> 7ee13f2af (feat: 支持blur/glass 2种输入栏效果):app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingPreferencesGeneralPage.kt
 import org.koin.androidx.compose.koinViewModel
 import kotlin.math.roundToInt
 
@@ -153,6 +156,40 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                         },
                     )
                     item(
+                        headlineContent = { Text(stringResource(R.string.setting_display_page_background_effect_title)) },
+                        supportingContent = { Text(stringResource(R.string.setting_display_page_background_effect_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = displaySetting.enableBlurEffect,
+                                onCheckedChange = {
+                                    updateDisplaySetting(displaySetting.copy(enableBlurEffect = it))
+                                }
+                            )
+                        },
+                    )
+                    if (displaySetting.enableBlurEffect) {
+                        item(
+                            headlineContent = { Text(stringResource(R.string.setting_display_page_background_effect_type)) },
+                            supportingContent = {
+                                Select(
+                                    options = BackgroundEffectType.entries,
+                                    selectedOption = displaySetting.backgroundEffectType,
+                                    onOptionSelected = {
+                                        updateDisplaySetting(displaySetting.copy(backgroundEffectType = it))
+                                    },
+                                    modifier = Modifier.padding(top = 4.dp).fillMaxWidth(),
+                                    optionToString = {
+                                        when (it) {
+                                            BackgroundEffectType.BLUR -> stringResource(R.string.setting_display_page_background_effect_blur)
+                                            BackgroundEffectType.GLASS -> stringResource(R.string.setting_display_page_background_effect_glass)
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                    }
+                    item(
+>>>>>>> 7ee13f2af (feat: 支持blur/glass 2种输入栏效果):app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingPreferencesGeneralPage.kt
                         headlineContent = { Text(stringResource(R.string.setting_display_page_enable_message_generation_haptic_effect_title)) },
                         supportingContent = { Text(stringResource(R.string.setting_display_page_enable_message_generation_haptic_effect_desc)) },
                         trailingContent = {

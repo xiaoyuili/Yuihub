@@ -90,6 +90,11 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.blur.HazeBlurStyle
 import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.blur.material3.Material3
+import dev.chrisbanes.haze.glass.GlassDefaults
+import dev.chrisbanes.haze.glass.GlassStyle
+import dev.chrisbanes.haze.glass.OpticalSizeValue
+import dev.chrisbanes.haze.glass.hazeGlass
+import dev.chrisbanes.haze.glass.material3.Material3
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -122,7 +127,15 @@ import me.yui.yuihub.ui.hooks.ChatInputState
 import me.yui.yuihub.ui.theme.LocalDarkMode
 import me.yui.yuihub.utils.AUTO_COMPRESS_THRESHOLD_RATIO
 import me.yui.yuihub.utils.formatContextLength
-import org.koin.compose.koinInject
+import me.yui.yuihub.data.datastore.BackgroundEffectType
+import me.yui.yuihub.data.datastore.getQuickMessagesOfAssistant
+import me.yui.yuihub.data.model.QuickMessage
+import me.yui.yuihub.ui.components.ui.permission.PermissionManager
+import me.yui.yuihub.ui.components.ui.permission.PermissionRecordAudio
+import me.yui.yuihub.ui.components.ui.permission.rememberPermissionState
+import me.yui.yuihub.ui.context.LocalASRState
+import me.yui.yuihub.utils.SoundEffectPlayer
+>>>>>>> 7ee13f2af (feat: 支持blur/glass 2种输入栏效果):app/src/main/java/me/rerere/rikkahub/ui/components/ai/ChatInput.ktimport org.koin.compose.koinInject
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -172,7 +185,13 @@ fun ChatInput(
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
 
-    val containerShape = MaterialTheme.shapes.largeIncreased
+    val themeShape = MaterialTheme.shapes.largeIncreased
+    val containerShape = RoundedCornerShape(
+        topStart = themeShape.topStart,
+        topEnd = themeShape.topEnd,
+        bottomEnd = themeShape.bottomEnd,
+        bottomStart = themeShape.bottomStart,
+    )
     val modelListState = rememberModelListState(
         modelId = assistant.chatModelId ?: settings.chatModelId,
         providers = settings.providers,
@@ -231,7 +250,27 @@ fun ChatInput(
                     .hazeBlur(
                         input = HazeInput.Sources(hazeState),
                         style = inputHazeStyle,
-                    ),
+                    .then(
+                        if (settings.displaySetting.enableBlurEffect) {
+                            when (settings.displaySetting.backgroundEffectType) {
+                                BackgroundEffectType.BLUR -> Modifier.hazeBlur(
+                                )
+                                BackgroundEffectType.GLASS -> Modifier.hazeGlass(
+                                    style = GlassStyle.Material3(
+                                        containerColor = hazeTintColor,
+                                        tint = hazeTintColor.copy(alpha = 0.72f),
+                                    ) {
+                                        // Keep background text from competing with the input text.
+                                        optics(GlassDefaults.optics.copy(
+                                            blurRadius = OpticalSizeValue.Fixed(16.dp),
+                                            depth = OpticalSizeValue.Fixed(0.5f),
+                                        ))
+                                        shape(containerShape)
+                                    },
+                                )
+                            }
+                        } else Modifier
+>>>>>>> 7ee13f2af (feat: 支持blur/glass 2种输入栏效果):app/src/main/java/me/rerere/rikkahub/ui/components/ai/ChatInput.kt                    ),
                 shape = containerShape,
                 tonalElevation = 0.dp,
                 border = BorderStroke(1.dp, glassBorderColor),
