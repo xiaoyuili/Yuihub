@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.util.Base64
 import android.util.Base64OutputStream
+import android.util.LruCache
 import androidx.core.net.toUri
 import me.rerere.ai.ui.UIMessagePart
 import java.io.ByteArrayOutputStream
@@ -15,6 +16,14 @@ data class EncodedImage(
     val base64: String,
     val mimeType: String
 )
+
+// 媒体编码结果缓存：历史消息里的图片/音视频每轮请求都会重新随消息列表发给供应商，
+// 如果每次都重新「解码→EXIF→压缩→Base64」，多图会话的首字延迟会随轮次线性恶化。
+// 以 文件路径+修改时间 为键缓存编码结果，与 DocumentAsPromptTransformer.parseCache 同思路。
+private val mediaEncodeCache = object : LruCache<String, String>(32) {}
+
+private fun mediaCacheKey(file: File): String =
+    "${file.absolutePath}:${file.length()}:${file.lastModified()}"
 
 internal enum class ExifTransformType {
     NONE,
@@ -52,10 +61,16 @@ fun UIMessagePart.Image.encodeBase64(withPrefix: Boolean = true): Result<Encoded
                 throw IllegalArgumentException("File does not exist: ${this.url}")
             }
             val mimeType = file.guessMimeType().getOrThrow()
+            val cacheKey = "img:$withPrefix:${mediaCacheKey(file)}"
+            synchronized(mediaEncodeCache) { mediaEncodeCache.get(cacheKey) }?.let {
+                return Result.success(EncodedImage(base64 = it, mimeType = "image/jpeg"))
+            }
             // 统一进行压缩处理
             val (encoded, outputMimeType) = file.compressAndEncode(mimeType)
+            val base64 = if (withPrefix) "data:$outputMimeType;base64,$encoded" else encoded
+            synchronized(mediaEncodeCache) { mediaEncodeCache.put(cacheKey, base64) }
             EncodedImage(
-                base64 = if (withPrefix) "data:$outputMimeType;base64,$encoded" else encoded,
+                base64 = base64,
                 mimeType = outputMimeType
             )
         }
@@ -82,8 +97,14 @@ fun UIMessagePart.Video.encodeBase64(withPrefix: Boolean = true): Result<String>
             if (!file.exists()) {
                 throw IllegalArgumentException("File does not exist: ${this.url}")
             }
+            val cacheKey = "video:$withPrefix:${mediaCacheKey(file)}"
+            synchronized(mediaEncodeCache) { mediaEncodeCache.get(cacheKey) }?.let {
+                return Result.success(it)
+            }
             val encoded = file.encodeToBase64Streaming()
-            if (withPrefix) "data:video/mp4;base64,$encoded" else encoded
+            val base64 = if (withPrefix) "data:video/mp4;base64,$encoded" else encoded
+            synchronized(mediaEncodeCache) { mediaEncodeCache.put(cacheKey, base64) }
+            base64
         }
 
         else -> throw IllegalArgumentException("Unsupported URL format: $url")
@@ -99,8 +120,14 @@ fun UIMessagePart.Audio.encodeBase64(withPrefix: Boolean = true): Result<String>
             if (!file.exists()) {
                 throw IllegalArgumentException("File does not exist: ${this.url}")
             }
+            val cacheKey = "audio:$withPrefix:${mediaCacheKey(file)}"
+            synchronized(mediaEncodeCache) { mediaEncodeCache.get(cacheKey) }?.let {
+                return Result.success(it)
+            }
             val encoded = file.encodeToBase64Streaming()
-            if (withPrefix) "data:audio/mp3;base64,$encoded" else encoded
+            val base64 = if (withPrefix) "data:audio/mp3;base64,$encoded" else encoded
+            synchronized(mediaEncodeCache) { mediaEncodeCache.put(cacheKey, base64) }
+            base64
         }
 
         else -> throw IllegalArgumentException("Unsupported URL format: $url")

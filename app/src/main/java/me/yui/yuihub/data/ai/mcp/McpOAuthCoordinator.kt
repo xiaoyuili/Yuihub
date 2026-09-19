@@ -21,10 +21,8 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "McpOAuthCoordinator"
 private const val TOKEN_REFRESH_LEEWAY_MS = 60_000L
-internal const val MCP_OAUTH_CALLBACK_PORT = 52_134
 internal const val MCP_OAUTH_CALLBACK_PATH = "/oauth/callback"
-internal const val MCP_OAUTH_REDIRECT_URI =
-    "http://127.0.0.1:$MCP_OAUTH_CALLBACK_PORT$MCP_OAUTH_CALLBACK_PATH"
+// 回调端口由系统随机分配（port=0），redirect_uri 以会话启动后实际解析出的地址为准
 private val OAUTH_CALLBACK_TIMEOUT = 5.minutes
 
 /**
@@ -154,7 +152,7 @@ internal class McpOAuthCoordinator(
         val callbackSession = callbackServer.openSession(context, state)
         try {
             val redirectUri = callbackSession.redirectUri
-            check(redirectUri == MCP_OAUTH_REDIRECT_URI) {
+            check(redirectUri.startsWith("http://127.0.0.1:") && redirectUri.endsWith(MCP_OAUTH_CALLBACK_PATH)) {
                 "OAuth 回调服务器地址不一致: $redirectUri"
             }
             val existing = config.commonOptions.oauth

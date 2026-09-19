@@ -56,6 +56,10 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
                     "thinking" -> contentBlock["signature"]?.jsonPrimitive?.contentOrNull?.let {
                         ClaudeReasoningMetadata(signature = it).toMetadata()
                     }
+                    // redacted_thinking 没有明文思考内容, 只有加密 data, 多轮工具对话必须原样回传
+                    "redacted_thinking" -> contentBlock["data"]?.jsonPrimitive?.contentOrNull?.let {
+                        ClaudeReasoningMetadata(redactedThinkingData = it).toMetadata()
+                    }
                     else -> null
                 }
                 blocks[index] = ClaudeStreamBlock(kind, blockId, metadata)
@@ -107,7 +111,8 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
             }
 
             if (event.event == "content_block_delta" && index != null) {
-                val block = blocks[index] ?: error("Unknown content block index: $index")
+                // 中转站可能丢块/乱序：index 查不到时跳过该 delta，不中断整条流
+                val block = blocks[index] ?: return DecodeResult(emptyList())
                 val delta = dataJson["delta"]?.jsonObject ?: JsonObject(emptyMap())
                 when (delta["type"]?.jsonPrimitive?.contentOrNull) {
                     "text_delta" -> add(StreamChunk.TextDelta(
@@ -138,7 +143,8 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
             }
 
             if (event.event == "content_block_stop" && index != null) {
-                val block = blocks.remove(index) ?: error("Unknown content block index: $index")
+                // 同上：未知 index 的 stop 事件跳过
+                val block = blocks.remove(index) ?: return DecodeResult(emptyList())
                 endBlock(block)?.let(::add)
             }
         }

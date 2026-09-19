@@ -51,7 +51,8 @@ class ProotShellRunner(
         }
 
         context.tempDir.mkdirs()
-        // /etc/hosts、/etc/group 等补丁是读-改-写, 并发命令交错执行会写坏文件, 串行化
+        // /etc/hosts、/etc/group 等补丁是读-改-写, 并发命令交错执行会写坏文件, 串行化。
+        // patch 内部有 marker 幂等短路，已打过补丁时只是几次文件 stat，开销可忽略。
         synchronized(patcher) {
             patcher.patch(context.linuxDir)
         }

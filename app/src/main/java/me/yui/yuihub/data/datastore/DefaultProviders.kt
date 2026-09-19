@@ -31,7 +31,7 @@ private val LEGACY_BUILTIN_PROVIDER_IDS = setOf(
 fun List<ProviderSetting>.withoutLegacyBuiltinProviders(): List<ProviderSetting> =
     filterNot { it.id in LEGACY_BUILTIN_PROVIDER_IDS }
 
-val DEFAULT_PROVIDERS = listOf(
+val DEFAULT_PROVIDERS: List<ProviderSetting> = listOf(
     ProviderSetting.OpenAI(
         id = Uuid.parse("f099ad5b-ef03-446d-8e78-7e36787f780b"),
         name = "DeepSeek",

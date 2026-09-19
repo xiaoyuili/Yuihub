@@ -114,15 +114,10 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 .build()
         } else {
             val key = keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString())
-            if (providerSetting.vertexAI) {
-                request.newBuilder()
-                    .url(request.url.newBuilder().addQueryParameter("key", key).build())
-                    .build()
-            } else {
-                request.newBuilder()
-                    .addHeader("x-goog-api-key", key)
-                    .build()
-            }
+            // key 走 header 而非 URL query, 避免 key 随完整 URL 进入日志与代理记录
+            request.newBuilder()
+                .addHeader("x-goog-api-key", key)
+                .build()
         }
     }
 
@@ -148,21 +143,33 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
                     // 忽略非chat/embedding模型
                     val supportedGenerationMethods =
-                        modelObject["supportedGenerationMethods"]!!.jsonArray
-                            .map { method -> method.jsonPrimitive.content }
+                        modelObject["supportedGenerationMethods"]?.jsonArray
+                            ?.map { method -> method.jsonPrimitive.content }.orEmpty()
                     if ("generateContent" !in supportedGenerationMethods && "embedContent" !in supportedGenerationMethods) {
                         return@mapNotNull null
                     }
 
+                    val name = modelObject["name"]?.jsonPrimitive?.content
+                    if (name == null) {
+                        Log.w(TAG, "listModels: skip model entry without name: $modelObject")
+                        return@mapNotNull null
+                    }
+
                     Model(
-                        modelId = modelObject["name"]!!.jsonPrimitive.content.substringAfter("/"),
-                        displayName = modelObject["displayName"]!!.jsonPrimitive.content,
+                        modelId = name.substringAfter("/"),
+                        displayName = modelObject["displayName"]?.jsonPrimitive?.content
+                            ?: name.substringAfter("/"),
                         type = if ("generateContent" in supportedGenerationMethods) ModelType.CHAT else ModelType.EMBEDDING,
                         contextLength = parseContextLength(modelObject),
                     )
                 }
             } else {
-                emptyList()
+                val errorBody = response.body?.string()?.take(500)
+                throw HttpException(
+                    message = "Failed to list models: ${response.code} $errorBody",
+                    code = response.code,
+                    retryAfterMs = response.retryAfterMsOrNull(),
+                )
             }
         }
 
@@ -269,7 +276,9 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 type: String?,
                 data: String
             ) {
-                Log.i(TAG, "onEvent: $data")
+                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                    Log.d(TAG, "onEvent: $data")
+                }
 
                 try {
                     val result = decoder.accept(SseEvent(id = id, event = type, data = data))
@@ -288,15 +297,13 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             ) {
                 var exception = t
 
-                t?.printStackTrace()
-                println("[onFailure] 发生错误: ${t?.message}")
+                Log.w(TAG, "onFailure: ${t?.message}")
 
                 try {
                     if (t == null && response != null) {
                         val bodyStr = response.body.stringSafe()
                         if (!bodyStr.isNullOrEmpty()) {
                             val bodyElement = json.parseToJsonElement(bodyStr)
-                            println(bodyElement)
                             if (bodyElement is JsonObject) {
                                 exception = HttpException(
                                     message = bodyElement["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
@@ -322,7 +329,6 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             }
 
             override fun onClosed(eventSource: EventSource) {
-                println("[onClosed] 连接已关闭")
                 sendChunks(decoder.onClosed())
                 close()
             }
@@ -332,7 +338,6 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 .newEventSource(request, listener)
 
         awaitClose {
-            println("[awaitClose] 关闭eventSource")
             eventSource.cancel()
         }
         // trySend 在缓冲满时会静默丢弃 delta，导致回复中间缺字 (#1295)，因此缓冲必须无界
@@ -547,7 +552,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
     private fun parseMessageParts(parts: JsonArray?): List<UIMessagePart> = buildList {
         parts.orEmpty().forEachIndexed { index, element ->
-            val part = parseMessagePart(element.jsonObject, index)
+            val part = parseMessagePart(element.jsonObject, index) ?: return@forEachIndexed
             if (part !is UIMessagePart.ServerTool) {
                 add(part)
                 return@forEachIndexed
@@ -573,7 +578,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         }
     }
 
-    private fun parseMessagePart(jsonObject: JsonObject, index: Int): UIMessagePart {
+    private fun parseMessagePart(jsonObject: JsonObject, index: Int): UIMessagePart? {
         return when {
             jsonObject.containsKey("text") -> {
                 val thought = jsonObject["thought"]?.jsonPrimitive?.booleanOrNull ?: false
@@ -642,8 +647,9 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 val data = inlineData["data"]?.jsonPrimitive?.content ?: ""
                 val thought = jsonObject["thought"]?.jsonPrimitive?.booleanOrNull ?: false
                 val thoughtSignature = jsonObject["thoughtSignature"]?.jsonPrimitive?.contentOrNull
-                require(mime.startsWith("image/")) {
-                    "Only image mime type is supported"
+                if (!mime.startsWith("image/")) {
+                    Log.w(TAG, "parseMessagePart: skip unsupported inlineData mime: $mime")
+                    return null
                 }
                 // 如果是思考过程中的草稿图，直接忽略
                 if (thought) {
@@ -661,7 +667,10 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 )
             }
 
-            else -> error("unknown message part type: $jsonObject")
+            else -> {
+                Log.w(TAG, "parseMessagePart: unknown message part type: $jsonObject")
+                null
+            }
         }
     }
 

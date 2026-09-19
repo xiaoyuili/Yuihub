@@ -19,7 +19,7 @@ object BuiltinSkillManager {
     private const val VERSION_FILE = "builtin_skills_version.txt"
 
     // 与 assets/builtin_skills 内容对齐，更新内置技能时递增此值
-    private const val CURRENT_VERSION = 1
+    private const val CURRENT_VERSION = 2
 
     /**
      * 释放内置技能到 skills 目录。可在任意线程调用；启动时在 IO 线程调用。

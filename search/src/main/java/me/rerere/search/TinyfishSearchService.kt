@@ -73,8 +73,11 @@ object TinyfishSearchService : SearchService<SearchServiceOptions.TinyfishOption
                 .addHeader("X-API-Key", serviceOptions.apiKey)
                 .build()
 
-            val response = httpClient.newCall(request).await()
-            if (response.isSuccessful) {
+            httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body.string().take(500)
+                    error("Tinyfish search failed with code ${response.code}: $errBody")
+                }
                 val responseBody = response.body.string()
                 val searchResponse = json.decodeFromString<TinyfishSearchResponse>(responseBody)
 
@@ -92,8 +95,6 @@ object TinyfishSearchService : SearchService<SearchServiceOptions.TinyfishOption
                         items = items
                     )
                 )
-            } else {
-                error("Tinyfish search failed with code ${response.code}: ${response.message}")
             }
         }
     }
@@ -118,8 +119,11 @@ object TinyfishSearchService : SearchService<SearchServiceOptions.TinyfishOption
                 .addHeader("X-API-Key", serviceOptions.apiKey)
                 .build()
 
-            val response = httpClient.newCall(request).await()
-            if (response.isSuccessful) {
+            httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body.string().take(500)
+                    error("Tinyfish fetch failed with code ${response.code}: $errBody")
+                }
                 val responseBody = response.body.string()
                 val fetchResponse = json.decodeFromString<TinyfishFetchResponse>(responseBody)
 
@@ -138,8 +142,6 @@ object TinyfishSearchService : SearchService<SearchServiceOptions.TinyfishOption
                         }
                     )
                 )
-            } else {
-                error("Tinyfish fetch failed with code ${response.code}: ${response.message}")
             }
         }
     }

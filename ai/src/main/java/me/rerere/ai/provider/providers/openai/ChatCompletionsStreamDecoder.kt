@@ -55,11 +55,12 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
                         message["tool_calls"]?.jsonArrayOrNull?.forEachIndexed { fallbackIndex, element ->
                             val toolCall = element.jsonObjectOrNull ?: return@forEachIndexed
                             val index = toolCall["index"]?.jsonPrimitive?.intOrNull ?: fallbackIndex
-                            val toolId = toolCall["id"]?.jsonPrimitive?.contentOrNull
-                                ?.also { toolIdsByIndex[index] = it }
-                                ?: toolIdsByIndex.getOrPut(index) {
-                                    "${responseId ?: "response"}:tool-$index"
-                                }
+                            // 同一 index 的后续 delta 可能重复带 id（或带不同的 id，如某些中转）；
+                            // 已登记过就不覆盖，避免流状态分裂导致参数丢失
+                            val toolId = toolIdsByIndex.getOrPut(index) {
+                                toolCall["id"]?.jsonPrimitive?.contentOrNull
+                                    ?: "${responseId ?: "response"}:tool-$index"
+                            }
                             val function = toolCall["function"]?.jsonObjectOrNull
                             addAll(streamState.append(
                                 UIMessage(
@@ -96,6 +97,8 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
             payload["role"]?.jsonPrimitive?.contentOrNull?.uppercase() ?: "ASSISTANT"
         )
         val content = payload["content"]?.jsonPrimitiveOrNull?.contentOrNull ?: ""
+        // OpenAI 官方拒答时 delta 只带 refusal 不带 content；不处理会静默丟失导致「空回复」
+        val refusal = payload["refusal"]?.jsonPrimitiveOrNull?.contentOrNull
         val reasoning = payload["reasoning_content"]?.jsonPrimitiveOrNull?.contentOrNull
             ?: payload["reasoning"]?.jsonPrimitiveOrNull?.contentOrNull
             ?: payload["content"]?.takeIf { it is JsonArray }?.let { array ->
@@ -118,12 +121,12 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
                     ))
                 }
                 if (content.isNotEmpty()) add(UIMessagePart.Text(content))
+                if (!refusal.isNullOrEmpty()) add(UIMessagePart.Text(refusal))
                 images.forEach { image ->
                     val imageObject = image.jsonObjectOrNull ?: return@forEach
                     if (imageObject["type"]?.jsonPrimitive?.contentOrNull != "image_url") return@forEach
                     val url = imageObject["image_url"]?.jsonObjectOrNull
                         ?.get("url")?.jsonPrimitive?.contentOrNull ?: return@forEach
-                    require(url.startsWith("data:image")) { "Only data uri is supported" }
                     add(UIMessagePart.Image(url.substringAfter("data:image/png;base64,")))
                 }
             },
@@ -156,8 +159,8 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
         }
     }
 
-    private fun parseAnnotations(array: JsonArray): List<UIMessageAnnotation> = array.map { element ->
-        val type = element.jsonObject["type"]?.jsonPrimitive?.contentOrNull ?: error("type is null")
+    private fun parseAnnotations(array: JsonArray): List<UIMessageAnnotation> = array.mapNotNull { element ->
+        val type = element.jsonObject["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
         when (type) {
             "url_citation" -> UIMessageAnnotation.UrlCitation(
                 title = element.jsonObject["url_citation"]?.jsonObject
@@ -165,7 +168,8 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
                 url = element.jsonObject["url_citation"]?.jsonObject
                     ?.get("url")?.jsonPrimitive?.contentOrNull ?: "",
             )
-            else -> error("unknown annotation type: $type")
+            // 未知类型（file_citation/web_search_result/annotation 等）跳过，供应商随时可能新增
+            else -> null
         }
     }
 
@@ -223,10 +227,16 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
                     }
                     is UIMessagePart.Image -> {
                         addAll(closeText()); addAll(closeReasoning()); addAll(closeTools())
-                        val id = imageId ?: nextId(sourceId, "image").also {
-                            imageId = it; add(StreamChunk.ImageStart(it, metadata = part.metadata))
+                        if (part.url.startsWith("http://") || part.url.startsWith("https://")) {
+                            // hosted URL 不是 base64 数据，无法拼进 data: 前缀的 ImageStart/Delta 流；
+                            // 不发 ImageStart，让 handler 直接以完整 URL 创建图片 part
+                            add(StreamChunk.ImageDelta(nextId(sourceId, "image"), part.url, part.metadata))
+                        } else {
+                            val id = imageId ?: nextId(sourceId, "image").also {
+                                imageId = it; add(StreamChunk.ImageStart(it, metadata = part.metadata))
+                            }
+                            add(StreamChunk.ImageDelta(id, part.url.substringAfter(";base64,", part.url), part.metadata))
                         }
-                        add(StreamChunk.ImageDelta(id, part.url.substringAfter(";base64,", part.url), part.metadata))
                     }
                     else -> Unit
                 }

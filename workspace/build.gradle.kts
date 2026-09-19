@@ -3,22 +3,16 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-// debug 快速验证：只请求 debug 变体时只编 arm64，跳过 x86_64 native 编译
-val taskNames = gradle.startParameter.taskNames
-val isDebugFastBuild = taskNames.isNotEmpty() &&
-    taskNames.all { it.lowercase().contains("debug") } &&
-    taskNames.none { it.lowercase().contains("bundle") }
+// 全 ABI 配置：无论 debug/release 均只编 arm64-v8a 原生库
 
 android {
     namespace = "me.rerere.workspace"
+    // aarch64 容器内只有社区构建的 NDK r29，显式指定以跳过 AGP 默认版本的自动下载
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         ndk {
-            if (isDebugFastBuild) {
-                abiFilters += listOf("arm64-v8a")
-            } else {
-                abiFilters += listOf("arm64-v8a", "x86_64")
-            }
+            abiFilters += listOf("arm64-v8a")
         }
         externalNativeBuild {
             cmake {

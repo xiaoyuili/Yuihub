@@ -443,8 +443,12 @@ private fun ChatPageContent(
                         showFilesSheet = true
                     },
                     contextUsage = run {
-                        // 与自动压缩触发判断同源：发送窗口占用（检查点 + 边界后原文）
-                        val estimated = conversation.estimateWindowTokens(currentChatModel)
+                        // 与自动压缩触发判断同源：发送窗口占用（检查点 + 边界后原文）。
+                        // estimateWindowTokens 是全消息 O(n) 扫描，流式期间每 chunk 都重组，
+                        // 必须按消息树内容缓存，否则每帧都重算全文。
+                        val estimated = remember(conversation.messageNodes, currentChatModel) {
+                            conversation.estimateWindowTokens(currentChatModel)
+                        }
                         ContextUsage(
                             usedTokens = estimated,
                             windowTokens = currentChatModel?.effectiveContextLength()

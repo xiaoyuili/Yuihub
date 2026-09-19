@@ -390,7 +390,9 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                 type: String?,
                 data: String
             ) {
-                Log.d(TAG, "onEvent: type=$type, data=$data")
+                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                    Log.d(TAG, "onEvent: type=$type, data=$data")
+                }
                 try {
                     val result = decoder.accept(SseEvent(id = id, event = type, data = data))
                     sendChunks(result.chunks)
@@ -760,9 +762,15 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
         }
 
         is UIMessagePart.Reasoning -> buildJsonObject {
-            put("type", "thinking")
-            put("thinking", reasoning)
-            metadataAs<ClaudeReasoningMetadata>()?.signature?.let { put("signature", it) }
+            val metadata = metadataAs<ClaudeReasoningMetadata>()
+            if (metadata?.redactedThinkingData != null) {
+                put("type", "redacted_thinking")
+                put("data", metadata.redactedThinkingData)
+            } else {
+                put("type", "thinking")
+                put("thinking", reasoning)
+                metadata?.signature?.let { put("signature", it) }
+            }
         }
 
         else -> null
@@ -817,7 +825,15 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
 
                 "redacted_thinking" -> {
                     val data = block["data"]?.jsonPrimitiveOrNull?.contentOrNull
-                    println(data)
+                    if (!data.isNullOrBlank()) {
+                        val reasoning = UIMessagePart.Reasoning(
+                            reasoning = "",
+                            createdAt = Clock.System.now(),
+                            finishedAt = null
+                        )
+                        reasoning.metadata = ClaudeReasoningMetadata(redactedThinkingData = data).toMetadata()
+                        parts.add(reasoning)
+                    }
                 }
 
                 "tool_use" -> {

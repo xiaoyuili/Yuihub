@@ -102,8 +102,11 @@ object TavilySearchService : SearchService<SearchServiceOptions.TavilyOptions> {
                 .post(body.toString().toRequestBody())
                 .addHeader("Authorization", "Bearer $apiKey")
                 .build()
-            val response = httpClient.newCall(request).await()
-            if (response.isSuccessful) {
+            httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body.string().take(500)
+                    error("response failed #${response.code}: $errBody")
+                }
                 val response = response.body.string().let {
                     json.decodeFromString<SearchResponse>(it)
                 }
@@ -120,8 +123,6 @@ object TavilySearchService : SearchService<SearchServiceOptions.TavilyOptions> {
                         },
                         images = response.images,
                     ))
-            } else {
-                error("response failed #${response.code}")
             }
         }
     }
@@ -144,8 +145,11 @@ object TavilySearchService : SearchService<SearchServiceOptions.TavilyOptions> {
                 .post(body.toString().toRequestBody())
                 .addHeader("Authorization", "Bearer $apiKey")
                 .build()
-            val response = httpClient.newCall(request).await()
-            if (response.isSuccessful) {
+            httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body.string().take(500)
+                    error("response failed #${response.code}: $errBody")
+                }
                 val response = response.body.string().let {
                     json.decodeFromString<ScrapeResponse>(it)
                 }
@@ -159,8 +163,6 @@ object TavilySearchService : SearchService<SearchServiceOptions.TavilyOptions> {
                         }
                     )
                 )
-            } else {
-                error("response failed #${response.code}")
             }
         }
     }

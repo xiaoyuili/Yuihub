@@ -38,8 +38,11 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
     override fun onClosed(): List<StreamChunk> = state.finish()
 
     private fun parseEvent(payload: JsonObject): List<StreamChunk> {
-        val chunkType = payload["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
+        val chunkType = payload["type"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
+        // 兼容非官方中转：部分供应商的 delta/done 事件不带 item_id（官方必带），
+        // 用 output_index 反查 output_item.added 时登记的 item id
         val itemId = payload["item_id"]?.jsonPrimitive?.contentOrNull
+            ?: payload["output_index"]?.jsonPrimitive?.intOrNull?.let { state.itemIdByOutputIndex[it] }
         val contentIndex = payload["content_index"]?.jsonPrimitive?.intOrNull ?: 0
         val summaryIndex = payload["summary_index"]?.jsonPrimitive?.intOrNull ?: contentIndex
         val textId = itemId?.let { "$it:text:$contentIndex" }
@@ -47,42 +50,60 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
         val contentReasoningId = itemId?.let { "$it:reasoning:content:$contentIndex" }
 
         return when (chunkType) {
-            "response.output_text.delta" -> state.textDelta(
-                textId ?: error("item_id not found"),
-                payload["delta"]?.jsonPrimitive?.contentOrNull ?: "",
-            )
-            "response.reasoning_summary_text.delta" -> state.reasoningDelta(
-                summaryReasoningId ?: error("item_id not found"),
-                payload["delta"]?.jsonPrimitive?.contentOrNull ?: "",
-                state.reasoningMetadata[itemId],
-                ReasoningType.SUMMARY_TEXT,
-            )
-            "response.reasoning_text.delta" -> state.reasoningDelta(
-                contentReasoningId ?: error("item_id not found"),
-                payload["delta"]?.jsonPrimitive?.contentOrNull ?: "",
-                state.reasoningMetadata[itemId],
-                ReasoningType.REASONING_TEXT,
-            )
+            "response.output_text.delta" -> {
+                val id = textId ?: return emptyList()
+                state.textDelta(id, payload["delta"]?.jsonPrimitive?.contentOrNull ?: "")
+            }
+            "response.reasoning_summary_text.delta" -> {
+                val id = summaryReasoningId ?: return emptyList()
+                state.reasoningDelta(
+                    id,
+                    payload["delta"]?.jsonPrimitive?.contentOrNull ?: "",
+                    state.reasoningMetadata[itemId],
+                    ReasoningType.SUMMARY_TEXT,
+                )
+            }
+            "response.reasoning_text.delta" -> {
+                val id = contentReasoningId ?: return emptyList()
+                state.reasoningDelta(
+                    id,
+                    payload["delta"]?.jsonPrimitive?.contentOrNull ?: "",
+                    state.reasoningMetadata[itemId],
+                    ReasoningType.REASONING_TEXT,
+                )
+            }
             "response.content_part.added" -> {
                 val part = payload["part"]?.jsonObject ?: return emptyList()
-                if (part["type"]?.jsonPrimitive?.contentOrNull == "output_text") {
-                    state.startText(textId ?: error("item_id not found"))
-                } else emptyList()
+                val id = textId ?: return emptyList()
+                when (part["type"]?.jsonPrimitive?.contentOrNull) {
+                    "output_text" -> state.startText(id)
+                    // refusal 是官方拒答 part 类型，把 refusal 文本当正文呈现，避免「空回复」
+                    "refusal" -> state.startText(id)
+                    else -> emptyList()
+                }
             }
-            "response.content_part.done", "response.output_text.done" ->
-                state.endText(textId ?: error("item_id not found"))
-            "response.reasoning_summary_part.added" -> state.startReasoning(
-                summaryReasoningId ?: error("item_id not found"),
-                state.reasoningMetadata[itemId],
-                ReasoningType.SUMMARY_TEXT,
-            )
+            "response.refusal.delta" -> {
+                // GPT-5o 等官方拒答走独立 refusal 事件族，复用 text 通道呈现
+                val id = textId ?: return emptyList()
+                state.textDelta(id, payload["delta"]?.jsonPrimitive?.contentOrNull ?: "")
+            }
+            "response.content_part.done", "response.output_text.done" -> {
+                val id = textId ?: return emptyList()
+                state.endText(id)
+            }
+            "response.reasoning_summary_part.added" -> {
+                val id = summaryReasoningId ?: return emptyList()
+                state.startReasoning(id, state.reasoningMetadata[itemId], ReasoningType.SUMMARY_TEXT)
+            }
             "response.reasoning_summary_part.done",
             "response.reasoning_summary_text.done",
             "response.reasoning_text.done" -> emptyList()
             "response.output_item.added" -> {
-                val item = payload["item"]?.jsonObject ?: error("chunk item not found")
-                val type = item["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
-                val id = item["id"]?.jsonPrimitive?.content ?: error("chunk id not found")
+                val item = payload["item"]?.jsonObject ?: return emptyList()
+                val type = item["type"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
+                val id = item["id"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
+                // 登记 output_index → item id，供缺 item_id 的 delta/done 事件反查
+                payload["output_index"]?.jsonPrimitive?.intOrNull?.let { state.itemIdByOutputIndex[it] = id }
                 when (type) {
                     "function_call" -> {
                         val callId = item["call_id"]?.jsonPrimitive?.contentOrNull ?: id
@@ -107,9 +128,9 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
                 }
             }
             "response.output_item.done" -> {
-                val item = payload["item"]?.jsonObject ?: error("chunk item not found")
-                val type = item["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
-                val id = item["id"]?.jsonPrimitive?.content ?: error("chunk id not found")
+                val item = payload["item"]?.jsonObject ?: return emptyList()
+                val type = item["type"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
+                val id = item["id"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
                 when (type) {
                     "reasoning" -> {
                         val metadata = OpenAIReasoningMetadata(
@@ -141,14 +162,19 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
                 }
             }
             "response.function_call_arguments.delta" -> {
-                val requiredItemId = itemId ?: error("item_id not found")
+                // 中转站可能不带 item_id（也不发 delta 事件只发 done），反查不到时跳过等 done 补齐
+                val requiredItemId = itemId ?: return emptyList()
                 state.toolDelta(
                     state.toolCallIdsByItemId[requiredItemId] ?: requiredItemId,
                     payload["delta"]?.jsonPrimitive?.contentOrNull ?: "",
                 )
             }
             "response.function_call_arguments.done" -> {
-                val requiredItemId = itemId ?: error("item_id not found")
+                // 部分中转不发 delta 只发 done 且不带 item_id：用 output_index 反查；
+                // 仍拿不到时用当前唯一未闭合的 function_call 兕底（单工具循环场景）
+                val requiredItemId = itemId
+                    ?: state.toolCallIdsByItemId.keys.singleOrNull()
+                    ?: return emptyList()
                 val toolCallId = state.toolCallIdsByItemId[requiredItemId] ?: requiredItemId
                 buildList {
                     if (toolCallId !in state.toolIdsWithInput) {
@@ -161,7 +187,7 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
                 }
             }
             "response.image_generation_call.partial_image" -> {
-                val requiredItemId = itemId ?: error("item_id not found")
+                val requiredItemId = itemId ?: return emptyList()
                 buildList {
                     addAll(state.startImage(requiredItemId))
                     add(StreamChunk.ImageSnapshot(
@@ -240,6 +266,8 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
         val toolCallIdsByItemId = mutableMapOf<String, String>()
         val toolIdsWithInput = mutableSetOf<String>()
         val reasoningMetadata = mutableMapOf<String, JsonObject>()
+        // output_index → item.id：部分中转的 delta/done 事件缺 item_id，靠它反查
+        val itemIdByOutputIndex = mutableMapOf<Int, String>()
         private val openTextIds = linkedSetOf<String>()
         private val openReasoningIds = linkedSetOf<String>()
         private val openImageIds = linkedSetOf<String>()

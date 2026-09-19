@@ -15,7 +15,6 @@ import kotlinx.serialization.json.Json
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.common.http.AcceptLanguageBuilder
 import me.yui.yuihub.BuildConfig
-import me.yui.yuihub.data.ai.AIRequestInterceptor
 import me.yui.yuihub.data.ai.transformers.AssistantTemplateLoader
 import me.yui.yuihub.data.ai.GenerationHandler
 import me.yui.yuihub.data.ai.transformers.TemplateTransformer
@@ -231,9 +230,11 @@ val dataSourceModule = module {
                     chain.proceed(request)
                 }
             }
-            .addInterceptor(AIRequestInterceptor())
             .addInterceptor(HttpLoggingInterceptor().apply {
                 redactHeader("Proxy-Authorization")
+                redactHeader("Authorization")
+                redactHeader("x-api-key")
+                redactHeader("x-goog-api-key")
                 level = HttpLoggingInterceptor.Level.HEADERS
             })
             .build()

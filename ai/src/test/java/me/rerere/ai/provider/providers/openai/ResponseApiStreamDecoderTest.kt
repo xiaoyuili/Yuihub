@@ -319,6 +319,67 @@ class ResponseApiStreamDecoderTest {
         }
     }
 
+    @Test
+    fun `function_call done without item_id should resolve via output_index fallback`() {
+        // 部分中转站不发 delta 事件，done 也不带 item_id（官方必带），
+        // 只带 output_index —— 用 output_item.added 登记的映射反查
+        val decoder = ResponseApiStreamDecoder()
+        decoder.decode(buildJsonObject {
+            put("type", "response.output_item.added")
+            put("output_index", 0)
+            put("item", buildJsonObject {
+                put("type", "function_call")
+                put("id", "fc_1")
+                put("call_id", "call_abc")
+                put("name", "get_weather")
+            })
+        })
+        val chunks = decoder.decode(buildJsonObject {
+            put("type", "response.function_call_arguments.done")
+            put("output_index", 0)
+            put("arguments", "{\"city\":\"北京\"}")
+        })
+
+        val deltas = chunks.filterIsInstance<StreamChunk.ToolCallDelta>()
+        assertEquals(1, deltas.size)
+        assertEquals("call_abc", deltas.single().id)
+        assertTrue(deltas.single().inputDelta.contains("北京"))
+        assertTrue(chunks.last() is StreamChunk.ToolCallEnd)
+    }
+
+    @Test
+    fun `function_call done without item_id should fall back to the only open call`() {
+        // output_index 反查也失败时（如事件缺 output_index），单工具场景用唯一未闭合 call 兕底
+        val decoder = ResponseApiStreamDecoder()
+        decoder.decode(buildJsonObject {
+            put("type", "response.output_item.added")
+            put("item", buildJsonObject {
+                put("type", "function_call")
+                put("id", "fc_2")
+                put("call_id", "call_xyz")
+                put("name", "get_time")
+            })
+        })
+        val chunks = decoder.decode(buildJsonObject {
+            put("type", "response.function_call_arguments.done")
+            put("arguments", "{}")
+        })
+
+        assertTrue(chunks.last() is StreamChunk.ToolCallEnd)
+        assertEquals("call_xyz", (chunks.last() as StreamChunk.ToolCallEnd).id)
+    }
+
+    @Test
+    fun `events missing item_id entirely should be skipped instead of failing the stream`() {
+        // 无 output_index 也无 tool 上下文的事件：跳过而不炸流
+        val decoder = ResponseApiStreamDecoder()
+        val chunks = decoder.decode(buildJsonObject {
+            put("type", "response.output_text.delta")
+            put("delta", "orphan text")
+        })
+        assertTrue(chunks.isEmpty())
+    }
+
     private fun webSearchItem(status: String) = buildJsonObject {
         put("type", "web_search_call")
         put("id", "ws_1")

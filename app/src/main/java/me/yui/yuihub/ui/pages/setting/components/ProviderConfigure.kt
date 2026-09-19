@@ -123,14 +123,17 @@ fun ProviderSetting.convertTo(type: KClass<out ProviderSetting>): ProviderSettin
 
 internal fun ProviderSetting.defaultBaseUrlForReset(): String {
     val defaultProvider = DEFAULT_PROVIDERS.find { it.id == id }
-    return when (this) {
-        is ProviderSetting.OpenAI -> (defaultProvider as? ProviderSetting.OpenAI)?.baseUrl
-            ?: ProviderSetting.OpenAI().baseUrl
-        is ProviderSetting.Google -> (defaultProvider as? ProviderSetting.Google)?.baseUrl
-            ?: ProviderSetting.Google().baseUrl
-        is ProviderSetting.Claude -> (defaultProvider as? ProviderSetting.Claude)?.baseUrl
-            ?: ProviderSetting.Claude().baseUrl
+    // DEFAULT_PROVIDERS 静态类型是 List<ProviderSetting>（baseUrl 不在基类上），
+    // 必须在同类型分支内完成收窄与取值；同 id 但类型不同的默认项视为不存在
+    val matchedBaseUrl = when (this) {
+        is ProviderSetting.OpenAI ->
+            (defaultProvider as? ProviderSetting.OpenAI)?.baseUrl ?: ProviderSetting.OpenAI().baseUrl
+        is ProviderSetting.Google ->
+            (defaultProvider as? ProviderSetting.Google)?.baseUrl ?: ProviderSetting.Google().baseUrl
+        is ProviderSetting.Claude ->
+            (defaultProvider as? ProviderSetting.Claude)?.baseUrl ?: ProviderSetting.Claude().baseUrl
     }
+    return matchedBaseUrl
 }
 
 internal fun ProviderSetting.resetBaseUrlToDefault(): ProviderSetting {
@@ -211,7 +214,7 @@ private fun ProviderConfigureOpenAI(
     var keyVisible by remember { mutableStateOf(false) }
     OutlinedTextField(
         value = provider.apiKey,
-        onValueChange = { onEdit(provider.copy(apiKey = it.trim())) },
+        onValueChange = { onEdit(provider.copy(apiKey = it)) },
         label = { Text(stringResource(R.string.setting_provider_page_api_key)) },
         modifier = Modifier.fillMaxWidth(),
         maxLines = 3,
@@ -301,7 +304,7 @@ private fun ProviderConfigureClaude(
     var keyVisible by remember { mutableStateOf(false) }
     OutlinedTextField(
         value = provider.apiKey,
-        onValueChange = { onEdit(provider.copy(apiKey = it.trim())) },
+        onValueChange = { onEdit(provider.copy(apiKey = it)) },
         label = { Text(stringResource(R.string.setting_provider_page_api_key)) },
         modifier = Modifier.fillMaxWidth(),
         maxLines = 3,
@@ -413,7 +416,7 @@ private fun ProviderConfigureGoogle(
         var keyVisible by remember { mutableStateOf(false) }
         OutlinedTextField(
             value = provider.apiKey,
-            onValueChange = { onEdit(provider.copy(apiKey = it.trim())) },
+            onValueChange = { onEdit(provider.copy(apiKey = it)) },
             label = { Text(stringResource(R.string.setting_provider_page_api_key)) },
             modifier = Modifier.fillMaxWidth(),
             maxLines = 3,

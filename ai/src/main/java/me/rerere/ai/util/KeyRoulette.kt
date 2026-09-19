@@ -46,8 +46,14 @@ private const val EXPIRE_DURATION_MS = 24 * 60 * 60 * 1000L // 1 天
 // 全局文件锁，防止多个 provider 实例并发读写同一文件
 private object LruFileLock
 
-// 文件结构: Map<providerId, Map<apiKey, lastUsedTimestamp>>
+// 文件结构: Map<providerId, Map<apiKeySha256, lastUsedTimestamp>>
+// 持久化只存 key 的 SHA-256 摘要，避免明文密钥随 cacheDir 备份/调试外泄
 private typealias LruCache = Map<String, Map<String, Long>>
+
+private fun keyFingerprint(key: String): String =
+    java.security.MessageDigest.getInstance("SHA-256")
+        .digest(key.toByteArray())
+        .joinToString("") { "%02x".format(it) }
 
 private class LruKeyRoulette(
     private val context: Context,
@@ -61,16 +67,22 @@ private class LruKeyRoulette(
             val now = System.currentTimeMillis()
             val allCache = loadCache().toMutableMap()
 
-            // 取本 provider 的记录，过滤掉已过期条目和不在当前 key 列表中的条目
+            // 取本 provider 的记录，过滤掉已过期和不在当前 key 列表中的条目（按指纹比对）
+            val fingerprints = keyList.associateWith(::keyFingerprint)
+            val fingerprintSet = fingerprints.values.toSet()
             val providerCache = (allCache[providerId] ?: emptyMap())
-                .filter { (k, lastUsed) -> k in keyList && now - lastUsed < EXPIRE_DURATION_MS }
+                .filterKeys { it in fingerprintSet }
+                .filterValues { now - it < EXPIRE_DURATION_MS }
                 .toMutableMap()
 
             // 优先选从未使用的 key，否则选最久未使用的
-            val selected = keyList.firstOrNull { it !in providerCache }
-                ?: providerCache.minByOrNull { it.value }!!.key
+            val selected = keyList.firstOrNull { fingerprints.getValue(it) !in providerCache }
+                ?: fingerprints.entries
+                    .filter { it.value in providerCache }
+                    .minBy { providerCache.getValue(it.value) }
+                    .key
 
-            providerCache[selected] = now
+            providerCache[fingerprints.getValue(selected)] = now
             allCache[providerId] = providerCache
 
             // 清理整个 provider 条目均已过期的记录

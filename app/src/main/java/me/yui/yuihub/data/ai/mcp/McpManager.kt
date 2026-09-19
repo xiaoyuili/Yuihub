@@ -66,8 +66,9 @@ class McpManager(
     }
 
     private val statusStore = McpStatusStore()
+    // port=0 让系统分配随机高位端口：固定端口会被同设备其它应用抢占或抢先回调（OAuth 2.1 建议）
     private val oauthCallbackServer = OAuthLoopbackCallbackServer(
-        port = MCP_OAUTH_CALLBACK_PORT,
+        port = 0,
         callbackPath = MCP_OAUTH_CALLBACK_PATH,
     )
     private val oauthCoordinator = McpOAuthCoordinator(

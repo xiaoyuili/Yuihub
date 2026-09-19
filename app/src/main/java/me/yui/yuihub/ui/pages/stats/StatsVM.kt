@@ -3,7 +3,7 @@ package me.yui.yuihub.ui.pages.stats
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -45,8 +45,6 @@ class StatsVM(
     }
 
     private suspend fun loadStats() {
-        delay(50)
-
         val today = LocalDate.now()
         val startDate = today.minusDays(29).toString()
 

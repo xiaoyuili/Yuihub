@@ -184,7 +184,9 @@ class ChatCompletionsAPI(
                 type: String?,
                 data: String
             ) {
-                Log.d(TAG, "onEvent: $data")
+                if (Log.isLoggable(TAG, Log.DEBUG)) {
+                    Log.d(TAG, "onEvent: $data")
+                }
                 try {
                     val result = decoder.accept(SseEvent(id = id, event = type, data = data))
                     sendChunks(result.chunks)
@@ -197,8 +199,7 @@ class ChatCompletionsAPI(
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 var exception = t
 
-                t?.printStackTrace()
-                println("[onFailure] 发生错误: ${t?.javaClass?.name} ${t?.message} / $response")
+                Log.w(TAG, "onFailure: ${t?.javaClass?.name} ${t?.message} / $response")
 
                 val code = response?.code
                 val retryAfterMs = response?.retryAfterMsOrNull()
@@ -206,7 +207,6 @@ class ChatCompletionsAPI(
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
-                        println(bodyElement)
                         exception = bodyElement.parseErrorDetail(code, retryAfterMs)
                         Log.i(TAG, "onFailure: $exception")
                     }
@@ -229,7 +229,6 @@ class ChatCompletionsAPI(
         val eventSource = EventSources.createFactory(client).newEventSource(request, listener)
 
         awaitClose {
-            println("[awaitClose] 关闭eventSource ")
             eventSource.cancel()
         }
         // trySend 在缓冲满时会静默丢弃 delta，导致回复中间缺字 (#1295)，因此缓冲必须无界
@@ -259,7 +258,16 @@ class ChatCompletionsAPI(
                 if (params.temperature != null) put("temperature", params.temperature)
                 if (params.topP != null) put("top_p", params.topP)
             }
-            if (params.maxTokens != null) put("max_tokens", params.maxTokens)
+            // OpenAI o 系/GPT-5 只接受 max_completion_tokens, 传 max_tokens 会报 unsupported_parameter
+            if (params.maxTokens != null) {
+                if (ModelRegistry.OPENAI_O_MODELS.match(params.model.modelId) ||
+                    ModelRegistry.GPT_5.match(params.model.modelId)
+                ) {
+                    put("max_completion_tokens", params.maxTokens)
+                } else {
+                    put("max_tokens", params.maxTokens)
+                }
+            }
 
             put("stream", stream)
             if (stream) {
@@ -738,6 +746,8 @@ class ChatCompletionsAPI(
 
         // 也许支持其他模态的输出content?
         val content = jsonObject["content"]?.jsonPrimitiveOrNull?.contentOrNull ?: ""
+        // OpenAI 官方拒答时只带 refusal 不带 content；不处理会静默丟失导致「空回复」
+        val refusal = jsonObject["refusal"]?.jsonPrimitiveOrNull?.contentOrNull
         val reasoning = jsonObject["reasoning_content"]?.jsonPrimitiveOrNull?.contentOrNull
             ?: jsonObject["reasoning"]?.jsonPrimitiveOrNull?.contentOrNull
             ?: jsonObject["content"]?.takeIf { it is JsonArray }?.let { arr ->
@@ -768,7 +778,8 @@ class ChatCompletionsAPI(
                 }
                 toolCalls.forEach { toolCalls ->
                     val type = toolCalls.jsonObject["type"]?.jsonPrimitive?.contentOrNull
-                    if (!type.isNullOrEmpty() && type != "function") error("tool call type not supported: $type")
+                    // 非 function 类型（custom 等）跳过，不中断整个响应解析
+                    if (!type.isNullOrEmpty() && type != "function") return@forEach
                     val toolCallId = toolCalls.jsonObject["id"]?.jsonPrimitive?.contentOrNull
                     val toolName =
                         toolCalls.jsonObject["function"]?.jsonObject?.get("name")?.jsonPrimitive?.contentOrNull
@@ -784,12 +795,12 @@ class ChatCompletionsAPI(
                     )
                 }
                 if (content.isNotEmpty()) add(UIMessagePart.Text(content))
+                if (!refusal.isNullOrEmpty()) add(UIMessagePart.Text(refusal))
                 images.forEach { image ->
                     val imageObject = image.jsonObjectOrNull ?: return@forEach
                     val type = imageObject["type"]?.jsonPrimitive?.contentOrNull ?: return@forEach
                     if (type != "image_url") return@forEach
                     val url = imageObject["image_url"]?.jsonObjectOrNull?.get("url")?.jsonPrimitive?.contentOrNull ?: return@forEach
-                    require(url.startsWith("data:image")) { "Only data uri is supported" }
                     add(UIMessagePart.Image(url))
                 }
             },
@@ -802,9 +813,9 @@ class ChatCompletionsAPI(
     }
 
     private fun parseAnnotations(jsonArray: JsonArray): List<UIMessageAnnotation> {
-        return jsonArray.map { element ->
+        return jsonArray.mapNotNull { element ->
             val type =
-                element.jsonObject["type"]?.jsonPrimitive?.contentOrNull ?: error("type is null")
+                element.jsonObject["type"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
             when (type) {
                 "url_citation" -> {
                     UIMessageAnnotation.UrlCitation(
@@ -815,7 +826,8 @@ class ChatCompletionsAPI(
                     )
                 }
 
-                else -> error("unknown annotation type: $type")
+                // 未知类型跳过，供应商随时可能新增（file_citation 等）
+                else -> null
             }
         }
     }

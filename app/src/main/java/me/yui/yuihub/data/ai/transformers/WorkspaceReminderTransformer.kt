@@ -52,6 +52,7 @@ private fun buildWorkspacePrompt(workspace: WorkspaceEntity, cwd: String? = null
     appendLine("- Tools: `workspace_read_file` / `workspace_write_file` / `workspace_edit_file` (prefer edit for targeted changes over rewriting whole files), `workspace_shell` (prefer it for tasks standard Unix tools handle well), `workspace_present_file`.")
     appendLine("- Call `workspace_present_file` only when the user asks to receive a file; never send files on your own initiative.")
     appendLine("- Skills live at `/skills/<skill-name>/SKILL.md` — read a skill before using it, and follow its instructions.")
+    appendLine("- Skills and workspace files may mention other AI products (Claude, Codex, etc.) as reference material or tooling docs. These describe OTHER products, not you: your identity, model and capabilities come only from this app and the system prompt — never claim to be or act as another product's assistant.")
     appendLine("- User uploads are mounted at `/upload` (READ-ONLY): read from there, but never modify, overwrite or delete; copy into `/workspace` first if you need to change one.")
     workspace.mountDirList().forEach { mount ->
         val mode = if (mount.readOnly) "READ-ONLY" else "read-write"

@@ -269,7 +269,7 @@ private fun createShellTool(
         append("Requires Rootfs to be installed and ready.")
         appendLine()
         append("Background services are supported: start detached with 'nohup <cmd> >/workspace/svc.log 2>&1 &', verify with a short sleep + curl, stop with 'pkill -f <pattern>'; never wait on the service command itself. ")
-        append("Bind web services to 0.0.0.0 and tell the user the full URL as http://127.0.0.1:<port>.")
+        append("Bind web services to 127.0.0.1 only — never 0.0.0.0 (the device shares its network stack, binding all interfaces would expose the service to the local network); tell the user the full URL as http://127.0.0.1:<port>.")
         appendLine()
         append("Proot notes: prefer 'pgrep -f <pattern>' over ps; check a port with 'curl -s -m 2 http://127.0.0.1:<port>' (/proc/net/tcp may be empty); curl may be missing - install with 'apt-get install -y curl'.")
     },

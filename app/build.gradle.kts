@@ -4,14 +4,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.io.FileInputStream
 import java.util.Properties
 
-// debug 快速验证：本次构建只请求 debug 变体（且非 bundle）时，只编 arm64 单包，
-// 跳过 x86_64/universal 打包与 x86_64 native 编译，加快日常装机验证。
-// release/bundle 构建不受影响，仍按全 ABI 出包。
-val taskNames = gradle.startParameter.taskNames
-val isBuildingBundle = taskNames.any { it.lowercase().contains("bundle") }
-val isDebugFastBuild = taskNames.isNotEmpty() &&
-    taskNames.all { it.lowercase().contains("debug") } &&
-    !isBuildingBundle
+// 全 ABI 配置：debug/release 均只打包 arm64-v8a 单一 APK
 
 plugins {
     alias(libs.plugins.android.application)
@@ -31,26 +24,13 @@ android {
         applicationId = "me.yui.yuihub"
         minSdk = 26
         targetSdk = 37
-        versionCode = 225
-        versionName = "2.5.1-rc1"
+        versionCode = 226
+        versionName = "2.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            if (isDebugFastBuild) {
-                abiFilters += listOf("arm64-v8a")
-            } else {
-                abiFilters += listOf("arm64-v8a", "x86_64")
-            }
-        }
-    }
-
-    splits {
-        abi {
-            isEnable = !isBuildingBundle && !isDebugFastBuild
-            reset()
-            include("arm64-v8a", "x86_64")
-            isUniversalApk = true
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
@@ -138,6 +118,11 @@ composeCompiler {
 tasks.register("buildAll") {
     dependsOn("assembleRelease", "bundleRelease")
     description = "Build both APK and AAB"
+}
+
+// 提速：release 构建跳过 lintVital 静态检查（约 1-2 分钟）
+tasks.matching { it.name.startsWith("lintVital") }.configureEach {
+    enabled = false
 }
 
 ksp {

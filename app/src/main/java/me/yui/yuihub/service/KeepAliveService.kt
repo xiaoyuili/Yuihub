@@ -121,7 +121,9 @@ class KeepAliveService : Service() {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
             .apply {
                 setReferenceCounted(false)
-                runCatching { acquire() }.onFailure { Log.e(TAG, "Failed to acquire wake lock", it) }
+                // 保活服务生命周期与前台服务一致，超时兜底防异常路径上永久持有
+                runCatching { acquire(24 * 60 * 60 * 1000L) }
+                    .onFailure { Log.e(TAG, "Failed to acquire wake lock", it) }
             }
     }
 

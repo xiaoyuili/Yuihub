@@ -22,11 +22,13 @@ import me.rerere.ai.util.json
 sealed interface PartMetadata
 
 /**
- * Claude thinking block 的元数据, 回传时需要携带 signature
+ * Claude thinking block 的元数据, 回传时需要携带 signature;
+ * redactedThinkingData 保留 redacted_thinking 块的加密 data, 回传时原样还原该块
  */
 @Serializable
 data class ClaudeReasoningMetadata(
     val signature: String? = null,
+    val redactedThinkingData: String? = null,
 ) : PartMetadata
 
 /**

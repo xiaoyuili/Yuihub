@@ -7,6 +7,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.dao.WorkspaceDAO
@@ -412,6 +414,31 @@ class WorkspaceRepository(
         }
     }
 
+    /**
+     * 串行执行 apt 系命令（update/install）。
+     *
+     * rootfs 内 apt 全局只有一把文件锁（/var/lib/apt/lists、dpkg lock），并发必抦：
+     * 后到者直接 rc=100（E: Unable to lock directory），而不是等待。已知的真实场景：
+     * 装完 rootfs 后台自动装 curl 的 update 与用户点「一键配置镜像」的 update 相撞，
+     * 报「镜像源已写入，但刷新 apt 包列表失败」，实际重进就好了——就是锁冲突。
+     * 同一 workspace 的 apt 命令在应用侧排队，彻底消除这个窗口。
+     */
+    private val aptMutexes = java.util.concurrent.ConcurrentHashMap<String, Mutex>()
+
+    private fun aptMutex(root: String): Mutex = aptMutexes.getOrPut(root) { Mutex() }
+
+    suspend fun executeAptCommand(
+        id: String,
+        command: String,
+        cwd: String = "",
+        timeoutMillis: Long = WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS,
+    ): WorkspaceCommandResult {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        return aptMutex(workspace.root).withLock {
+            executeCommand(id, command, cwd, timeoutMillis)
+        }
+    }
+
     /** 暴露给交互终端: 与 AI 工具共用同一份 PRoot 参数组装 */
     fun prootArgs(root: String, cwd: String, mounts: List<WorkspaceMountDir>): List<String> =
         manager.buildProotArgs(root, cwd, mounts.map { manager.bindMountFor(it) })
@@ -460,7 +487,7 @@ class WorkspaceRepository(
     private fun installCommonNetworkToolsAsync(id: String) {
         appScope.launch(Dispatchers.IO) {
             runCatching {
-                executeCommand(
+                executeAptCommand(
                     id = id,
                     command = "command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y --no-install-recommends curl; }",
                     timeoutMillis = 300_000L,
@@ -525,9 +552,11 @@ class WorkspaceRepository(
 
     /** @return 索引刷新状态与失败原因文本 */
     private suspend fun refreshAptIndex(id: String): Pair<AptIndexRefresh, String?> = try {
-        val result = executeCommand(
+        // 走 apt 互斥通道：避免与后台 curl 安装（installCommonNetworkToolsAsync）撞锁。
+        // AI 手动跑的 apt 命令不经过该通道，snippet 内再做锁冲突重试兑底
+        val result = executeAptCommand(
             id = id,
-            command = "apt-get update -qq",
+            command = APT_LOCK_RETRY_SNIPPET,
             timeoutMillis = APT_INDEX_TIMEOUT_MS,
         )
         when {
@@ -549,6 +578,19 @@ class WorkspaceRepository(
         private const val TAG = "WorkspaceRepository"
         private const val MAX_PREVIEW_BYTES = 512L * 1024
         private const val APT_INDEX_TIMEOUT_MS = 300_000L
+
+        /**
+         * apt 锁冲突重试：锁被其它 apt 进程持有时 update 会立即 rc=100（E: Unable to lock），
+         * 重试最多 6 次 x 2s。只对锁类错误重试，网络/源错误照常立即失败上报。
+         * 用 apt 自身的报错做判断，不依赖 fuser/lsof 等 base 镜像没有的工具。
+         */
+        private const val APT_LOCK_RETRY_SNIPPET =
+            "try=0; while :; do " +
+                "err=\$(apt-get update -qq 2>&1); rc=\$?; " +
+                "if [ \$rc -eq 0 ]; then break; fi; " +
+                "try=\$((try+1)); " +
+                "if [ \$try -ge 6 ] || ! printf '%s' \"\$err\" | grep -Eiq 'unable to lock|locked by another'; then " +
+                "printf '%s\\n' \"\$err\" >&2; exit \$rc; fi; sleep 2; done"
         private const val MAX_ERROR_DETAIL_CHARS = 300
     }
 }

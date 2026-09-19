@@ -150,7 +150,8 @@ class ChatGenerationForegroundService : Service() {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "YuiHub::ChatGeneration")
             .apply {
                 setReferenceCounted(false)
-                runCatching { acquire() }
+                // 生成时长不可预知，用足够长的超时兑底，防异常路径上永久持有
+                runCatching { acquire(2 * 60 * 60 * 1000L) }
                     .onFailure { Log.e(TAG, "Failed to acquire generation wake lock", it) }
             }
     }

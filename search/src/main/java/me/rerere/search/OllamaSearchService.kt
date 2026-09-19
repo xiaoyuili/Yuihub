@@ -74,8 +74,11 @@ object OllamaSearchService : SearchService<SearchServiceOptions.OllamaOptions> {
                 .addHeader("Authorization", "Bearer ${serviceOptions.apiKey}")
                 .build()
 
-            val response = httpClient.newCall(request).await()
-            if (response.isSuccessful) {
+            httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body.string().take(500)
+                    error("Ollama search failed with code ${response.code}: $errBody")
+                }
                 val responseBody = response.body.string()
                 val searchResponse = json.decodeFromString<OllamaSearchResponse>(responseBody)
 
@@ -90,8 +93,6 @@ object OllamaSearchService : SearchService<SearchServiceOptions.OllamaOptions> {
                         }
                     )
                 )
-            } else {
-                error("Ollama search failed with code ${response.code}: ${response.message}")
             }
         }
     }
@@ -114,25 +115,27 @@ object OllamaSearchService : SearchService<SearchServiceOptions.OllamaOptions> {
                 .addHeader("Authorization", "Bearer ${serviceOptions.apiKey}")
                 .build()
 
-            val response = httpClient.newCall(request).await()
-            if (!response.isSuccessful) {
-                error("response failed for url $url #${response.code}")
-            }
-            val responseData = response.body.string().let {
-                json.decodeFromString<OllamaScrapeResponse>(it)
-            }
+            httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body.string().take(500)
+                    error("response failed for url $url #${response.code}: $errBody")
+                }
+                val responseData = response.body.string().let {
+                    json.decodeFromString<OllamaScrapeResponse>(it)
+                }
 
-            ScrapedResult(
-                urls = listOf(
-                    ScrapedResultUrl(
-                        url = url,
-                        content = responseData.content,
-                        metadata = ScrapedResultMetadata(
-                            title = responseData.title
+                ScrapedResult(
+                    urls = listOf(
+                        ScrapedResultUrl(
+                            url = url,
+                            content = responseData.content,
+                            metadata = ScrapedResultMetadata(
+                                title = responseData.title
+                            )
                         )
                     )
                 )
-            )
+            }
         }
     }
 

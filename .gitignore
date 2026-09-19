@@ -14,3 +14,6 @@ local.properties
 # YuiHub fork: 签名密钥不入库
 *.jks
 *.keystore
+
+# AI 项目记忆（本地）
+.aicode/

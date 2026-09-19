@@ -32,8 +32,35 @@ class HostShellRunner : WorkspaceShellRunner {
         return process.readResult(context.timeoutMillis, context.stdin)
     }
 
-    private fun defaultShell(): String =
-        if (File("/system/bin/sh").exists()) "/system/bin/sh" else "/bin/sh"
+    private fun defaultShell(): String = shellProbe()
+
+    private companion object {
+        // /system/bin/sh 在桌面 Linux/PRoot 容器里是 Android bionic 链接的 ELF：
+        // 文件存在、X_OK 通过，但动态加载失败（exec 报 127/ENOENT），File.canExecute()
+        // 检测不出来，只能真实 exec 探测；结果缓存避免每条命令都探测一次
+        @Volatile
+        private var probed: String? = null
+
+        private val candidates = listOf("/system/bin/sh", "/bin/sh", "/usr/bin/sh")
+
+        private fun shellProbe(): String {
+            probed?.let { return it }
+            for (path in candidates) {
+                if (!File(path).exists()) continue
+                val ok = try {
+                    ProcessBuilder(path, "-c", "true").start().waitFor() == 0
+                } catch (_: IOException) {
+                    false
+                }
+                if (ok) {
+                    probed = path
+                    return path
+                }
+            }
+            // 全部探测失败时回退 /bin/sh，让错误从真实的 exec 处暴露
+            return "/bin/sh"
+        }
+    }
 }
 
 // 单个流保留的最大字符数。上限太高会让 npm/apt 这类命令把整段输出塞进上下文，

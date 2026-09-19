@@ -1,5 +1,6 @@
 package me.rerere.ai.provider.providers.google
 
+import android.util.Log
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -24,6 +25,8 @@ import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.json
 import me.rerere.common.http.jsonPrimitiveOrNull
 import kotlin.time.Clock
+
+private const val TAG = "GoogleStreamDecoder"
 
 internal class GoogleStreamDecoder(
     private val responseId: String,
@@ -64,13 +67,13 @@ internal class GoogleStreamDecoder(
 
     private fun parseMessage(content: JsonObject, groundingMetadata: JsonObject?): UIMessage = UIMessage(
         role = MessageRole.ASSISTANT,
-        parts = content["parts"]?.jsonArray?.mapIndexed { index, part ->
+        parts = content["parts"]?.jsonArray?.mapIndexedNotNull { index, part ->
             parsePart(part.jsonObject, index)
         }.orEmpty(),
         annotations = parseAnnotations(groundingMetadata),
     )
 
-    private fun parsePart(part: JsonObject, index: Int): UIMessagePart = when {
+    private fun parsePart(part: JsonObject, index: Int): UIMessagePart? = when {
         part.containsKey("text") -> {
             val text = part["text"]?.jsonPrimitive?.contentOrNull ?: ""
             val metadata = part.toGoogleThoughtMetadata()
@@ -129,7 +132,10 @@ internal class GoogleStreamDecoder(
         part.containsKey("inlineData") -> {
             val inlineData = part["inlineData"]!!.jsonObject
             val mimeType = inlineData["mimeType"]?.jsonPrimitive?.contentOrNull ?: "image/png"
-            require(mimeType.startsWith("image/")) { "Only image mime type is supported" }
+            if (!mimeType.startsWith("image/")) {
+                Log.w(TAG, "parsePart: skip unsupported inlineData mime: $mimeType")
+                return null
+            }
             if (part["thought"]?.jsonPrimitive?.booleanOrNull == true) {
                 UIMessagePart.Reasoning("[Draft Image]\n", Clock.System.now(), null)
             } else {
@@ -139,7 +145,10 @@ internal class GoogleStreamDecoder(
                 )
             }
         }
-        else -> error("unknown message part type: $part")
+        else -> {
+            Log.w(TAG, "parsePart: unknown message part type: $part")
+            null
+        }
     }
 
     private fun parseAnnotations(metadata: JsonObject?): List<UIMessageAnnotation> =
@@ -229,9 +238,11 @@ internal class GoogleStreamDecoder(
                         if (imageCount > 1 && emittedImages > 0) addAll(closeImage())
                         val id = imageId ?: nextId(responseId, "image").also {
                             imageId = it
+                            val mimeType = part.url.substringAfter("data:")
+                                .substringBefore(";base64,", "image/png")
                             add(StreamChunk.ImageStart(
                                 id = it,
-                                mimeType = part.url.substringAfter("data:").substringBefore(";base64,"),
+                                mimeType = mimeType,
                                 metadata = part.metadata,
                             ))
                         }

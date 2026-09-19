@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -39,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.isActive
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
@@ -99,11 +101,16 @@ private fun rememberReasoningState(reasoning: UIMessagePart.Reasoning): Pair<Rea
         )
     }
 
-    LaunchedEffect(reasoning.reasoning, loading) {
+    LaunchedEffect(loading) {
         if (loading) {
             if (!state.expandState.expanded && settings.displaySetting.showThinkingContent)
                 state.expandState = ReasoningCardState.Preview
-            scrollState.animateScrollTo(scrollState.maxValue)
+            // 思考内容增长时跟随滚动到底部；snapshotFlow + distinctUntilChangedOf 避免每 chunk 重启 effect
+            snapshotFlow { scrollState.maxValue }
+                .distinctUntilChanged()
+                .collect {
+                    scrollState.animateScrollTo(it)
+                }
         } else {
             if (state.expandState.expanded) {
                 state.expandState = if (settings.displaySetting.autoCloseThinking)
@@ -220,7 +227,7 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
         },
         label = {
             if (showThinkingTitle) {
-                ReasoningTitle(title = thinkingTitle!!)
+                ReasoningTitle(title = thinkingTitle.orEmpty())
             } else {
                 Text(
                     text = stringResource(

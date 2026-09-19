@@ -65,8 +65,11 @@ object BraveSearchService : SearchService<SearchServiceOptions.BraveOptions> {
                 .addHeader("X-Subscription-Token", serviceOptions.apiKey)
                 .build()
 
-            val response = httpClient.newCall(request).await()
-            if (response.isSuccessful) {
+            httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body.string().take(500)
+                    error("Brave search failed with code ${response.code}: $errBody")
+                }
                 val responseBody = response.body.string()
                 val searchResponse = json.decodeFromString<BraveSearchResponse>(responseBody)
 
@@ -84,8 +87,6 @@ object BraveSearchService : SearchService<SearchServiceOptions.BraveOptions> {
                         items = items
                     )
                 )
-            } else {
-                error("Brave search failed with code ${response.code}: ${response.message}")
             }
         }
     }

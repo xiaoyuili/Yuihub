@@ -20,6 +20,10 @@ class ProviderRetryPolicy(
 ) {
     enum class RetryReason { NETWORK, RATE_LIMITED, SERVER_ERROR }
 
+    private companion object {
+        const val MAX_RETRY_AFTER_MS = 60_000L
+    }
+
     sealed interface Decision {
         data class Retry(val delayMs: Long, val attempt: Int, val reason: RetryReason) : Decision
         data object Fail : Decision
@@ -39,8 +43,9 @@ class ProviderRetryPolicy(
         // 抖动 ±30%：多客户端同时恢复时错峰，避免踩踏
         val jittered = (backoff * (0.7 + 0.6 * Random.nextDouble())).toLong()
         val rateLimitRetryAfter = (error as? HttpException)?.retryAfterMs ?: 0L
+        // Retry-After 设上限：服务器回 3600s 时 UI 会停在「重试中」一小时
         val delay = if (reason == RetryReason.RATE_LIMITED) {
-            maxOf(rateLimitRetryAfter, jittered)
+            maxOf(minOf(rateLimitRetryAfter, MAX_RETRY_AFTER_MS), jittered)
         } else {
             jittered
         }

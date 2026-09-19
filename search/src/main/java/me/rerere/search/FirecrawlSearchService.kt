@@ -122,36 +122,38 @@ object FirecrawlSearchService : SearchService<SearchServiceOptions.FirecrawlOpti
                 }
                 .build()
 
-            val response = httpClient.newCall(request).await()
-            if (!response.isSuccessful) {
-                error("response failed #${response.code}")
-            }
-
-            val bodyString = response.body.string()
-            val payload = json.parseToJsonElement(bodyString).jsonObject
-            val data = payload["data"]?.jsonObject ?: error("empty response data")
-            val resultData = json.decodeFromJsonElement<FirecrawlSearchResultData>(data)
-            val result = buildList {
-                resultData.web?.forEach { item ->
-                    add(SearchResultItem(title = item.title, url = item.url, text = item.description))
+            httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body.string().take(500)
+                    error("response failed #${response.code}: $errBody")
                 }
 
-                resultData.news?.forEach { item ->
-                    add(
-                        SearchResultItem(
-                            title = item.title,
-                            url = item.url,
-                            text = """
-                                ${item.snippet}
-                                ${item.date}
-                            """.trimIndent()
+                val bodyString = response.body.string()
+                val payload = json.parseToJsonElement(bodyString).jsonObject
+                val data = payload["data"]?.jsonObject ?: error("empty response data")
+                val resultData = json.decodeFromJsonElement<FirecrawlSearchResultData>(data)
+                val result = buildList {
+                    resultData.web?.forEach { item ->
+                        add(SearchResultItem(title = item.title, url = item.url, text = item.description))
+                    }
+
+                    resultData.news?.forEach { item ->
+                        add(
+                            SearchResultItem(
+                                title = item.title,
+                                url = item.url,
+                                text = """
+                                    ${item.snippet}
+                                    ${item.date}
+                                """.trimIndent()
+                            )
                         )
-                    )
+                    }
                 }
+                SearchResult(
+                    items = result
+                )
             }
-            SearchResult(
-                items = result
-            )
         }
     }
 
@@ -185,30 +187,32 @@ object FirecrawlSearchService : SearchService<SearchServiceOptions.FirecrawlOpti
                 }
                 .build()
 
-            val response = httpClient.newCall(request).await()
-            if (!response.isSuccessful) {
-                error("response failed #${response.code}")
-            }
+            httpClient.newCall(request).await().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body.string().take(500)
+                    error("response failed #${response.code}: $errBody")
+                }
 
-            val bodyString = response.body.string()
-            val payload = json.parseToJsonElement(bodyString).jsonObject
+                val bodyString = response.body.string()
+                val payload = json.parseToJsonElement(bodyString).jsonObject
 
-            val success = payload["success"]?.jsonPrimitive?.contentOrNull?.toBoolean() ?: false
-            if (!success) {
-                error("scrape request failed")
-            }
+                val success = payload["success"]?.jsonPrimitive?.contentOrNull?.toBoolean() ?: false
+                if (!success) {
+                    error("scrape request failed")
+                }
 
-            val data = payload["data"]?.jsonObject ?: error("empty response data")
-            val markdown = data["markdown"]?.jsonPrimitive?.content ?: ""
+                val data = payload["data"]?.jsonObject ?: error("empty response data")
+                val markdown = data["markdown"]?.jsonPrimitive?.content ?: ""
 
-            ScrapedResult(
-                urls = listOf(
-                    ScrapedResultUrl(
-                        url = url,
-                        content = markdown
+                ScrapedResult(
+                    urls = listOf(
+                        ScrapedResultUrl(
+                            url = url,
+                            content = markdown
+                        )
                     )
                 )
-            )
+            }
         }
     }
 

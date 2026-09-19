@@ -242,8 +242,11 @@ class ChatVM(
 
     fun updateTitle(title: String) {
         viewModelScope.launch {
-            val updatedConversation = conversation.value.copy(title = title)
-            chatService.saveConversation(_conversationId, updatedConversation)
+            // 走带 mutationLock 的更新：直接拿 conversation.value 快照整对象写回，
+            // 会覆盖生成中协程刚追加的消息
+            chatService.updateConversationState(_conversationId) {
+                it.copy(title = title)
+            }
         }
     }
 
