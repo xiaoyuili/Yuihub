@@ -211,8 +211,8 @@ private fun SearchServiceOptionsEditor(
         is SearchServiceOptions.BochaOptions -> {
             BochaOptions(options) { onUpdateOptions(it) }
         }
-        is SearchServiceOptions.YuiHubOptions -> {
-            YuiHubOptions(options) { onUpdateOptions(it) }
+        is SearchServiceOptions.DeepSeekOptions -> {
+            DeepSeekOptions(options) { onUpdateOptions(it) }
         }
         is SearchServiceOptions.GrokOptions -> {
             GrokOptions(options) { onUpdateOptions(it) }
@@ -823,9 +823,9 @@ internal fun BochaOptions(
 }
 
 @Composable
-internal fun YuiHubOptions(
-    options: SearchServiceOptions.YuiHubOptions,
-    onUpdateOptions: (SearchServiceOptions.YuiHubOptions) -> Unit
+internal fun DeepSeekOptions(
+    options: SearchServiceOptions.DeepSeekOptions,
+    onUpdateOptions: (SearchServiceOptions.DeepSeekOptions) -> Unit
 ) {
     FormItem(
         label = {
@@ -843,25 +843,30 @@ internal fun YuiHubOptions(
 
     FormItem(
         label = {
-            Text(stringResource(R.string.search_detail_depth))
+            Text(stringResource(R.string.search_detail_model))
         }
     ) {
-        val depthOptions = listOf("standard", "deep")
-        SingleChoiceSegmentedButtonRow(
+        OutlinedTextField(
+            value = options.model,
+            onValueChange = {
+                onUpdateOptions(options.copy(model = it))
+            },
             modifier = Modifier.fillMaxWidth()
-        ) {
-            depthOptions.forEachIndexed { index, depth ->
-                SegmentedButton(
-                    shape = SegmentedButtonDefaults.itemShape(index = index, count = depthOptions.size),
-                    onClick = {
-                        onUpdateOptions(options.copy(depth = depth))
-                    },
-                    selected = options.depth == depth
-                ) {
-                    Text(depth.replaceFirstChar { it.uppercase() })
-                }
-            }
+        )
+    }
+
+    FormItem(
+        label = {
+            Text(stringResource(R.string.search_detail_custom_url))
         }
+    ) {
+        OutlinedTextField(
+            value = options.baseUrl,
+            onValueChange = {
+                onUpdateOptions(options.copy(baseUrl = it))
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 

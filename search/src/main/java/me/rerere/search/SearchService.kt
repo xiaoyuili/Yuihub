@@ -59,8 +59,8 @@ interface SearchService<T : SearchServiceOptions> {
                 is SearchServiceOptions.FirecrawlOptions -> FirecrawlSearchService
                 is SearchServiceOptions.JinaOptions -> JinaSearchService
                 is SearchServiceOptions.BochaOptions -> BochaSearchService
-                is SearchServiceOptions.YuiHubOptions -> YuiHubSearchService
                 is SearchServiceOptions.GrokOptions -> GrokSearchService
+                is SearchServiceOptions.DeepSeekOptions -> DeepSeekSearchService
                 is SearchServiceOptions.TinyfishOptions -> TinyfishSearchService
                 is SearchServiceOptions.SerperOptions -> SerperSearchService
                 is SearchServiceOptions.CustomJsOptions -> CustomJsSearchService
@@ -142,7 +142,6 @@ sealed class SearchServiceOptions {
 
         val TYPES = mapOf(
             BingLocalOptions::class to "Bing",
-            YuiHubOptions::class to "YuiHub",
             ZhipuOptions::class to "智谱",
             DoubaoOptions::class to "豆包",
             TavilyOptions::class to "Tavily",
@@ -157,6 +156,7 @@ sealed class SearchServiceOptions {
             JinaOptions::class to "Jina",
             BochaOptions::class to "博查",
             GrokOptions::class to "Grok",
+            DeepSeekOptions::class to "DeepSeek",
             TinyfishOptions::class to "Tinyfish",
             SerperOptions::class to "Serper",
             CustomJsOptions::class to "Custom JS",
@@ -273,11 +273,14 @@ sealed class SearchServiceOptions {
     ) : SearchServiceOptions()
 
     @Serializable
-    @SerialName("yuihub")
-    data class YuiHubOptions(
+    @SerialName("deepseek")
+    data class DeepSeekOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
-        val depth: String = "standard",
+        val model: String = "deepseek-flash",
+        val baseUrl: String = "https://api.deepseek.com/anthropic/v1",
+        val maxTokens: Int = 4096,
+        val maxUses: Int = 5,
     ) : SearchServiceOptions()
 
     @Serializable
