@@ -23,6 +23,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
@@ -155,8 +160,8 @@ class SettingsStore(
                 } ?: emptyList(),
                 providers = JsonInstant.decodeFromString(preferences[PROVIDERS] ?: "[]"),
                 assistants = JsonInstant.decodeFromString(preferences[ASSISTANTS] ?: "[]"),
-                dynamicColor = preferences[DYNAMIC_COLOR] != false,
-                themeId = preferences[THEME_ID] ?: PresetThemes[0].id,
+                dynamicColor = preferences[DYNAMIC_COLOR] == true,
+                themeId = preferences[THEME_ID] ?: PresetThemes.find { it.id == "minimal" }?.id ?: PresetThemes[0].id,
                 customThemes = preferences[CUSTOM_THEMES]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
@@ -164,7 +169,23 @@ class SettingsStore(
                 displaySetting = JsonInstant.decodeFromString(preferences[DISPLAY_SETTING] ?: "{}"),
                 networkSetting = JsonInstant.decodeFromString(preferences[NETWORK_SETTING] ?: "{}"),
                 searchServices = preferences[SEARCH_SERVICES]?.let {
-                    JsonInstant.decodeFromString(it)
+                    // 过滤已删除的搜索供应商(如 yuihub): sealed 多态反序列化遇到未知
+                    // SerialName 会直接抛异常, 导致整条设置流不可读
+                    val unknownTypes = setOf("yuihub")
+                    runCatching {
+                        JsonInstant.decodeFromString<List<SearchServiceOptions>>(it)
+                    }.getOrElse { _ ->
+                        runCatching {
+                            val filtered = JsonInstant.parseToJsonElement(it)
+                                .jsonArray
+                                .filterNot { el ->
+                                    el.jsonObject["type"]?.jsonPrimitive?.contentOrNull in unknownTypes
+                                }
+                            JsonInstant.decodeFromString<List<SearchServiceOptions>>(
+                                JsonArray(filtered).toString()
+                            )
+                        }.getOrElse { emptyList() }
+                    }.ifEmpty { listOf(SearchServiceOptions.DEFAULT) }
                 } ?: listOf(SearchServiceOptions.DEFAULT),
                 searchCommonOptions = preferences[SEARCH_COMMON]?.let {
                     JsonInstant.decodeFromString(it)
@@ -317,6 +338,9 @@ class SettingsStore(
     }
 
     suspend fun updateAssistant(assistantId: Uuid) {
+        // 冷启动进聊天页时会调这里; assistantId 未变时直接跳过,
+        // 避免每次启动都全量序列化 27 个 key 写回 DataStore
+        if (settingsFlow.value.assistantId == assistantId) return
         // 走统一的读-改-写：既受 updateMutex 保护，也会同步内存态；
         // 直接 dataStore.edit 会被并发的 update 用旧 assistantId 覆盖回去
         update { it.copy(assistantId = assistantId) }
@@ -390,8 +414,8 @@ class SettingsStore(
 data class Settings(
     @Transient
     val init: Boolean = false,
-    val dynamicColor: Boolean = true,
-    val themeId: String = PresetThemes[0].id,
+    val dynamicColor: Boolean = false,
+    val themeId: String = "minimal",
     val customThemes: List<CustomTheme> = emptyList(),
     val developerMode: Boolean = false,
     val displaySetting: DisplaySetting = DisplaySetting(),

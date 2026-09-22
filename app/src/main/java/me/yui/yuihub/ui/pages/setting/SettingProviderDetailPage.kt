@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -60,6 +61,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MultiChoiceSegmentedButtonRow
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SecondaryTabRow
@@ -1702,6 +1705,10 @@ private fun ContextLengthSetting(
                     .clickable { showDialog = true },
             )
         }
+        ContextLengthQuickPicks(
+            contextLength = contextLength,
+            onSelect = { onUpdate(it) },
+        )
     }
 
     if (showDialog) {
@@ -1713,6 +1720,48 @@ private fun ContextLengthSetting(
             },
             onDismiss = { showDialog = false },
         )
+    }
+}
+
+/** 常用上下文长度快捷气泡：点击直接应用，当前值高亮 */
+@Composable
+private fun ContextLengthQuickPicks(
+    contextLength: Int?,
+    onSelect: (Int?) -> Unit,
+) {
+    val presets = remember {
+        listOf(
+            "1M" to 1_000_000,
+            "922K" to 922_000,
+            "500K" to 500_000,
+            "256K" to 256_000,
+        )
+    }
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(presets.size) { index ->
+            val (label, tokens) = presets[index]
+            AssistChip(
+                onClick = { onSelect(tokens) },
+                label = { Text(label) },
+                colors = AssistChipDefaults.assistChipColors(
+                    containerColor = if (contextLength == tokens) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                ),
+                border = AssistChipDefaults.assistChipBorder(
+                    enabled = true,
+                    borderColor = if (contextLength == tokens) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.outlineVariant
+                    },
+                ),
+            )
+        }
     }
 }
 

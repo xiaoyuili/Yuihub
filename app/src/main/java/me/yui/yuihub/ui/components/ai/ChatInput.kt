@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.widthIn
@@ -68,6 +69,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -756,7 +759,7 @@ data class ContextUsage(
     val windowTokens: Int,
 )
 
-// 上下文占用：细进度条 + 右侧百分比数字；点击弹出具体用量
+// 上下文占用：渐变圆环 + 环心百分比数字（不带 % 符号）；点击弹出具体用量
 @Composable
 private fun ContextUsageBarButton(
     usedTokens: Int,
@@ -769,10 +772,25 @@ private fun ContextUsageBarButton(
         0f
     }
     val isWarning = windowTokens > 0 && fraction >= AUTO_COMPRESS_THRESHOLD_RATIO
-    val barColor = if (isWarning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val primary = MaterialTheme.colorScheme.primary
+    val tertiary = MaterialTheme.colorScheme.tertiary
+    val errorColor = MaterialTheme.colorScheme.error
+    val gradientBrush = if (isWarning) {
+        Brush.sweepGradient(
+            0f to errorColor.copy(alpha = 0.45f),
+            0.5f to errorColor,
+            1f to errorColor.copy(alpha = 0.45f),
+        )
+    } else {
+        Brush.sweepGradient(
+            0f to primary.copy(alpha = 0.55f),
+            0.5f to tertiary,
+            1f to primary,
+        )
+    }
     val trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
     val textColor = if (isWarning) {
-        MaterialTheme.colorScheme.error
+        errorColor
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -785,46 +803,48 @@ private fun ContextUsageBarButton(
 
     Box(
         modifier = Modifier
-            .height(32.dp)
+            .size(34.dp)
             .clip(RoundedCornerShape(percent = 50))
             .clickable { showPopup = true }
-            .padding(horizontal = 6.dp),
+            .padding(2.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Canvas(modifier = Modifier.size(width = 34.dp, height = 5.dp)) {
-                val radius = size.height / 2f
-                drawRoundRect(
-                    color = trackColor,
-                    cornerRadius = CornerRadius(radius),
-                )
-                if (animatedFraction > 0f) {
-                    drawRoundRect(
-                        color = barColor,
-                        size = Size(
-                            width = (size.width * animatedFraction).coerceAtLeast(size.height),
-                            height = size.height,
-                        ),
-                        cornerRadius = CornerRadius(radius),
-                    )
-                }
-            }
-            Text(
-                text = "$percent%",
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 10.5.sp,
-                    lineHeight = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFeatureSettings = "tnum",
-                ),
-                color = textColor,
-                maxLines = 1,
-                modifier = Modifier.widthIn(min = 28.dp),
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val stroke = 3.dp.toPx()
+            val inset = stroke / 2f
+            val arcSize = Size(size.width - stroke, size.height - stroke)
+            drawArc(
+                color = trackColor,
+                startAngle = 0f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
             )
+            if (animatedFraction > 0f) {
+                drawArc(
+                    brush = gradientBrush,
+                    startAngle = -90f,
+                    sweepAngle = 360f * animatedFraction,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = arcSize,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+            }
         }
+        Text(
+            text = "$percent",
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 8.5.sp,
+                lineHeight = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFeatureSettings = "tnum",
+            ),
+            color = textColor,
+            maxLines = 1,
+        )
     }
 
     DropdownMenu(
