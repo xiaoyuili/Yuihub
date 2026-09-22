@@ -32,6 +32,9 @@ class KeepAliveService : Service() {
         private const val ACTION_STOP = "me.yui.yuihub.action.KEEP_AWAKE_STOP"
         private const val WAKE_LOCK_TAG = "YuiHub::KeepAliveWakeLock"
 
+        /** WakeLock 单次授予时长: 到期由 renewWakeLock 续期(服务存活时), 异常路径最多泄漏 1 小时 */
+        private const val WAKE_LOCK_RENEW_INTERVAL_MS = 60 * 60 * 1000L
+
         private var running = false
 
         fun isRunning(): Boolean = running
@@ -59,6 +62,7 @@ class KeepAliveService : Service() {
     }
 
     private var wakeLock: PowerManager.WakeLock? = null
+    private val renewHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -121,13 +125,31 @@ class KeepAliveService : Service() {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)
             .apply {
                 setReferenceCounted(false)
-                // 保活服务生命周期与前台服务一致，超时兜底防异常路径上永久持有
-                runCatching { acquire(24 * 60 * 60 * 1000L) }
+                // 短周期授予: 服务存活时由 handler 周期续期, 异常路径最多泄漏 1 小时而非 24 小时,
+                // 避免 crash 后长期空持 CPU 唤醒锁耗电
+                runCatching { acquire(WAKE_LOCK_RENEW_INTERVAL_MS) }
                     .onFailure { Log.e(TAG, "Failed to acquire wake lock", it) }
             }
+        renewHandler.postDelayed(::renewWakeLock, WAKE_LOCK_RENEW_INTERVAL_MS)
     }
 
+    private fun renewWakeLock() {
+        if (running && wakeLock?.isHeld == true) {
+            runCatching {
+                wakeLock?.release()
+                wakeLock = powerManager()?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG)?.apply {
+                    setReferenceCounted(false)
+                    acquire(WAKE_LOCK_RENEW_INTERVAL_MS)
+                }
+            }.onFailure { Log.e(TAG, "Failed to renew wake lock", it) }
+            renewHandler.postDelayed(::renewWakeLock, WAKE_LOCK_RENEW_INTERVAL_MS)
+        }
+    }
+
+    private fun powerManager(): PowerManager? = getSystemService(Context.POWER_SERVICE) as? PowerManager
+
     private fun releaseWakeLock() {
+        renewHandler.removeCallbacksAndMessages(null)
         wakeLock?.takeIf { it.isHeld }?.runCatching { release() }
         wakeLock = null
     }

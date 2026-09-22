@@ -89,6 +89,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import me.rerere.ai.ui.UIMessage
 import me.yui.yuihub.R
@@ -289,8 +290,15 @@ private fun ChatListNormal(
         // 自动滚动到底部
         if (settings.displaySetting.enableAutoScroll) {
             LaunchedEffect(state) {
-                snapshotFlow { state.layoutInfo.visibleItemsInfo }.collect { visibleItemsInfo ->
-                    // println("is bottom = ${visibleItemsInfo.isAtBottom()}, scroll = ${state.isScrollInProgress}, can_scroll = ${state.canScrollForward}, loading = $loading")
+                // snapshotFlow 每帧布局都会发射, 流式生成时高频空转;
+                // 只关心首尾可见项变化, 加 distinctUntilChanged 消除无效轮次
+                snapshotFlow {
+                    val info = state.layoutInfo.visibleItemsInfo
+                    Triple(info.firstOrNull()?.index, info.lastOrNull()?.index, info.size)
+                }
+                    .distinctUntilChanged()
+                    .collect {
+                    val visibleItemsInfo = state.layoutInfo.visibleItemsInfo
                     if (!state.isScrollInProgress && loadingState) {
                         if (visibleItemsInfo.isAtBottom()) {
                             state.requestScrollToItem(conversationUpdated.messageNodes.lastIndex + 10)
