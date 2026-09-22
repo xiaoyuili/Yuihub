@@ -127,43 +127,66 @@ fun SearchPickerButton(
     }
 
     if (showSearchPicker) {
-        ModalBottomSheet(
-            onDismissRequest = { showSearchPicker = false },
-            sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
-        ) {
-            var selectingProvider by remember { mutableStateOf(false) }
-            AnimatedContent(
-                targetState = selectingProvider,
-                transitionSpec = {
-                    if (targetState) {
-                        slideInHorizontally { it } + fadeIn() togetherWith
-                            slideOutHorizontally { -it } + fadeOut()
-                    } else {
-                        slideInHorizontally { -it } + fadeIn() togetherWith
-                            slideOutHorizontally { it } + fadeOut()
-                    }
-                },
-                label = "SearchPickerPage"
-            ) { selecting ->
-                if (selecting) {
-                    SearchProviderPicker(
-                        settings = settings,
-                        onUpdateSearchService = { index ->
-                            onUpdateSearchService(index)
-                            selectingProvider = false
-                        },
-                        onBack = { selectingProvider = false }
-                    )
+        SearchPickerSheet(
+            enableSearch = enableSearch,
+            settings = settings,
+            model = model,
+            onUpdateSearchMode = onUpdateSearchMode,
+            onUpdateSearchService = onUpdateSearchService,
+            onDismiss = { showSearchPicker = false },
+        )
+    }
+}
+
+/**
+ * 搜索设置面板：从底部拉出的独立窗口（ModalBottomSheet），不挤压/顶掉底层页面。
+ * 输入框工具条与「+」面板共用，保证两处入口行为一致。
+ */
+@Composable
+fun SearchPickerSheet(
+    enableSearch: Boolean,
+    settings: Settings,
+    model: Model?,
+    onUpdateSearchMode: (SearchMode) -> Unit,
+    onUpdateSearchService: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
+    ) {
+        var selectingProvider by remember { mutableStateOf(false) }
+        AnimatedContent(
+            targetState = selectingProvider,
+            transitionSpec = {
+                if (targetState) {
+                    slideInHorizontally { it } + fadeIn() togetherWith
+                        slideOutHorizontally { -it } + fadeOut()
                 } else {
-                    SearchPicker(
-                        enableSearch = enableSearch,
-                        settings = settings,
-                        onUpdateSearchMode = onUpdateSearchMode,
-                        model = model,
-                        onSelectProvider = { selectingProvider = true },
-                        onDismiss = { showSearchPicker = false }
-                    )
+                    slideInHorizontally { -it } + fadeIn() togetherWith
+                        slideOutHorizontally { it } + fadeOut()
                 }
+            },
+            label = "SearchPickerPage"
+        ) { selecting ->
+            if (selecting) {
+                SearchProviderPicker(
+                    settings = settings,
+                    onUpdateSearchService = { index ->
+                        onUpdateSearchService(index)
+                        selectingProvider = false
+                    },
+                    onBack = { selectingProvider = false }
+                )
+            } else {
+                SearchPicker(
+                    enableSearch = enableSearch,
+                    settings = settings,
+                    onUpdateSearchMode = onUpdateSearchMode,
+                    model = model,
+                    onSelectProvider = { selectingProvider = true },
+                    onDismiss = onDismiss
+                )
             }
         }
     }

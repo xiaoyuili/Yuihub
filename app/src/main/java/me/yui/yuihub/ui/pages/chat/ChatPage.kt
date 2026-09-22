@@ -36,6 +36,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,6 +52,7 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.core.MessageRole
@@ -77,6 +79,7 @@ import me.yui.yuihub.ui.components.ai.ChatInput
 import me.yui.yuihub.ui.components.ai.ContextUsage
 import me.yui.yuihub.ui.components.ai.FilesPicker
 import me.yui.yuihub.ui.components.ai.SearchMode
+import me.yui.yuihub.ui.components.ai.SearchPickerSheet
 import me.yui.yuihub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.yui.yuihub.ui.components.ai.rememberChatAttachmentPickerActions
 import me.yui.yuihub.ui.context.LocalNavController
@@ -95,6 +98,7 @@ import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 import androidx.activity.ComponentActivity
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 @Composable
@@ -289,11 +293,61 @@ private fun ChatPageContent(
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
+    val enableSearchMsg = stringResource(R.string.web_search_enabled)
+    val disableSearchMsg = stringResource(R.string.web_search_disabled)
+    // 输入框工具条与「+」面板内的搜索窗口共用同一套更新逻辑
+    val applySearchMode: (SearchMode) -> Unit = { mode ->
+        val current = setting.getCurrentAssistant()
+        val model = setting.getCurrentChatModel()
+        vm.updateSettings(
+            setting.copy(
+                assistants = setting.assistants.map { assistant ->
+                    if (assistant.id == current.id) {
+                        assistant.copy(enableWebSearch = mode == SearchMode.LOCAL)
+                    } else {
+                        assistant
+                    }
+                },
+                providers = if (model == null) {
+                    setting.providers
+                } else {
+                    setting.providers.map { provider ->
+                        provider.editModel(
+                            model.copy(
+                                tools = if (mode == SearchMode.BUILT_IN) {
+                                    model.tools + BuiltInTools.Search
+                                } else {
+                                    model.tools - BuiltInTools.Search
+                                }
+                            )
+                        )
+                    }
+                },
+            )
+        )
+        val enabled = mode != SearchMode.OFF
+        toaster.show(
+            message = if (enabled) enableSearchMsg else disableSearchMsg,
+            duration = 1.seconds,
+            type = if (enabled) ToastType.Success else ToastType.Normal
+        )
+    }
+    val applySearchService: (Int) -> Unit = { index ->
+        vm.updateSettings(setting.copy(searchServiceSelected = index))
+    }
+    // 用户拖动消息列表时输入框降为 10% 不透明度(让内容不被遮挡)
+    var isListScrolling by remember { mutableStateOf(false) }
+    LaunchedEffect(chatListState) {
+        snapshotFlow { chatListState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { isListScrolling = it }
+    }
     val workspaceRepository: WorkspaceRepository = koinInject()
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     val assistant = setting.getCurrentAssistant()
     var showFilesSheet by remember { mutableStateOf(false) }
+    var showSearchSheet by remember { mutableStateOf(false) }
     val attachmentPickerActions = rememberChatAttachmentPickerActions(
         inputState = inputState,
         setting = setting,
@@ -346,40 +400,10 @@ private fun ChatPageContent(
                     loading = loadingJob != null,
                     settings = setting,
                     hazeState = hazeState,
+                    isListScrolling = isListScrolling,
                     completionProviders = completionProviders,
                     onCancelClick = {
                         vm.stopGeneration()
-                    },
-                    enableSearch = enableWebSearch,
-                    onUpdateSearchMode = { mode ->
-                        val current = setting.getCurrentAssistant()
-                        val model = setting.getCurrentChatModel()
-                        vm.updateSettings(
-                            setting.copy(
-                                assistants = setting.assistants.map { assistant ->
-                                    if (assistant.id == current.id) {
-                                        assistant.copy(enableWebSearch = mode == SearchMode.LOCAL)
-                                    } else {
-                                        assistant
-                                    }
-                                },
-                                providers = if (model == null) {
-                                    setting.providers
-                                } else {
-                                    setting.providers.map { provider ->
-                                        provider.editModel(
-                                            model.copy(
-                                                tools = if (mode == SearchMode.BUILT_IN) {
-                                                    model.tools + BuiltInTools.Search
-                                                } else {
-                                                    model.tools - BuiltInTools.Search
-                                                }
-                                            )
-                                        )
-                                    }
-                                },
-                            )
-                        )
                     },
                     messageQueue = messageQueue,
                     onRemoveQueuedMessage = vm::removeQueuedMessage,
@@ -432,13 +456,6 @@ private fun ChatPageContent(
                                         assistant
                                     }
                                 }
-                            )
-                        )
-                    },
-                    onUpdateSearchService = { index ->
-                        vm.updateSettings(
-                            setting.copy(
-                                searchServiceSelected = index
                             )
                         )
                     },
@@ -538,6 +555,23 @@ private fun ChatPageContent(
                 vm = vm,
                 attachmentPickerActions = attachmentPickerActions,
                 onDismiss = { showFilesSheet = false },
+                onOpenSearch = {
+                    // 先关文件面板再弹搜索窗口：两个 ModalBottomSheet 不同时存在，
+                    // 底层页面始终保留，不会被顶掉或折叠
+                    showFilesSheet = false
+                    showSearchSheet = true
+                },
+            )
+        }
+
+        if (showSearchSheet) {
+            SearchPickerSheet(
+                enableSearch = enableWebSearch,
+                settings = setting,
+                model = currentChatModel,
+                onUpdateSearchMode = applySearchMode,
+                onUpdateSearchService = applySearchService,
+                onDismiss = { showSearchSheet = false },
             )
         }
     }
@@ -552,6 +586,7 @@ private fun ChatFilesPickerSheet(
     vm: ChatVM,
     attachmentPickerActions: ChatAttachmentPickerActions,
     onDismiss: () -> Unit,
+    onOpenSearch: () -> Unit,
 ) {
     var showInjectionSheet by remember { mutableStateOf(false) }
 
@@ -592,11 +627,11 @@ private fun ChatFilesPickerSheet(
             showInjectionSheet = showInjectionSheet,
             onShowInjectionSheetChange = { showInjectionSheet = it },
             onDismiss = { dismissAll() },
-            onTakePic = attachmentPickerActions.onTakePicture,
             onPickImage = attachmentPickerActions.onPickImage,
             onPickVideo = attachmentPickerActions.onPickVideo,
             onPickAudio = attachmentPickerActions.onPickAudio,
             onPickFile = attachmentPickerActions.onPickFile,
+            onOpenSearch = onOpenSearch,
         )
     }
 }

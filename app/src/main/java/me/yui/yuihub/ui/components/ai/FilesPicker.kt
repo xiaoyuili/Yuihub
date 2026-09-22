@@ -53,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.Camera01
 import me.rerere.hugeicons.stroke.Codesandbox
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Files02
@@ -61,6 +60,7 @@ import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Image02
 import me.rerere.hugeicons.stroke.MusicNote03
 import me.rerere.hugeicons.stroke.Package
+import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Settings02
 import me.rerere.hugeicons.stroke.Video01
 import me.yui.yuihub.R
@@ -93,11 +93,11 @@ internal fun FilesPicker(
     showInjectionSheet: Boolean,
     onShowInjectionSheetChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
-    onTakePic: () -> Unit,
     onPickImage: () -> Unit,
     onPickVideo: () -> Unit,
     onPickAudio: () -> Unit,
     onPickFile: () -> Unit,
+    onOpenSearch: () -> Unit = {},
 ) {
     val settings = LocalSettings.current
     val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
@@ -115,7 +115,7 @@ internal fun FilesPicker(
             horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            TakePicButton(onLaunchCamera = onTakePic)
+            SearchSettingButton(onClick = onOpenSearch)
 
             ImagePickButton(onClick = onPickImage)
 
@@ -392,13 +392,13 @@ private fun ImagePickButton(onClick: () -> Unit = {}) {
 }
 
 @Composable
-fun TakePicButton(onLaunchCamera: () -> Unit = {}) {
+fun SearchSettingButton(onClick: () -> Unit = {}) {
     BigIconTextButton(icon = {
-        Icon(HugeIcons.Camera01, null)
+        Icon(HugeIcons.Search01, null)
     }, text = {
-        Text(stringResource(R.string.take_picture))
+        Text(stringResource(R.string.search_picker_title))
     }) {
-        onLaunchCamera()
+        onClick()
     }
 }
 

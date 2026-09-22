@@ -68,6 +68,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -140,13 +141,11 @@ fun ChatInput(
     loading: Boolean,
     settings: Settings,
     hazeState: HazeState,
-    enableSearch: Boolean,
-    onUpdateSearchMode: (SearchMode) -> Unit,
+    isListScrolling: Boolean = false,
     modifier: Modifier = Modifier,
     completionProviders: List<ChatCompletionProvider> = emptyList(),
     onUpdateChatModel: (Model) -> Unit,
     onUpdateAssistant: (Assistant) -> Unit,
-    onUpdateSearchService: (Int) -> Unit,
     onMoreClick: () -> Unit,
     contextUsage: ContextUsage? = null,
     onCancelClick: () -> Unit,
@@ -162,9 +161,9 @@ fun ChatInput(
     val assistant = settings.getCurrentAssistant()
     var showReasoningPanel by remember { mutableStateOf(false) }
 
-    // 悬浮玻璃：半透明磨砂 + 大而柔的投影
+    // 悬浮输入栏：平时不透明(保证输入文字可读)，用户拖动消息列表时降为 10% 让位内容
     val isDark = LocalDarkMode.current
-    val glassTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+    val glassTint = MaterialTheme.colorScheme.surface
     // 边缘线：亮色下用中性描边（纯白边在浅色背景上看不见）
     val hazeTintColor = MaterialTheme.colorScheme.surfaceContainerLow
     val glassBorderColor = if (isDark) {
@@ -172,11 +171,17 @@ fun ChatInput(
     } else {
         MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
     }
-    val glassShadowColor = Color.Black.copy(alpha = if (isDark) 0.35f else 0.16f)
+    val glassShadowColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.22f)
     val inputHazeStyle = HazeBlurStyle.Material3 {
         blurRadius(16.dp)
         backgroundColor(glassTint)
     }
+    // 滚动时移除模糊/玻璃层，改由不透明度控制，视觉上更轻且省一层离屏渲染
+    val inputAlpha by animateFloatAsState(
+        targetValue = if (isListScrolling) 0.1f else 1f,
+        animationSpec = tween(durationMillis = if (isListScrolling) 120 else 220),
+        label = "chatInputAlpha",
+    )
 
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -235,16 +240,25 @@ fun ChatInput(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .graphicsLayer { alpha = inputAlpha }
+                    // 柔性外围阴影：两层不同半径/偏移叠加，比单层 shadow 更柔、边缘不硬
                     .shadow(
-                        elevation = 16.dp,
+                        elevation = 3.dp,
                         shape = containerShape,
                         clip = false,
                         ambientColor = glassShadowColor,
                         spotColor = glassShadowColor,
                     )
-.clip(containerShape)
+                    .shadow(
+                        elevation = 14.dp,
+                        shape = containerShape,
+                        clip = false,
+                        ambientColor = glassShadowColor.copy(alpha = glassShadowColor.alpha * 0.55f),
+                        spotColor = glassShadowColor.copy(alpha = glassShadowColor.alpha * 0.55f),
+                    )
+                    .clip(containerShape)
                     .then(
-                        if (settings.displaySetting.enableBlurEffect) {
+                        if (settings.displaySetting.enableBlurEffect && !isListScrolling) {
                             when (settings.displaySetting.backgroundEffectType) {
                                 BackgroundEffectType.BLUR -> Modifier.hazeBlur(
                                     input = HazeInput.Sources(hazeState),
@@ -270,7 +284,8 @@ fun ChatInput(
                 shape = containerShape,
                 tonalElevation = 0.dp,
                 border = BorderStroke(1.dp, glassBorderColor),
-                color = Color.Transparent,
+                // 不透明底色：输入栏始终可读；模糊/玻璃开启时由 haze 层叠加在外
+                color = hazeTintColor,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -314,29 +329,7 @@ fun ChatInput(
                                 modifier = Modifier,
                             )
 
-                            // Search
-                            val enableSearchMsg = stringResource(R.string.web_search_enabled)
-                            val disableSearchMsg = stringResource(R.string.web_search_disabled)
-                            val chatModel = settings.getCurrentChatModel()
-                            SearchPickerButton(
-                                enableSearch = enableSearch,
-                                settings = settings,
-                                onUpdateSearchMode = { mode ->
-                                    onUpdateSearchMode(mode)
-                                    val enabled = mode != SearchMode.OFF
-                                    toaster.show(
-                                        message = if (enabled) enableSearchMsg else disableSearchMsg,
-                                        duration = 1.seconds,
-                                        type = if (enabled) {
-                                            ToastType.Success
-                                        } else {
-                                            ToastType.Normal
-                                        }
-                                    )
-                                },
-                                onUpdateSearchService = onUpdateSearchService,
-                                model = chatModel,
-                            )
+                            // Search 已移至「+」面板(避免工具条拥挤, 与拍照位并列)
 
                             // Reasoning
                             val model = settings.getCurrentChatModel()
