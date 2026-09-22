@@ -556,9 +556,8 @@ private fun ChatPageContent(
                 attachmentPickerActions = attachmentPickerActions,
                 onDismiss = { showFilesSheet = false },
                 onOpenSearch = {
-                    // 先关文件面板再弹搜索窗口：两个 ModalBottomSheet 不同时存在，
-                    // 底层页面始终保留，不会被顶掉或折叠
-                    showFilesSheet = false
+                    // 保留「+」面板不关闭：搜索窗口叠在它上方，
+                    // 底层页面与文件面板均保持原样
                     showSearchSheet = true
                 },
             )
