@@ -42,6 +42,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextMeasurer
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.Placeholder
@@ -350,6 +352,7 @@ private fun HtmlParagraphContent(
     val colorScheme = MaterialTheme.colorScheme
     val textStyle = LocalTextStyle.current
 
+    val inlineMeasurer = rememberTextMeasurer()
     val (annotatedString, inlineContents) = remember(
         element.outerHtml(),
         enableLatexRendering,
@@ -357,6 +360,7 @@ private fun HtmlParagraphContent(
         density,
         textStyle,
         onClickCitation,
+        inlineMeasurer,
     ) {
         val contents = mutableMapOf<String, InlineTextContent>()
         val text = buildAnnotatedString {
@@ -369,6 +373,7 @@ private fun HtmlParagraphContent(
                     style = textStyle,
                     enableLatexRendering = enableLatexRendering,
                     onClickCitation = onClickCitation,
+                    textMeasurer = inlineMeasurer,
                 )
             }
         }
@@ -706,6 +711,7 @@ private fun HtmlInlineGroup(nodes: List<Node>, onClickCitation: (String) -> Unit
     val density = LocalDensity.current
 
     val key = remember(nodes) { nodes.joinToString("") { if (it is Element) it.outerHtml() else it.toString() } }
+    val groupMeasurer = rememberTextMeasurer()
     val (annotatedString, inlineContents) = remember(
         key,
         enableLatexRendering,
@@ -713,6 +719,7 @@ private fun HtmlInlineGroup(nodes: List<Node>, onClickCitation: (String) -> Unit
         density,
         textStyle,
         onClickCitation,
+        groupMeasurer,
     ) {
         val contents = mutableMapOf<String, InlineTextContent>()
         val text = buildAnnotatedString {
@@ -725,6 +732,7 @@ private fun HtmlInlineGroup(nodes: List<Node>, onClickCitation: (String) -> Unit
                     style = textStyle,
                     enableLatexRendering = enableLatexRendering,
                     onClickCitation = onClickCitation,
+                    textMeasurer = groupMeasurer,
                 )
             }
         }
@@ -782,6 +790,7 @@ private fun HtmlInlineAsComposable(node: Node, onClickCitation: (String) -> Unit
                     val textStyle = LocalTextStyle.current
                     val density = LocalDensity.current
                     val enableLatexRendering = LocalSettings.current.displaySetting.enableLatexRendering
+                    val citationTextMeasurer = rememberTextMeasurer()
                     val (annotated, inlineContents) = remember(
                         node.outerHtml(),
                         enableLatexRendering,
@@ -789,6 +798,7 @@ private fun HtmlInlineAsComposable(node: Node, onClickCitation: (String) -> Unit
                         density,
                         textStyle,
                         onClickCitation,
+                        citationTextMeasurer,
                     ) {
                         val contents = mutableMapOf<String, InlineTextContent>()
                         val text = buildAnnotatedString {
@@ -800,6 +810,7 @@ private fun HtmlInlineAsComposable(node: Node, onClickCitation: (String) -> Unit
                                 style = textStyle,
                                 enableLatexRendering = enableLatexRendering,
                                 onClickCitation = onClickCitation,
+                                textMeasurer = citationTextMeasurer,
                             )
                         }
                         text to contents
@@ -821,6 +832,7 @@ private fun AnnotatedString.Builder.appendHtmlInlineNode(
     style: TextStyle,
     enableLatexRendering: Boolean,
     onClickCitation: (String) -> Unit,
+    textMeasurer: TextMeasurer,
 ) {
     when (node) {
         is TextNode -> append(node.text())
@@ -828,6 +840,7 @@ private fun AnnotatedString.Builder.appendHtmlInlineNode(
             element = node,
             colorScheme = colorScheme,
             inlineContents = inlineContents,
+            textMeasurer = textMeasurer,
             density = density,
             style = style,
             enableLatexRendering = enableLatexRendering,
@@ -844,6 +857,7 @@ private fun AnnotatedString.Builder.appendHtmlInlineElement(
     style: TextStyle,
     enableLatexRendering: Boolean,
     onClickCitation: (String) -> Unit,
+    textMeasurer: TextMeasurer,
 ) {
     val cssStyle = element.attr("style").takeIf { it.isNotBlank() }?.let {
         parseInlineSpanStyle(
@@ -862,6 +876,7 @@ private fun AnnotatedString.Builder.appendHtmlInlineElement(
             style = inheritedStyle,
             enableLatexRendering = enableLatexRendering,
             onClickCitation = onClickCitation,
+            textMeasurer = textMeasurer,
         )
     }
 
@@ -909,11 +924,28 @@ private fun AnnotatedString.Builder.appendHtmlInlineElement(
                     val domain = text.substringAfter("citation,")
                     val id = href
                     if (id.length == 6) {
+                        // 用 TextMeasurer 实测标签宽度: 按字符数估算(如 length*7sp)对中文
+                        // 会严重低估(中文实际约 13-14sp/字), 导致标签内文字被挤压换行
+                        val citationLabelStyle = TextStyle(
+                            fontSize = 10.sp,
+                            lineHeight = 10.sp,
+                            fontFamily = JetbrainsMono,
+                            color = colorScheme.onTertiaryContainer,
+                            fontWeight = FontWeight.Thin,
+                        )
+                        val measuredWidth = with(density) {
+                            textMeasurer.measure(
+                                text = AnnotatedString(domain),
+                                style = citationLabelStyle,
+                                maxLines = 1,
+                            ).size.width.toSp()
+                        }
                         inlineContents.putIfAbsent(
                             "citation:$id",
                             InlineTextContent(
                                 placeholder = Placeholder(
-                                    width = (domain.length * 7).sp,
+                                    // 留出圆角内边距, 避免文字贴边被裁
+                                    width = (measuredWidth.value + 10f).sp,
                                     height = 1.em,
                                     placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
                                 ),
@@ -929,13 +961,8 @@ private fun AnnotatedString.Builder.appendHtmlInlineElement(
                                         Text(
                                             text = domain,
                                             modifier = Modifier.wrapContentSize(),
-                                            style = TextStyle(
-                                                fontSize = 10.sp,
-                                                lineHeight = 10.sp,
-                                                fontFamily = JetbrainsMono,
-                                                color = colorScheme.onTertiaryContainer,
-                                                fontWeight = FontWeight.Thin,
-                                            ),
+                                            style = citationLabelStyle,
+                                            maxLines = 1,
                                         )
                                     }
                                 },
