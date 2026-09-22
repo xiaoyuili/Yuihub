@@ -154,6 +154,7 @@ class RouteActivity : ComponentActivity() {
         enableEdgeToEdge()
         disableNavigationBarContrast()
         super.onCreate(savedInstanceState)
+        me.yui.yuihub.utils.StartupTracer.mark("Activity.onCreate")
         if (CrashHandler.hasCrashed(this)) {
             startActivity(Intent(this, SafeModeActivity::class.java))
             finish()
@@ -183,6 +184,7 @@ class RouteActivity : ComponentActivity() {
                 AppRoutes()
             }
         }
+        me.yui.yuihub.utils.StartupTracer.mark("setContent 完成(首帧前)")
     }
 
     private fun disableNavigationBarContrast() {

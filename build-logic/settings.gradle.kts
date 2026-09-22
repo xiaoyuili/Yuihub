@@ -1,6 +1,15 @@
 pluginManagement {
     repositories {
-        google()
+        // 国内镜像优先，原始仓库作为回退
+        maven("https://maven.aliyun.com/repository/gradle-plugin")
+        maven("https://maven.aliyun.com/repository/google")
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
         mavenCentral()
         gradlePluginPortal()
     }
@@ -8,6 +17,9 @@ pluginManagement {
 
 dependencyResolutionManagement {
     repositories {
+        // 国内镜像优先，原始仓库作为回退
+        maven("https://maven.aliyun.com/repository/google")
+        maven("https://maven.aliyun.com/repository/central")
         google()
         mavenCentral()
         gradlePluginPortal()

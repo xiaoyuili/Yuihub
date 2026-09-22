@@ -83,12 +83,15 @@ class ChatVM(
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     init {
+        me.yui.yuihub.utils.StartupTracer.mark("ChatVM 构造开始")
         // 添加对话引用
         chatService.addConversationReference(_conversationId)
 
         // 初始化对话
         viewModelScope.launch {
+            me.yui.yuihub.utils.StartupTracer.mark("ChatVM: 初始化对话协程开始")
             chatService.initializeConversation(_conversationId)
+            me.yui.yuihub.utils.StartupTracer.mark("ChatVM: 初始化对话完成(DB查询+settings写入)")
         }
 
         // 记住对话ID, 方便下次启动恢复

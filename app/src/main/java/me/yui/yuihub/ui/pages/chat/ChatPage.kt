@@ -124,6 +124,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     val context = LocalContext.current
     val drawerVm: ChatDrawerVM = koinViewModel(viewModelStoreOwner = context as ComponentActivity)
     LaunchedEffect(Unit) {
+        me.yui.yuihub.utils.StartupTracer.mark("ChatPage 首次组合完成(用户可见)")
         if (drawerVm.consumeDrawerReopenRequest()) {
             drawerState.open()
         }
