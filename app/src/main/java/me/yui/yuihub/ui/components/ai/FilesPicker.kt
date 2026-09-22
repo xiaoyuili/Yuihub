@@ -51,8 +51,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Job
+import me.rerere.ai.provider.BuiltInTools
+import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.AiSearch02
 import me.rerere.hugeicons.stroke.Codesandbox
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Files02
@@ -72,6 +75,7 @@ import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.repository.WorkspaceRepository
+import me.yui.yuihub.ui.components.ui.AutoAIIcon
 import me.yui.yuihub.ui.components.ui.ExtensionSelector
 import me.yui.yuihub.ui.components.ui.permission.PermissionCamera
 import me.yui.yuihub.ui.components.ui.permission.PermissionManager
@@ -98,6 +102,8 @@ internal fun FilesPicker(
     onPickAudio: () -> Unit,
     onPickFile: () -> Unit,
     onOpenSearch: () -> Unit = {},
+    enableSearch: Boolean = false,
+    searchModel: Model? = null,
 ) {
     val settings = LocalSettings.current
     val provider = settings.getCurrentChatModel()?.findProvider(providers = settings.providers)
@@ -115,7 +121,12 @@ internal fun FilesPicker(
             horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.Start),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            SearchSettingButton(onClick = onOpenSearch)
+            SearchSettingButton(
+                enableSearch = enableSearch,
+                settings = settings,
+                model = searchModel,
+                onClick = onOpenSearch,
+            )
 
             ImagePickButton(onClick = onPickImage)
 
@@ -392,9 +403,21 @@ private fun ImagePickButton(onClick: () -> Unit = {}) {
 }
 
 @Composable
-fun SearchSettingButton(onClick: () -> Unit = {}) {
+fun SearchSettingButton(
+    enableSearch: Boolean,
+    settings: Settings,
+    model: Model?,
+    onClick: () -> Unit = {},
+) {
+    val currentService = settings.searchServices.getOrNull(settings.searchServiceSelected)
+    // 与输入框工具条旧入口保持一致的图标语义：内置搜索 > 已选供应商 > 未开启
+    val hasBuiltInSearch = model?.tools?.contains(BuiltInTools.Search) == true
     BigIconTextButton(icon = {
-        Icon(HugeIcons.Search01, null)
+        when {
+            hasBuiltInSearch -> Icon(HugeIcons.AiSearch02, null)
+            enableSearch && currentService != null -> AutoAIIcon(name = currentService.displayName)
+            else -> Icon(HugeIcons.Search01, null)
+        }
     }, text = {
         Text(stringResource(R.string.search_picker_title))
     }) {

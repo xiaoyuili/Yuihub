@@ -560,6 +560,8 @@ private fun ChatPageContent(
                     // 底层页面与文件面板均保持原样
                     showSearchSheet = true
                 },
+                enableSearch = enableWebSearch,
+                searchModel = currentChatModel,
             )
         }
 
@@ -586,6 +588,8 @@ private fun ChatFilesPickerSheet(
     attachmentPickerActions: ChatAttachmentPickerActions,
     onDismiss: () -> Unit,
     onOpenSearch: () -> Unit,
+    enableSearch: Boolean,
+    searchModel: Model?,
 ) {
     var showInjectionSheet by remember { mutableStateOf(false) }
 
@@ -631,6 +635,8 @@ private fun ChatFilesPickerSheet(
             onPickAudio = attachmentPickerActions.onPickAudio,
             onPickFile = attachmentPickerActions.onPickFile,
             onOpenSearch = onOpenSearch,
+            enableSearch = enableSearch,
+            searchModel = searchModel,
         )
     }
 }
