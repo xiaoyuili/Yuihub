@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toFile
@@ -19,17 +20,19 @@ import com.yalantis.ucrop.UCropActivity
 import me.rerere.common.android.Logging
 import me.rerere.common.android.appTempFolder
 import me.yui.yuihub.ui.context.LocalToaster
+import kotlinx.coroutines.launch
 import java.io.File
 
 @Composable
 internal fun useCropLauncher(
-    onCroppedImageReady: (Uri) -> Unit,
+    onCroppedImageReady: suspend (Uri) -> Unit,
     onCleanup: (() -> Unit)? = null,
     aspectRatio: Pair<Float, Float>? = null,
     freeStyleCropEnabled: Boolean = true
 ): Pair<ActivityResultLauncher<Intent>, (Uri) -> Unit> {
     val context = LocalContext.current
     val toaster = LocalToaster.current
+    val scope = rememberCoroutineScope()
     var cropOutputUri by remember { mutableStateOf<Uri?>(null) }
 
     val cropActivityLauncher = rememberLauncherForActivityResult(
@@ -37,8 +40,21 @@ internal fun useCropLauncher(
     ) { result ->
         when (result.resultCode) {
             android.app.Activity.RESULT_OK -> {
-                cropOutputUri?.let { croppedUri ->
-                    onCroppedImageReady(croppedUri)
+                val croppedUri = cropOutputUri
+                if (croppedUri != null) {
+                    // 消费方需要异步拷贝裁剪产物, 必须等它完成再删临时文件:
+                    // 此回调返回后 Compose 会立刻继续处理, 若先删文件, 消费方的
+                    // 协程读到的是已删除的文件, 头像/附件会静默丢失
+                    scope.launch {
+                        try {
+                            onCroppedImageReady(croppedUri)
+                        } finally {
+                            croppedUri.toFile()?.delete()
+                            onCleanup?.invoke()
+                        }
+                    }
+                } else {
+                    onCleanup?.invoke()
                 }
             }
 
@@ -52,11 +68,17 @@ internal fun useCropLauncher(
                     "Failed to crop image: ${error?.message ?: "unknown error"}",
                     type = ToastType.Error
                 )
+                cropOutputUri?.toFile()?.delete()
+                onCleanup?.invoke()
+            }
+
+            else -> {
+                // 用户取消裁剪
+                cropOutputUri?.toFile()?.delete()
+                onCleanup?.invoke()
             }
         }
-        cropOutputUri?.toFile()?.delete()
         cropOutputUri = null
-        onCleanup?.invoke()
     }
 
     val launchCrop: (Uri) -> Unit = { sourceUri ->

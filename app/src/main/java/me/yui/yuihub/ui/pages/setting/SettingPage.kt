@@ -234,7 +234,8 @@ private fun ProviderConfigWarningCard(navController: Navigator) {
     Card(
         modifier = Modifier.padding(8.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer
+            // 配置提醒属中性提示而非错误, 用 secondaryContainer 跟随主题且不刺眼
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
         )
     ) {
         Column(

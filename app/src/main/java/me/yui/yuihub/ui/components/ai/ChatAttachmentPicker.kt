@@ -58,10 +58,8 @@ internal fun rememberChatAttachmentPickerActions(
     var cameraOutputFile by remember { mutableStateOf<File?>(null) }
     val (_, launchCameraCrop) = useCropLauncher(
         onCroppedImageReady = { croppedUri ->
-            scope.launch {
-                inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
-                onAttachmentAdded()
-            }
+            inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
+            onAttachmentAdded()
         },
         onCleanup = {
             cameraOutputFile?.delete()
@@ -106,10 +104,8 @@ internal fun rememberChatAttachmentPickerActions(
     var preCropTempFile by remember { mutableStateOf<File?>(null) }
     val (_, launchImageCrop) = useCropLauncher(
         onCroppedImageReady = { croppedUri ->
-            scope.launch {
-                inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
-                onAttachmentAdded()
-            }
+            inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
+            onAttachmentAdded()
         },
         onCleanup = {
             preCropTempFile?.delete()
