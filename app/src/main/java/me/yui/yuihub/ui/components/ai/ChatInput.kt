@@ -166,6 +166,7 @@ fun ChatInput(
     val isDark = LocalDarkMode.current
     val glassTint = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
     // 边缘线：亮色下用中性描边（纯白边在浅色背景上看不见）
+    val hazeTintColor = MaterialTheme.colorScheme.surfaceContainerLow
     val glassBorderColor = if (isDark) {
         Color.White.copy(alpha = 0.18f)
     } else {
@@ -265,7 +266,7 @@ fun ChatInput(
                                 )
                             }
                         } else Modifier
-                    )
+                    ),
                 shape = containerShape,
                 tonalElevation = 0.dp,
                 border = BorderStroke(1.dp, glassBorderColor),

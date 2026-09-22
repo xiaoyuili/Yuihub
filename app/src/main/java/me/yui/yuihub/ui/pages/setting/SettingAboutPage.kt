@@ -55,14 +55,6 @@ fun SettingAboutPage() {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val context = LocalContext.current
     val navController = LocalNavController.current
-    val soundOptions = remember { listOf(R.raw.bingbingbing, R.raw.gangguan) }
-    val soundEffectPlayer = remember(context) { SoundEffectPlayer(context) }
-    DisposableEffect(soundEffectPlayer) {
-        soundEffectPlayer.preload(*soundOptions.toIntArray())
-        onDispose {
-            soundEffectPlayer.release()
-        }
-    }
     val emojiOptions = remember {
         listOf(
             "🎉", "✨", "🌟", "💫", "🎊", "🥳", "🎈", "🎆", "🎇", "🧨",
@@ -125,7 +117,6 @@ fun SettingAboutPage() {
                                 }
                                 .clickable {
                                     onBurst(logoCenterPx)
-                                    soundEffectPlayer.play(soundOptions.random())
                                 }
                         )
 

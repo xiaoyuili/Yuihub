@@ -36,7 +36,6 @@ import me.yui.yuihub.ui.components.ui.Select
 import me.yui.yuihub.ui.hooks.rememberSharedPreferenceBoolean
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
->>>>>>> 7ee13f2af (feat: 支持blur/glass 2种输入栏效果):app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingPreferencesGeneralPage.kt
 import org.koin.androidx.compose.koinViewModel
 import kotlin.math.roundToInt
 
@@ -189,7 +188,6 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                         )
                     }
                     item(
->>>>>>> 7ee13f2af (feat: 支持blur/glass 2种输入栏效果):app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingPreferencesGeneralPage.kt
                         headlineContent = { Text(stringResource(R.string.setting_display_page_enable_message_generation_haptic_effect_title)) },
                         supportingContent = { Text(stringResource(R.string.setting_display_page_enable_message_generation_haptic_effect_desc)) },
                         trailingContent = {
