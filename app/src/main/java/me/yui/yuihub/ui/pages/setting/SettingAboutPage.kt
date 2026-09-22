@@ -39,7 +39,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
-<<<<<<< HEAD:app/src/main/java/me/yui/yuihub/ui/pages/setting/SettingAboutPage.kt
 import me.yui.yuihub.BuildConfig
 import me.yui.yuihub.R
 import me.yui.yuihub.Screen
@@ -50,19 +49,6 @@ import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.openUrl
 import me.yui.yuihub.utils.plus
-=======
-import me.rerere.rikkahub.BuildConfig
-import me.rerere.rikkahub.R
-import me.rerere.rikkahub.Screen
-import me.rerere.rikkahub.ui.components.nav.BackButton
-import me.rerere.rikkahub.ui.components.easteregg.EmojiBurstHost
-import me.rerere.rikkahub.ui.components.ui.CardGroup
-import me.rerere.rikkahub.ui.context.LocalNavController
-import me.rerere.rikkahub.ui.theme.CustomColors
-import me.rerere.rikkahub.utils.SoundEffectPlayer
-import me.rerere.rikkahub.utils.openUrl
-import me.rerere.rikkahub.utils.plus
->>>>>>> 9a35e3f2f (chore: 升级haze版本):app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingAboutPage.kt
 
 @Composable
 fun SettingAboutPage() {
