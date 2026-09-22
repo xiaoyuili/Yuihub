@@ -265,6 +265,7 @@ private fun createShellTool(
         if (!defaultCwd.isNullOrBlank()) {
             append("The default working directory is stated in the <workspace> prompt. ")
         }
+        append("Each call runs the command in a subshell: no state (variables, functions, cd) persists between calls — pass absolute paths or the `cwd` parameter instead of relying on `cd` or exported variables. ")
         append("Output is capped: if truncated, re-run with head/tail/grep to fetch only the needed part; large installs (apt/npm/pip) need a larger timeout (300-600). ")
         append("Requires Rootfs to be installed and ready.")
         appendLine()

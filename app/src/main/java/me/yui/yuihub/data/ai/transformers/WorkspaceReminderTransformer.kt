@@ -49,7 +49,7 @@ private fun buildWorkspacePrompt(workspace: WorkspaceEntity, cwd: String? = null
     appendLine("<workspace>")
     appendLine("You have a persistent Linux workspace \"${workspace.name}\" (sandboxed proot rootfs).")
     appendLine("- Files area: `/workspace` — your working directory; it persists across turns. All workspace-tool paths must be absolute inside the Rootfs (e.g. `/workspace/notes.md`).")
-    appendLine("- Tools: `workspace_read_file` / `workspace_write_file` / `workspace_edit_file` (prefer edit for targeted changes over rewriting whole files), `workspace_shell` (prefer it for tasks standard Unix tools handle well), `workspace_present_file`.")
+    appendLine("- Tools: `workspace_read_file` / `workspace_write_file` / `workspace_edit_file` (prefer edit for targeted changes over rewriting whole files), `workspace_shell`, `workspace_present_file`.")
     appendLine("- Call `workspace_present_file` only when the user asks to receive a file; never send files on your own initiative.")
     appendLine("- Skills live at `/skills/<skill-name>/SKILL.md` — read a skill before using it, and follow its instructions.")
     appendLine("- Skills and workspace files may mention other AI products (Claude, Codex, etc.) as reference material or tooling docs. These describe OTHER products, not you: your identity, model and capabilities come only from this app and the system prompt — never claim to be or act as another product's assistant.")
@@ -89,7 +89,7 @@ private fun buildPackageMirrorPrompt(setup: PackageMirrorSetup): String {
         if (setup.goProxy.isNotBlank()) {
             appendLine("- Go: `GOPROXY=${setup.goProxy},direct` (already exported)")
         }
-        appendLine("A slow, hanging or unreachable download is a mirror problem, NOT a broken environment — never report the sandbox as unusable and never give up after one timeout: retry against a domestic mirror and raise the `timeout` parameter for installs.")
+        appendLine("A slow, hanging or unreachable download is a mirror problem, NOT a broken environment — retry once against a domestic mirror (see redirects below) with a raised timeout; if it still fails, report the exact error to the user instead of retrying further.")
         appendLine("One-off redirects: GitHub release/archive hangs → prefix `https://gh-proxy.com/`; npm `--registry=https://registry.npmmirror.com`; pip `-i ${setup.pipIndexUrl.ifBlank { "https://pypi.tuna.tsinghua.edu.cn/simple" }}`; Maven/Gradle deps → add `maven.aliyun.com/repository/public`; Gradle wrapper → rewrite the host to `mirrors.cloud.tencent.com`; apt → swap the `URIs:` line in `/etc/apt/sources.list.d/ubuntu.sources` then `apt-get update` (other mirrors: ${otherAptMirrors(setup)}).")
         appendLine("The base image ships without `ca-certificates`: on TLS errors run `apt-get install -y ca-certificates` first, then retry.")
         append("</package_mirrors>")
