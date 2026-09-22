@@ -1,6 +1,10 @@
 package me.yui.yuihub.data.ai.transformers
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
+import java.io.ByteArrayOutputStream
 import java.net.URI
+import java.nio.file.Paths
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
@@ -29,6 +33,7 @@ class WorkspaceReminderTransformer(
         if (workspace.shellStatus != WorkspaceShellStatus.READY.name) return messages
 
         val prompt = buildWorkspacePrompt(workspace, ctx.workspaceCwd) +
+            buildAgentsPrompt(workspaceId, ctx.workspaceCwd) +
             buildPackageMirrorPrompt(workspace.packageMirrorSetup())
 
         // 追加到第一条 system 消息; 若不存在则插入一条
@@ -42,6 +47,51 @@ class WorkspaceReminderTransformer(
         } else {
             listOf(UIMessage.system(prompt).copy(isSynthetic = true)) + messages
         }
+    }
+
+    private suspend fun buildAgentsPrompt(workspaceId: String, cwd: String?): String {
+        // ProotShellRunner 将 HOME 固定为 /root；相对 PWD 按 /workspace 解析。
+        val workingDirectory = Paths.get("/workspace")
+            .resolve(cwd?.takeIf { it.isNotBlank() } ?: ".")
+            .normalize()
+        val paths = linkedSetOf(
+            "/root/.agents/AGENTS.md",
+            "/workspace/AGENTS.md",
+            workingDirectory.resolve("AGENTS.md").toString(),
+        )
+        val instructions = paths.mapNotNull { path ->
+            try {
+                val size = workspaceRepository.rootfsFileSize(workspaceId, path)
+                require(size <= MAX_AGENTS_BYTES) { "AGENTS.md exceeds $MAX_AGENTS_BYTES bytes" }
+                val content = ByteArrayOutputStream().use { output ->
+                    workspaceRepository.exportRootfsFile(workspaceId, path, output)
+                    output.toString(Charsets.UTF_8.name())
+                }
+                content.takeIf { it.isNotBlank() }?.let { path to it }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.d("WorkspaceReminder", "Skipping workspace instructions: $path", e)
+                null
+            }
+        }
+        if (instructions.isEmpty()) return ""
+        return buildString {
+            appendLine()
+            appendLine()
+            appendLine("<workspace_instructions>")
+            appendLine("Follow the AGENTS.md instructions below.")
+            instructions.forEach { (path, content) ->
+                appendLine()
+                appendLine("AGENTS.md source: $path")
+                appendLine(content)
+            }
+            append("</workspace_instructions>")
+        }
+    }
+
+    private companion object {
+        const val MAX_AGENTS_BYTES = 64L * 1024
     }
 }
 
