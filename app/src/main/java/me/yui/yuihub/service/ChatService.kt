@@ -1185,6 +1185,8 @@ class ChatService(
             if (memories.isEmpty() && conversation.messageNodes.none { it.currentMessage.isMemorySnapshot() }) return
             val updatedNodes = conversation.messageNodes.withMemorySnapshot(buildMemorySnapshotText(memories)) ?: return
             saveConversation(conversationId, conversation.copy(messageNodes = updatedNodes))
+        }
+    }
 
     // ---- 自动压缩对话历史 ----
 

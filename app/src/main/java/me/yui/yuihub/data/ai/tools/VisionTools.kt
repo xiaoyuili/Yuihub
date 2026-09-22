@@ -9,6 +9,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
+import kotlin.uuid.Uuid
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
@@ -102,7 +103,7 @@ fun createVisionTool(
         val result = handler.generateText(
             providerSetting = provider,
             messages = listOf(message),
-            params = backgroundTextGenerationParams(visionModel),
+            params = backgroundTextGenerationParams(visionModel, Uuid.random()),
         )
         val answer = result.message.toText().trim()
         if (answer.isBlank()) {

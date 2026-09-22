@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import me.rerere.ai.core.ReasoningLevel
+import kotlin.uuid.Uuid
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
@@ -154,7 +155,7 @@ class MemoryConsolidator(
         val result = handler.generateText(
             providerSetting = provider,
             messages = listOf(UIMessage.user(prompt = prompt)),
-            params = backgroundTextGenerationParams(model, ReasoningLevel.AUTO),
+            params = backgroundTextGenerationParams(model, Uuid.random(), ReasoningLevel.AUTO),
         )
         val parsed = parse(result.message.toText().trim()) ?: return null
         return parsed.merged.filter { !it.content.isNullOrBlank() && !it.sources.isNullOrEmpty() }

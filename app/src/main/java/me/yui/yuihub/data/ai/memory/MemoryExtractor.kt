@@ -108,7 +108,7 @@ class MemoryExtractor(
         val result = handler.generateText(
             providerSetting = provider,
             messages = listOf(UIMessage.user(prompt = prompt)),
-            params = backgroundTextGenerationParams(model, ReasoningLevel.AUTO),
+            params = backgroundTextGenerationParams(model, Uuid.random(), ReasoningLevel.AUTO),
         )
         val raw = result.message.toText().trim()
         val operations = parseOperations(raw) ?: return

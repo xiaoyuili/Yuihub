@@ -128,14 +128,9 @@ import me.yui.yuihub.ui.theme.LocalDarkMode
 import me.yui.yuihub.utils.AUTO_COMPRESS_THRESHOLD_RATIO
 import me.yui.yuihub.utils.formatContextLength
 import me.yui.yuihub.data.datastore.BackgroundEffectType
-import me.yui.yuihub.data.datastore.getQuickMessagesOfAssistant
-import me.yui.yuihub.data.model.QuickMessage
 import me.yui.yuihub.ui.components.ui.permission.PermissionManager
-import me.yui.yuihub.ui.components.ui.permission.PermissionRecordAudio
 import me.yui.yuihub.ui.components.ui.permission.rememberPermissionState
-import me.yui.yuihub.ui.context.LocalASRState
-import me.yui.yuihub.utils.SoundEffectPlayer
->>>>>>> 7ee13f2af (feat: 支持blur/glass 2种输入栏效果):app/src/main/java/me/rerere/rikkahub/ui/components/ai/ChatInput.ktimport org.koin.compose.koinInject
+import org.koin.compose.koinInject
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -246,16 +241,16 @@ fun ChatInput(
                         ambientColor = glassShadowColor,
                         spotColor = glassShadowColor,
                     )
-                    .clip(containerShape)
-                    .hazeBlur(
-                        input = HazeInput.Sources(hazeState),
-                        style = inputHazeStyle,
+.clip(containerShape)
                     .then(
                         if (settings.displaySetting.enableBlurEffect) {
                             when (settings.displaySetting.backgroundEffectType) {
                                 BackgroundEffectType.BLUR -> Modifier.hazeBlur(
+                                    input = HazeInput.Sources(hazeState),
+                                    style = inputHazeStyle,
                                 )
                                 BackgroundEffectType.GLASS -> Modifier.hazeGlass(
+                                    input = HazeInput.Sources(hazeState),
                                     style = GlassStyle.Material3(
                                         containerColor = hazeTintColor,
                                         tint = hazeTintColor.copy(alpha = 0.72f),
@@ -270,7 +265,7 @@ fun ChatInput(
                                 )
                             }
                         } else Modifier
->>>>>>> 7ee13f2af (feat: 支持blur/glass 2种输入栏效果):app/src/main/java/me/rerere/rikkahub/ui/components/ai/ChatInput.kt                    ),
+                    )
                 shape = containerShape,
                 tonalElevation = 0.dp,
                 border = BorderStroke(1.dp, glassBorderColor),

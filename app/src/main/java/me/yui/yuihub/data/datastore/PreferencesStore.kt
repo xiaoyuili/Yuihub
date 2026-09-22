@@ -510,7 +510,6 @@ data class DisplaySetting(
     val enableLatexRendering: Boolean = true,
     val enableBlurEffect: Boolean = false,
     val backgroundEffectType: BackgroundEffectType = BackgroundEffectType.BLUR,
->>>>>>> 7ee13f2af (feat: 支持blur/glass 2种输入栏效果):app/src/main/java/me/rerere/rikkahub/data/datastore/PreferencesStore.kt
     val chatFontFamily: ChatFontFamily = ChatFontFamily.DEFAULT,
     val chatCustomFontPath: String = "",
     val chatCustomFontName: String = "",
