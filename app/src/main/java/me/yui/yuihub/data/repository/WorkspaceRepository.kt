@@ -191,6 +191,8 @@ class WorkspaceRepository(
             runInterruptible(Dispatchers.IO) {
                 rootfsInstaller.install(workspace.root, url, onProgress)
             }
+            // 旧 rootfs 已被替换, 引用它的常驻 shell 会话必须丢弃, 下条命令重建
+            manager.invalidateShellSession(workspace.root)
             updateShellState(workspace, WorkspaceShellStatus.READY.name)
             // 重新安装会换掉整个 rootfs，之前写进去的镜像配置随之消失，
             // 摘要不清空会让系统提示词继续告诉 AI 「源已经配好」。
@@ -452,6 +454,7 @@ class WorkspaceRepository(
         val workspace = dao.getById(id) ?: return false
         dao.deleteById(id)
         withContext(Dispatchers.IO) {
+            manager.invalidateShellSession(workspace.root)
             manager.deleteWorkspace(workspace.root)
         }
         cleanupAssistantReferences(id)

@@ -357,6 +357,14 @@ class WorkspaceManager(
         WorkspaceStorageArea.LINUX -> linuxDir(root)
     }
 
+    /**
+     * 销毁某个 workspace 的常驻 shell 会话(若有)。
+     * rootfs 重装/删除后, 旧会话进程仍引用已失效的 rootfs, 必须丢弃。
+     */
+    fun invalidateShellSession(root: String) {
+        (shellRunner as? ProotShellRunner)?.destroySession(root)
+    }
+
     fun cleanupAllTempDirs() {
         val roots = baseDir.listFiles()?.filter { it.isDirectory } ?: return
         for (dir in roots) {
