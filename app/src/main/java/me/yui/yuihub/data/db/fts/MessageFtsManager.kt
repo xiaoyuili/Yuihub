@@ -28,11 +28,23 @@ enum class MessageSearchSort(val orderBy: String) {
 
 private const val TAG = "MessageFtsManager"
 
+/**
+ * jieba 词典就绪标志: 词典在 DB onOpen 后异步加载(避免拖慢冷启动),
+ * 就绪前 FTS 写入/查询都会失败。这里用进程级标志兑底:
+ * - 未就绪时 indexConversation 跳过(下次保存会重新索引), search 返回空结果
+ * - 词典就绪后自动恢复
+ */
+object JiebaDictState {
+    @Volatile
+    var dictReady: Boolean = false
+}
+
 class MessageFtsManager(private val database: AppDatabase) {
 
     private val db get() = database.openHelper.writableDatabase
 
     suspend fun indexConversation(conversation: Conversation) = withContext(Dispatchers.IO) {
+        if (!JiebaDictState.dictReady) return@withContext
         val conversationId = conversation.id.toString()
         db.execSQL("DELETE FROM message_fts WHERE conversation_id = ?", arrayOf(conversationId))
         conversation.messageNodes.forEach { node ->
@@ -70,6 +82,7 @@ class MessageFtsManager(private val database: AppDatabase) {
         sort: MessageSearchSort = MessageSearchSort.RELEVANCE,
         assistantId: String? = null,
     ): List<MessageSearchResult> = withContext(Dispatchers.IO) {
+        if (!JiebaDictState.dictReady) return@withContext emptyList()
         val results = mutableListOf<MessageSearchResult>()
         val assistantFilter = if (assistantId.isNullOrBlank()) {
             ""

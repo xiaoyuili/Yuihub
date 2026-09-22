@@ -15,7 +15,6 @@ import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import me.yui.yuihub.data.files.BuiltinSkillManager
 import me.yui.yuihub.data.files.FileFolders
 import java.io.File
 import kotlinx.coroutines.SupervisorJob
@@ -39,6 +38,7 @@ import me.yui.yuihub.utils.DatabaseUtil
 import me.yui.yuihub.utils.EmojiData
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.rerere.workspace.WorkspaceManager
+import me.yui.yuihub.utils.StartupTracer
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
@@ -54,12 +54,15 @@ const val KEEP_AWAKE_NOTIFICATION_CHANNEL_ID = "keep_awake"
 class YuiHubApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        StartupTracer.begin()
         startKoin {
-            androidLogger()
+            // Koin 解析日志全量输出会拖慢冷启动; 出问题时改回 androidLogger() 排查
+            androidLogger(level = org.koin.core.logger.Level.ERROR)
             androidContext(this@YuiHubApp)
             workManagerFactory()
             modules(appModule, viewModelModule, dataSourceModule, repositoryModule)
         }
+        StartupTracer.mark("Koin启动")
         this.createNotificationChannel()
 
         // set cursor window size to 32MB
@@ -70,6 +73,7 @@ class YuiHubApp : Application() {
 
         // Init QuickJS native library
         QuickJSLoader.init()
+        StartupTracer.mark("QuickJS so加载")
 
         // delete temp files
         deleteTempFiles()
@@ -81,13 +85,7 @@ class YuiHubApp : Application() {
         cleanupWorkspaceTempDirs()
 
         // extract builtin skills (first launch or version bump; deleted ones keep tombstones)
-        get<AppScope>().launch(Dispatchers.IO) {
-            runCatching {
-                BuiltinSkillManager.extractBuiltinSkills(this@YuiHubApp)
-            }.onFailure {
-                Log.e(TAG, "extractBuiltinSkills failed", it)
-            }
-        }
+        // 已移除内置 skills, 历史版本的墓碑标记与释放逻辑一并删除
 
         // check workspace integrity (mark workspaces with missing files as broken after backup restore)
         checkWorkspaceIntegrity()
@@ -111,9 +109,11 @@ class YuiHubApp : Application() {
         get<AppScope>().launch {
             runCatching {
                 val store = get<SettingsStore>()
+                // 一次 first() 拿到值, 计数写入后直接用内存值记日志;
+                // 原来二次 first() 会触发 DataStore 重读 + 全量 JSON 反序列化
                 val current = store.settingsFlowRaw.first()
                 store.update(current.copy(launchCount = current.launchCount + 1))
-                Log.i(TAG, "incrementLaunchCount: ${store.settingsFlowRaw.first().launchCount}")
+                Log.i(TAG, "incrementLaunchCount: ${current.launchCount + 1}")
             }.onFailure {
                 Log.e(TAG, "incrementLaunchCount failed", it)
             }
