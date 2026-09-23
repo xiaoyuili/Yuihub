@@ -275,7 +275,7 @@ class PersistentProotSession private constructor(
         marker: String,
     ): String = buildString {
         append("__YUIHUB_TMP='").append(CMD_TMP_PREFIX).append(java.lang.Long.toUnsignedString(System.nanoTime(), 36)).append("'\n")
-        append("__YUIHUB_TMP_DIR='\${__YUIHUB_TMP%/*}'\n")
+        append("__YUIHUB_TMP_DIR=\"\${__YUIHUB_TMP%/*}\"\n")
         val cmdChunks = appendAssignments(this, "__YUIHUB_CMD", command.toByteArray(Charsets.UTF_8))
         val inChunks = if (stdin != null && stdin.isNotEmpty()) {
             appendAssignments(this, "__YUIHUB_IN", stdin)
@@ -285,7 +285,7 @@ class PersistentProotSession private constructor(
         append("__YUIHUB_CWD='").append(cwdSpec.replace("'", "'\\''")).append("'\n")
         append("__YUIHUB_MK='").append(marker).append("'\n")
         // /tmp 自愈: 目录被清理(如 App 启动时 cleanupAllTempDirs)时先重建, 避免脚本写入失败 exit 127
-        append("mkdir -p -- \"\${'\$'}__YUIHUB_TMP_DIR\"\n")
+        append("mkdir -p -- \"\${__YUIHUB_TMP_DIR}\"\n")
         append("printf '%s' \"").append(varRefs("__YUIHUB_CMD", cmdChunks)).append("\" | base64 -d > \"\$__YUIHUB_TMP\"\n")
         // cd 失败时 && 短路, 子壳退出码 = cd 的退出码; 不用 "|| exit $?" —— 此处的 $? 是 read 的, 不是上一行的
         if (inChunks > 0) {
