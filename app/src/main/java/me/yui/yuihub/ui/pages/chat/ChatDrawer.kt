@@ -114,13 +114,13 @@ import me.rerere.hugeicons.stroke.FolderAdd
 import me.rerere.hugeicons.stroke.Image02
 import me.rerere.hugeicons.stroke.InLove
 import me.rerere.hugeicons.stroke.LanguageCircle
-import me.rerere.hugeicons.stroke.LookTop
 import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.Share01
 import me.rerere.hugeicons.stroke.Sparkles
 import me.rerere.workspace.WorkspaceFileEntry
+import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
 import me.yui.yuihub.R
 import me.yui.yuihub.Screen
@@ -196,18 +196,26 @@ fun ChatDrawerContent(
         initialValue = emptyMap(),
     )
 
-    // 侧滑页面板：当前助手绑定工作区时提供「会话 / 文件」切换（状态存 VM，从详情页返回时保留现场）
+    // 侧滑页面板：当前助手绑定工作区、且该工作区在本机存在并已就绪时，提供「会话 / 文件」切换
+    //（状态存 VM，从详情页返回时保留现场）
     val workspaceId = settings.getCurrentAssistant().workspaceId
-    val workspaceIdStr = workspaceId?.toString()
+    val workspaceRepository: WorkspaceRepository = koinInject()
+    val workspaces by workspaceRepository.listFlow().collectAsStateWithLifecycle(initialValue = emptyList())
+    // 导入备份后助手可能仍引用本机不存在/未就绪的工作区, 此时按会话面板呈现
+    val boundWorkspace = remember(workspaces, workspaceId) {
+        workspaces.find {
+            it.id == workspaceId?.toString() && it.shellStatus == WorkspaceShellStatus.READY.name
+        }
+    }
+    val workspaceIdStr = boundWorkspace?.id
     val activePanel by drawerVm.drawerPanel.collectAsStateWithLifecycle()
     val filesPath by drawerVm.filesPath.collectAsStateWithLifecycle()
-    val workspaceRepository: WorkspaceRepository = koinInject()
     val focusManager = LocalFocusManager.current
     var filesRefreshKey by remember { mutableStateOf(0) }
-    // 未绑定工作区时始终按会话面板呈现
+    // 不可用的工作区不呈现文件面板
     val effectivePanel = if (workspaceIdStr != null) activePanel else DrawerPanel.CHATS
 
-    LaunchedEffect(workspaceId) {
+    LaunchedEffect(workspaceIdStr) {
         drawerVm.syncWorkspaceState(workspaceId)
         // 预加载文件面板根目录：切到「文件」时即时呈现
         val wsId = workspaceIdStr ?: return@LaunchedEffect
@@ -220,9 +228,10 @@ fun ChatDrawerContent(
     var filesSearchQuery by remember(workspaceId) { mutableStateOf("") }
     var filesSearchResults by remember { mutableStateOf<List<WorkspaceFileEntry>?>(null) }
     var filesSearching by remember { mutableStateOf(false) }
-    LaunchedEffect(workspaceId, filesSearchQuery, filesRefreshKey) {
+    LaunchedEffect(workspaceIdStr, filesSearchQuery, filesRefreshKey) {
         val query = filesSearchQuery.trim()
-        if (workspaceId == null || query.isEmpty()) {
+        val wsId = workspaceIdStr
+        if (wsId == null || query.isEmpty()) {
             filesSearchResults = null
             filesSearching = false
             return@LaunchedEffect
@@ -230,7 +239,7 @@ fun ChatDrawerContent(
         filesSearching = true
         delay(250)
         filesSearchResults = runCatching {
-            workspaceRepository.searchFilesByName(workspaceId.toString(), query)
+            workspaceRepository.searchFilesByName(wsId, query)
         }.getOrDefault(emptyList())
         filesSearching = false
     }
@@ -328,9 +337,9 @@ fun ChatDrawerContent(
                 }
             }
 
-            // 工作区面板：助手绑定工作区时展示「会话 / 文件」切换（展开动画）
+            // 工作区面板：助手绑定工作区且在本机就绪时展示「会话 / 文件」切换（展开动画）
             androidx.compose.animation.AnimatedVisibility(
-                visible = workspaceId != null,
+                visible = workspaceIdStr != null,
                 enter = expandVertically(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(),
                 exit = shrinkVertically(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeOut(),
             ) {
@@ -489,21 +498,6 @@ fun ChatDrawerContent(
                     .fillMaxWidth()
                     .padding(horizontal = 8.dp)
             ) {
-                DrawerAction(
-                    icon = {
-                        Icon(
-                            imageVector = HugeIcons.LookTop,
-                            contentDescription = stringResource(R.string.assistant_page_title)
-                        )
-                    },
-                    label = {
-                        Text(stringResource(R.string.assistant_page_title))
-                    },
-                    onClick = {
-                        navController.navigate(Screen.Assistant)
-                    },
-                )
-
                 DrawerAction(
                     icon = {
                         Icon(
