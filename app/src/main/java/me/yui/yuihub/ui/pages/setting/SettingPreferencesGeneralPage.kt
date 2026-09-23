@@ -28,11 +28,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.yui.yuihub.R
-import me.yui.yuihub.data.datastore.BackgroundEffectType
 import me.yui.yuihub.data.datastore.DisplaySetting
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.CardGroup
-import me.yui.yuihub.ui.components.ui.Select
 import me.yui.yuihub.ui.hooks.rememberSharedPreferenceBoolean
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
@@ -166,27 +164,6 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                             )
                         },
                     )
-                    if (displaySetting.enableBlurEffect) {
-                        item(
-                            headlineContent = { Text(stringResource(R.string.setting_display_page_background_effect_type)) },
-                            supportingContent = {
-                                Select(
-                                    options = BackgroundEffectType.entries,
-                                    selectedOption = displaySetting.backgroundEffectType,
-                                    onOptionSelected = {
-                                        updateDisplaySetting(displaySetting.copy(backgroundEffectType = it))
-                                    },
-                                    modifier = Modifier.padding(top = 4.dp).fillMaxWidth(),
-                                    optionToString = {
-                                        when (it) {
-                                            BackgroundEffectType.BLUR -> stringResource(R.string.setting_display_page_background_effect_blur)
-                                            BackgroundEffectType.GLASS -> stringResource(R.string.setting_display_page_background_effect_glass)
-                                        }
-                                    },
-                                )
-                            },
-                        )
-                    }
                     item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_enable_message_generation_haptic_effect_title)) },
                         supportingContent = { Text(stringResource(R.string.setting_display_page_enable_message_generation_haptic_effect_desc)) },

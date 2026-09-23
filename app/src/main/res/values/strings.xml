@@ -683,6 +683,7 @@
   <string name="setting_page_color_mode_dark">Dark</string>
   <string name="setting_page_color_mode_light">Light</string>
   <string name="setting_page_color_mode_system">System</string>
+  <string name="setting_page_color_mode_follow">Follow</string>
   <string name="setting_page_config">Configure</string>
   <string name="setting_page_config_api_desc">You haven\'t configured API and model yet, please configure first</string>
   <string name="setting_page_config_api_title">Please configure API and model</string>
@@ -1205,8 +1206,5 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="chat_page_queue_pending_count">Queued · %1$d</string>
   <string name="workspace_detail_settings_save_failed">Failed to save settings</string>
   <string name="setting_display_page_background_effect_title">Input bar background effect</string>
-  <string name="setting_display_page_background_effect_desc">Enable a blur or glass effect on the chat input bar</string>
-  <string name="setting_display_page_background_effect_type">Background effect type</string>
-  <string name="setting_display_page_background_effect_blur">Blur</string>
-  <string name="setting_display_page_background_effect_glass">Glass</string>
+  <string name="setting_display_page_background_effect_desc">Apply a frosted glass effect to the chat input bar</string>
 </resources>

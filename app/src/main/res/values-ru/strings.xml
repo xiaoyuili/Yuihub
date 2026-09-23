@@ -777,6 +777,7 @@
   <string name="setting_page_color_mode_dark">Тёмная</string>
   <string name="setting_page_color_mode_light">Светлая</string>
   <string name="setting_page_color_mode_system">Системная</string>
+  <string name="setting_page_color_mode_follow">Авто</string>
   <string name="setting_page_config">Настроить</string>
   <string name="setting_page_config_api_desc">Вы ещё не настроили API и модель, пожалуйста, сначала выполните настройку</string>
   <string name="setting_page_config_api_title">Настройте API и модель</string>
@@ -1376,8 +1377,5 @@
   <string name="workspace_detail_compatibility_mode_desc">Попробуйте включить это, если терминал не запускается. Это может снизить производительность. Применяется к новым вкладкам терминала и последующим командам.</string>
   <string name="workspace_detail_settings_save_failed">Не удалось сохранить настройки</string>
   <string name="setting_display_page_background_effect_title">Эффект фона панели ввода</string>
-  <string name="setting_display_page_background_effect_desc">Включить эффект размытия или стекла на панели ввода чата</string>
-  <string name="setting_display_page_background_effect_type">Тип фонового эффекта</string>
-  <string name="setting_display_page_background_effect_blur">Размытие</string>
-  <string name="setting_display_page_background_effect_glass">Стекло</string>
+  <string name="setting_display_page_background_effect_desc">Применяет эффект матового стекла к панели ввода чата</string>
 </resources>

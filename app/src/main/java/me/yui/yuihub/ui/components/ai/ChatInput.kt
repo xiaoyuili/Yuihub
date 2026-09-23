@@ -88,9 +88,6 @@ import androidx.compose.ui.window.DialogProperties
 import com.dokar.sonner.ToastType
 import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.blur.HazeBlurStyle
-import dev.chrisbanes.haze.blur.hazeBlur
-import dev.chrisbanes.haze.blur.material3.Material3
 import dev.chrisbanes.haze.glass.GlassDefaults
 import dev.chrisbanes.haze.glass.GlassStyle
 import dev.chrisbanes.haze.glass.OpticalSizeValue
@@ -128,7 +125,6 @@ import me.yui.yuihub.ui.hooks.ChatInputState
 import me.yui.yuihub.ui.theme.LocalDarkMode
 import me.yui.yuihub.utils.AUTO_COMPRESS_THRESHOLD_RATIO
 import me.yui.yuihub.utils.formatContextLength
-import me.yui.yuihub.data.datastore.BackgroundEffectType
 import me.yui.yuihub.ui.components.ui.permission.PermissionManager
 import me.yui.yuihub.ui.components.ui.permission.rememberPermissionState
 import org.koin.compose.koinInject
@@ -152,6 +148,7 @@ fun ChatInput(
     onSendClick: () -> Unit,
     onLongSendClick: () -> Unit,
     messageQueue: MessageQueueState = MessageQueueState(),
+    resizeForIme: Boolean = true,
     onRemoveQueuedMessage: (Uuid) -> Unit = {},
     onBeginEditQueuedMessage: (Uuid) -> QueuedMessage? = { null },
     onFinishEditQueuedMessage: (Uuid, List<UIMessagePart>?) -> Unit = { _, _ -> },
@@ -163,7 +160,6 @@ fun ChatInput(
 
     // 悬浮输入栏：平时不透明(保证输入文字可读)，用户拖动消息列表时降为 10% 让位内容
     val isDark = LocalDarkMode.current
-    val glassTint = MaterialTheme.colorScheme.surface
     // 边缘线：亮色下用中性描边（纯白边在浅色背景上看不见）
     val hazeTintColor = MaterialTheme.colorScheme.surfaceContainerLow
     val glassBorderColor = if (isDark) {
@@ -172,10 +168,7 @@ fun ChatInput(
         MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
     }
     val glassShadowColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.22f)
-    val inputHazeStyle = HazeBlurStyle.Material3 {
-        blurRadius(16.dp)
-        backgroundColor(glassTint)
-    }
+    val glassEffectEnabled = settings.displaySetting.enableBlurEffect && !isListScrolling
     // 滚动时移除模糊/玻璃层，改由不透明度控制，视觉上更轻且省一层离屏渲染
     val inputAlpha by animateFloatAsState(
         targetValue = if (isListScrolling) 0.1f else 1f,
@@ -216,7 +209,7 @@ fun ChatInput(
     ) {
         Column(
             modifier = modifier
-                .imePadding()
+                .then(if (resizeForIme) Modifier.imePadding() else Modifier)
                 .navigationBarsPadding()
                 .padding(horizontal = 8.dp)
                 .padding(bottom = 8.dp),
@@ -258,34 +251,28 @@ fun ChatInput(
                     )
                     .clip(containerShape)
                     .then(
-                        if (settings.displaySetting.enableBlurEffect && !isListScrolling) {
-                            when (settings.displaySetting.backgroundEffectType) {
-                                BackgroundEffectType.BLUR -> Modifier.hazeBlur(
-                                    input = HazeInput.Sources(hazeState),
-                                    style = inputHazeStyle,
-                                )
-                                BackgroundEffectType.GLASS -> Modifier.hazeGlass(
-                                    input = HazeInput.Sources(hazeState),
-                                    style = GlassStyle.Material3(
-                                        containerColor = hazeTintColor,
-                                        tint = hazeTintColor.copy(alpha = 0.72f),
-                                    ) {
-                                        // Keep background text from competing with the input text.
-                                        optics(GlassDefaults.optics.copy(
-                                            blurRadius = OpticalSizeValue.Fixed(16.dp),
-                                            depth = OpticalSizeValue.Fixed(0.5f),
-                                        ))
-                                        shape(containerShape)
-                                    },
-                                )
-                            }
+                        if (glassEffectEnabled) {
+                            Modifier.hazeGlass(
+                                input = HazeInput.Sources(hazeState),
+                                style = GlassStyle.Material3(
+                                    containerColor = hazeTintColor,
+                                    tint = hazeTintColor.copy(alpha = 0.72f),
+                                ) {
+                                    // Keep background text from competing with the input text.
+                                    optics(GlassDefaults.optics.copy(
+                                        blurRadius = OpticalSizeValue.Fixed(16.dp),
+                                        depth = OpticalSizeValue.Fixed(0.5f),
+                                    ))
+                                    shape(containerShape)
+                                },
+                            )
                         } else Modifier
                     ),
                 shape = containerShape,
                 tonalElevation = 0.dp,
                 border = BorderStroke(1.dp, glassBorderColor),
-                // 不透明底色：输入栏始终可读；模糊/玻璃开启时由 haze 层叠加在外
-                color = hazeTintColor,
+                // 开启玻璃效果时底色透明，否则不透明 haze 层会被盖住看不出效果
+                color = if (glassEffectEnabled) Color.Transparent else hazeTintColor,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),

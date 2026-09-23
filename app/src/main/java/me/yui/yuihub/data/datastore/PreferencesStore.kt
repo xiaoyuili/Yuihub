@@ -471,15 +471,6 @@ enum class ChatFontFamily {
 }
 
 @Serializable
-enum class BackgroundEffectType {
-    @SerialName("blur")
-    BLUR,
-
-    @SerialName("glass")
-    GLASS,
-}
-
-@Serializable
 data class DisplaySetting(
     val userAvatar: Avatar = Avatar.Dummy,
     val userNickname: String = "",
@@ -509,7 +500,6 @@ data class DisplaySetting(
     val enableAutoScroll: Boolean = true,
     val enableLatexRendering: Boolean = true,
     val enableBlurEffect: Boolean = false,
-    val backgroundEffectType: BackgroundEffectType = BackgroundEffectType.BLUR,
     val chatFontFamily: ChatFontFamily = ChatFontFamily.DEFAULT,
     val chatCustomFontPath: String = "",
     val chatCustomFontName: String = "",

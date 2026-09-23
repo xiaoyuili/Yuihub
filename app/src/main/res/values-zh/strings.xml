@@ -672,6 +672,7 @@
   <string name="setting_page_color_mode_dark">深色</string>
   <string name="setting_page_color_mode_light">浅色</string>
   <string name="setting_page_color_mode_system">跟随系统</string>
+  <string name="setting_page_color_mode_follow">跟随</string>
   <string name="setting_page_config">配置</string>
   <string name="setting_page_config_api_desc">你还没有配置API和模型，请先配置</string>
   <string name="setting_page_config_api_title">请配置API和模型</string>
@@ -1201,8 +1202,5 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="assistant_page_time_reminder_interval_value">%1$d 分钟</string>
   <string name="workspace_detail_settings_save_failed">保存设置失败</string>
   <string name="setting_display_page_background_effect_title">输入栏背景效果</string>
-  <string name="setting_display_page_background_effect_desc">为聊天输入栏启用模糊或玻璃效果</string>
-  <string name="setting_display_page_background_effect_type">背景效果类型</string>
-  <string name="setting_display_page_background_effect_blur">模糊</string>
-  <string name="setting_display_page_background_effect_glass">玻璃</string>
+  <string name="setting_display_page_background_effect_desc">为聊天输入栏启用拟态玻璃效果</string>
 </resources>
