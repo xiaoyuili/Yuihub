@@ -105,6 +105,7 @@ import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.Fullscreen
+import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Zap
 import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.Settings
@@ -128,6 +129,11 @@ import me.yui.yuihub.utils.formatContextLength
 import me.yui.yuihub.ui.components.ui.permission.PermissionManager
 import me.yui.yuihub.ui.components.ui.permission.rememberPermissionState
 import org.koin.compose.koinInject
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import me.yui.yuihub.Screen
+import me.yui.yuihub.data.repository.WorkspaceRepository
+import me.yui.yuihub.ui.context.LocalNavController
+import me.rerere.workspace.WorkspaceShellStatus
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
@@ -343,6 +349,29 @@ fun ChatInput(
 
                         }
 
+                        // 终端入口：助手绑定了工作区且 shell 启用时显示，替代「+」面板内的入口
+                        val navController = LocalNavController.current
+                        val workspaceRepository: WorkspaceRepository = koinInject()
+                        val workspaces by workspaceRepository.listFlow()
+                            .collectAsStateWithLifecycle(initialValue = emptyList())
+                        val boundWorkspace = remember(workspaces, assistant.workspaceId) {
+                            workspaces.find { it.id == assistant.workspaceId?.toString() }
+                        }
+                        if (boundWorkspace != null &&
+                            boundWorkspace.shellStatus != WorkspaceShellStatus.DISABLED.name
+                        ) {
+                            ActionIconButton(
+                                onClick = {
+                                    navController.navigate(Screen.WorkspaceTerminal(boundWorkspace.id))
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = HugeIcons.ComputerTerminal01,
+                                    contentDescription = stringResource(R.string.workspace_terminal)
+                                )
+                            }
+                        }
+
                         ActionIconButton(
                             onClick = onMoreClick
                         ) {
@@ -392,7 +421,7 @@ private fun SendButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(30.dp)
+            .size(34.dp)
             .testTag("chat_send_button")
             .clip(CircleShape)
             .combinedClickable(
@@ -414,7 +443,7 @@ private fun SendButton(
             imageVector = if (showStop) HugeIcons.Cancel01 else HugeIcons.ArrowUp02,
             contentDescription = stringResource(if (showStop) R.string.stop else R.string.send),
             tint = contentColor,
-            modifier = Modifier.size(18.dp)
+            modifier = Modifier.size(20.dp)
         )
     }
 }
@@ -426,7 +455,7 @@ private fun ActionIconButton(
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.size(30.dp),
+        modifier = Modifier.size(34.dp),
         shape = CircleShape,
         tonalElevation = 0.dp,
         color = Color.Transparent,

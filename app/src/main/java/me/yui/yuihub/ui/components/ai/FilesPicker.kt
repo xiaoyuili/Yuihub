@@ -57,7 +57,6 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.AiSearch02
 import me.rerere.hugeicons.stroke.Codesandbox
-import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Files02
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Image02
@@ -153,10 +152,6 @@ internal fun FilesPicker(
                 onNavigateToDetail = { id ->
                     onDismiss()
                     navController.navigate(Screen.WorkspaceDetail(id))
-                },
-                onNavigateToTerminal = { id ->
-                    onDismiss()
-                    navController.navigate(Screen.WorkspaceTerminal(id))
                 },
                 onNavigateToManage = {
                     onDismiss()
@@ -261,7 +256,6 @@ private fun WorkspacePickerListItem(
     onUpdateAssistant: (Assistant) -> Unit,
     onUpdateConversation: (Conversation) -> Unit,
     onNavigateToDetail: (String) -> Unit,
-    onNavigateToTerminal: (String) -> Unit,
     onNavigateToManage: () -> Unit,
 ) {
     var showSheet by remember { mutableStateOf(false) }
@@ -296,14 +290,6 @@ private fun WorkspacePickerListItem(
                             imageVector = HugeIcons.Settings02,
                             contentDescription = stringResource(R.string.workspace_detail),
                         )
-                    }
-                    if (boundWorkspace.shellStatus != WorkspaceShellStatus.DISABLED.name) {
-                        IconButton(onClick = { onNavigateToTerminal(boundWorkspace.id) }) {
-                            Icon(
-                                imageVector = HugeIcons.ComputerTerminal01,
-                                contentDescription = stringResource(R.string.workspace_terminal),
-                            )
-                        }
                     }
                 }
             }
