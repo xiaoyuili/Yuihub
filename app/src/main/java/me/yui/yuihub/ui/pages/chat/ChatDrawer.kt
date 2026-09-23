@@ -6,7 +6,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -21,6 +23,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,6 +53,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DrawerDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
@@ -73,12 +78,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.collectAsLazyPagingItems
@@ -154,6 +163,7 @@ fun ChatDrawerContent(
     vm: ChatVM,
     settings: Settings,
     current: Conversation,
+    modifier: Modifier = Modifier.width(300.dp),
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -250,7 +260,7 @@ fun ChatDrawerContent(
     var folderToDelete by remember { mutableStateOf<Folder?>(null) }
 
     ModalDrawerSheet(
-        modifier = Modifier.width(300.dp)
+        modifier = modifier
     ) {
         Column(
             modifier = Modifier.padding(8.dp),
@@ -324,14 +334,28 @@ fun ChatDrawerContent(
                 enter = expandVertically(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(),
                 exit = shrinkVertically(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeOut(),
             ) {
-                DrawerPanelToggle(
-                    selected = activePanel,
-                    onSelect = {
-                        focusManager.clearFocus()
-                        drawerVm.setDrawerPanel(it)
-                    },
-                    modifier = Modifier.padding(horizontal = 4.dp),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DrawerPanelToggle(
+                        selected = activePanel,
+                        onSelect = {
+                            focusManager.clearFocus()
+                            drawerVm.setDrawerPanel(it)
+                        },
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+
+                    // 文件名搜索框：紧跟在「会话 / 文件」标签下方（仅文件面板可见）
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = effectivePanel == DrawerPanel.FILES,
+                        enter = expandVertically(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeIn(),
+                        exit = shrinkVertically(animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec()) + fadeOut(),
+                    ) {
+                        WorkspaceFilesSearchBar(
+                            query = filesSearchQuery,
+                            onQueryChange = { filesSearchQuery = it },
+                        )
+                    }
+                }
             }
 
             // 面板内容：会话（含聊天/新建行）/ 文件浏览，方向感交叉淡入切换
@@ -432,12 +456,7 @@ fun ChatDrawerContent(
             }
 
             // 底部：文件面板显示文件名搜索框；会话面板显示助手选择器
-            if (effectivePanel == DrawerPanel.FILES) {
-                WorkspaceFilesSearchBar(
-                    query = filesSearchQuery,
-                    onQueryChange = { filesSearchQuery = it },
-                )
-            } else {
+            if (effectivePanel != DrawerPanel.FILES) {
                 AssistantPicker(
                     settings = settings,
                     onUpdateSettings = {
@@ -1660,5 +1679,168 @@ private fun workspaceFileIcon(entry: WorkspaceFileEntry): ImageVector = when {
         WorkspaceFileType.ARCHIVE -> HugeIcons.FileZip
         WorkspaceFileType.TEXT -> HugeIcons.FileCode
         WorkspaceFileType.OTHER -> HugeIcons.File01
+    }
+}
+
+/** 缩放式侧滑容器的尺寸、动画与手势规格。 */
+private object ChatDrawerSpec {
+    /** 展开时侧滑栏占屏宽比例。 */
+    const val FRACTION = 0.8f
+
+    /** 侧滑栏最大宽度，对齐 Material3 抽屉宽度上限，与 ModalDrawerSheet 保持一致。 */
+    val MAX_WIDTH = 360.dp
+
+    /** 主页展开时的缩放比例。 */
+    const val CONTENT_SCALE_END = 0.95f
+
+    /** 主页展开时的圆角。 */
+    val CORNER_RADIUS_END = 22.dp
+
+    /** 主页展开时的阴影高度。 */
+    val SHADOW_END = 20.dp
+
+    /** 未完全展开时覆盖在背景上的灰度。 */
+    const val SCRIM_ALPHA = 0.12f
+
+    /** 拖动跟手基准：滑过该屏宽比例走完整个行程。 */
+    const val DRAG_SPAN_FRACTION = 0.6f
+
+    /** 吸附判定阈值：相对拖动起点的行程比例，超过即朝该方向开合。 */
+    const val SETTLE_THRESHOLD = 0.25f
+
+    val SettleSpec = spring<Float>(
+        dampingRatio = Spring.DampingRatioNoBouncy,
+        stiffness = Spring.StiffnessMediumLow,
+    )
+}
+
+/**
+ * 缩放式侧滑容器：展开时侧滑栏从左侧滑入，主页右移、以左边缘为轴缩小并渐显圆角与阴影，
+ * 背后露出与侧滑栏同色的底色；全屏可左右拖动，松手按幅度吸附到展开或收回。
+ */
+@Composable
+fun ChatScalingDrawer(
+    open: Boolean,
+    onOpenChange: (Boolean) -> Unit,
+    drawerContent: @Composable () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    // 用侧滑栏自身的容器色作为底色，收起时主页四周露出的部分与侧滑栏无缝衔接
+    val backdropColor = DrawerDefaults.modalContainerColor
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val drawerWidth = (maxWidth * ChatDrawerSpec.FRACTION).coerceAtMost(ChatDrawerSpec.MAX_WIDTH)
+        val progress = remember { Animatable(if (open) 1f else 0f) }
+        val scope = rememberCoroutineScope()
+
+        LaunchedEffect(open) {
+            progress.animateTo(if (open) 1f else 0f, ChatDrawerSpec.SettleSpec)
+        }
+
+        // 松手后朝拖动方向吸附：位移超过阈值即朝该方向，否则回到更近的一侧。
+        // 以拖动起点为基准，保证展开与收回收的触发幅度一致
+        fun settle(startProgress: Float) {
+            val delta = progress.value - startProgress
+            val target = when {
+                delta > ChatDrawerSpec.SETTLE_THRESHOLD -> true
+                delta < -ChatDrawerSpec.SETTLE_THRESHOLD -> false
+                else -> progress.value > 0.5f
+            }
+            scope.launch { progress.animateTo(if (target) 1f else 0f, ChatDrawerSpec.SettleSpec) }
+            onOpenChange(target)
+        }
+
+        val p = progress.value
+        val scrimAlpha = ChatDrawerSpec.SCRIM_ALPHA * (1f - p)
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(backdropColor)
+                .background(Color.Black.copy(alpha = scrimAlpha))
+                .pointerInput(drawerWidth) {
+                    val dragSpan =
+                        drawerWidth / ChatDrawerSpec.FRACTION * ChatDrawerSpec.DRAG_SPAN_FRACTION
+                    var startProgress = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { startProgress = progress.value },
+                        onHorizontalDrag = { _, dragAmount ->
+                            scope.launch {
+                                val delta = dragAmount / dragSpan.toPx()
+                                progress.snapTo((progress.value + delta).coerceIn(0f, 1f))
+                            }
+                        },
+                        onDragEnd = { settle(startProgress) },
+                        onDragCancel = { settle(startProgress) },
+                    )
+                },
+        ) {
+            DrawerSlidePanel(width = drawerWidth, progress = p) {
+                drawerContent()
+            }
+
+            ScaledHomePanel(
+                drawerWidth = drawerWidth,
+                progress = p,
+                scale = 1f - (1f - ChatDrawerSpec.CONTENT_SCALE_END) * p,
+                corner = ChatDrawerSpec.CORNER_RADIUS_END * p,
+                shadow = ChatDrawerSpec.SHADOW_END * p,
+                onTapWhenOpen = { if (p > 0.01f) onOpenChange(false) },
+                content = content,
+            )
+        }
+    }
+}
+
+/** 侧滑栏面板：未完全展开时向左移出屏幕。 */
+@Composable
+private fun DrawerSlidePanel(
+    width: Dp,
+    progress: Float,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .width(width)
+            .graphicsLayer { translationX = -width.toPx() * (1f - progress) },
+    ) {
+        content()
+    }
+}
+
+/** 主页面板：覆盖在侧滑栏之上，右移、缩小、加圆角与阴影。 */
+@Composable
+private fun ScaledHomePanel(
+    drawerWidth: Dp,
+    progress: Float,
+    scale: Float,
+    corner: Dp,
+    shadow: Dp,
+    onTapWhenOpen: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                translationX = (drawerWidth * progress).toPx()
+                scaleX = scale
+                scaleY = scale
+                // 以左边缘为轴缩放，左缘始终贴合侧滑栏右缘
+                transformOrigin = TransformOrigin(0f, 0.5f)
+                shadowElevation = shadow.toPx()
+                shape = RoundedCornerShape(corner)
+                clip = true
+            },
+    ) {
+        content()
+        // 展开后主页被覆盖，点击任意处关闭
+        if (progress > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) { detectTapGestures { onTapWhenOpen() } },
+            )
+        }
     }
 }
