@@ -48,7 +48,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.core.net.toUri
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -76,6 +78,7 @@ import me.yui.yuihub.ui.context.Navigator
 import me.yui.yuihub.ui.hooks.rememberColorMode
 import me.yui.yuihub.ui.theme.ColorMode
 import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.utils.openUrl
 import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
 
@@ -218,6 +221,23 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         leadingContent = { Icon(HugeIcons.Clapping01, null) },
                         supportingContent = { Text(stringResource(R.string.setting_page_about_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_about)) },
+                        trailingContent = {
+                            Icon(
+                                painterResource(R.drawable.ic_qq),
+                                contentDescription = "QQ",
+                                modifier = Modifier
+                                    .padding(start = 16.dp)
+                                    .clickable {
+                                        runCatching {
+                                            context.startActivity(
+                                                Intent(Intent.ACTION_VIEW, "mqqwpa://im/chat?chat_type=group&uin=1126840192&version=1&src_type=web".toUri())
+                                            )
+                                        }.onFailure {
+                                            context.openUrl("https://qm.qq.com/cgi-bin/qm/qr?groupUin=1126840192")
+                                        }
+                                    }
+                            )
+                        },
                     )
                     item(
                         onClick = {
