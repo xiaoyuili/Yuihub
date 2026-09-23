@@ -65,6 +65,7 @@ import me.yui.yuihub.data.event.AppEvent
 import me.yui.yuihub.data.event.AppEventBus
 import me.yui.yuihub.ui.activity.SafeModeActivity
 import me.yui.yuihub.ui.components.richtext.LocalLinkHandler
+import me.yui.yuihub.ui.components.update.UpdatePromptHost
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.context.LocalSharedTransitionScope
@@ -297,6 +298,7 @@ class RouteActivity : ComponentActivity() {
                         .semantics { testTagsAsResourceId = true }
                         .background(MaterialTheme.colorScheme.background)
                 ) {
+                    UpdatePromptHost()
                     NavDisplay(
                         backStack = backStack,
                         entryDecorators = listOf(

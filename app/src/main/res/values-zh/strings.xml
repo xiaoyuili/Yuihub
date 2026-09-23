@@ -1,10 +1,22 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <resources>
+  <string name="about_page_check_update_failed">检查更新失败，请稍后重试</string>
+  <string name="about_page_checking_update">正在检查更新…</string>
   <string name="about_page_github">Github</string>
+  <string name="about_page_new_version_badge">发现新版本！</string>
+  <string name="about_page_no_new_version">暂无新版本</string>
   <string name="about_page_license">License</string>
   <string name="about_page_system">系统</string>
   <string name="about_page_title">关于</string>
   <string name="about_page_version">版本</string>
+  <string name="update_dialog_new_version_found">发现新版本！</string>
+  <string name="update_dialog_release_notes">更新内容</string>
+  <string name="update_dialog_no_release_notes">暂无更新说明</string>
+  <string name="update_dialog_ignore">忽略该版本</string>
+  <string name="update_dialog_update">更新</string>
+  <string name="update_dialog_preparing_download">正在测试下载线路…</string>
+  <string name="update_dialog_download_started">已开始下载，可在通知栏查看进度</string>
+  <string name="update_dialog_download_failed">所有下载线路均不可用，请稍后重试</string>
   <string name="app_name">YuiHub</string>
   <string name="assistant_detail_basic_desc">配置名称、头像、模型和参数</string>
   <string name="assistant_detail_extensions_desc">管理提示词注入、世界书和技能等扩展</string>

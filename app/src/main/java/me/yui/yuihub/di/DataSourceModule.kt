@@ -39,6 +39,7 @@ import me.yui.yuihub.AppScope
 import me.yui.yuihub.data.ai.memory.MemoryConsolidator
 import me.yui.yuihub.data.ai.memory.MemoryExtractor
 import me.yui.yuihub.data.sync.LocalBackupService
+import me.yui.yuihub.data.update.UpdateChecker
 import me.rerere.search.SearchService
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -50,6 +51,10 @@ import java.util.concurrent.atomic.AtomicReference
 val dataSourceModule = module {
     single {
         SettingsStore(context = get(), scope = get())
+    }
+
+    single {
+        UpdateChecker(okHttpClient = get(), json = get())
     }
 
     single {

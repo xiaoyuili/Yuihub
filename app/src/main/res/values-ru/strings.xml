@@ -1,10 +1,22 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <resources>
+  <string name="about_page_check_update_failed">Не удалось проверить обновления</string>
+  <string name="about_page_checking_update">Проверка обновлений…</string>
   <string name="about_page_github">GitHub</string>
+  <string name="about_page_new_version_badge">Новая версия!</string>
+  <string name="about_page_no_new_version">Нет обновлений</string>
   <string name="about_page_license">Лицензия</string>
   <string name="about_page_system">Система</string>
   <string name="about_page_title">О приложении</string>
   <string name="about_page_version">Версия</string>
+  <string name="update_dialog_new_version_found">Доступна новая версия!</string>
+  <string name="update_dialog_release_notes">Что нового</string>
+  <string name="update_dialog_no_release_notes">Без описания</string>
+  <string name="update_dialog_ignore">Пропустить версию</string>
+  <string name="update_dialog_update">Обновить</string>
+  <string name="update_dialog_preparing_download">Проверка маршрутов загрузки…</string>
+  <string name="update_dialog_download_started">Загрузка началась. Прогресс — в панели уведомлений</string>
+  <string name="update_dialog_download_failed">Все маршруты загрузки недоступны</string>
   <string name="about_page_website">Веб-сайт</string>
   <string name="add">Добавить</string>
   <string name="app_name">YuiHub</string>

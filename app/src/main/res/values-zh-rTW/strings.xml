@@ -1,10 +1,22 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <resources>
+  <string name="about_page_check_update_failed">檢查更新失敗，請稍後重試</string>
+  <string name="about_page_checking_update">正在檢查更新…</string>
   <string name="about_page_github">Github</string>
+  <string name="about_page_new_version_badge">發現新版本！</string>
+  <string name="about_page_no_new_version">暫無新版本</string>
   <string name="about_page_license">授權條款</string>
   <string name="about_page_system">系統</string>
   <string name="about_page_title">關於</string>
   <string name="about_page_version">版本</string>
+  <string name="update_dialog_new_version_found">發現新版本！</string>
+  <string name="update_dialog_release_notes">更新內容</string>
+  <string name="update_dialog_no_release_notes">暫無更新說明</string>
+  <string name="update_dialog_ignore">忽略該版本</string>
+  <string name="update_dialog_update">更新</string>
+  <string name="update_dialog_preparing_download">正在測試下載線路…</string>
+  <string name="update_dialog_download_started">已開始下載，可在通知欄查看進度</string>
+  <string name="update_dialog_download_failed">所有下載線路均不可用，請稍後重試</string>
   <string name="about_page_website">官網</string>
   <string name="add">添加</string>
   <string name="app_name">YuiHub</string>

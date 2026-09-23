@@ -1,10 +1,22 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <resources>
+  <string name="about_page_check_update_failed">업데이트 확인 실패</string>
+  <string name="about_page_checking_update">업데이트 확인 중…</string>
   <string name="about_page_github">Github</string>
+  <string name="about_page_new_version_badge">새 버전 발견!</string>
+  <string name="about_page_no_new_version">최신 버전입니다</string>
   <string name="about_page_license">라이선스</string>
   <string name="about_page_system">시스템</string>
   <string name="about_page_title">정보</string>
   <string name="about_page_version">버전</string>
+  <string name="update_dialog_new_version_found">새 버전이 있습니다!</string>
+  <string name="update_dialog_release_notes">업데이트 내용</string>
+  <string name="update_dialog_no_release_notes">업데이트 내용 없음</string>
+  <string name="update_dialog_ignore">이 버전 무시</string>
+  <string name="update_dialog_update">업데이트</string>
+  <string name="update_dialog_preparing_download">다운로드 경로 테스트 중…</string>
+  <string name="update_dialog_download_started">다운로드가 시작되었습니다. 알림 바에서 진행 상황을 확인하세요</string>
+  <string name="update_dialog_download_failed">모든 다운로드 경로를 사용할 수 없습니다</string>
   <string name="about_page_website">웹사이트</string>
   <string name="add">추가</string>
   <string name="app_name">YuiHub</string>

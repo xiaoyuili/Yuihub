@@ -1,10 +1,22 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <resources>
+  <string name="about_page_check_update_failed">Check for updates failed. Try again later</string>
+  <string name="about_page_checking_update">Checking for updates…</string>
   <string name="about_page_github">Github</string>
+  <string name="about_page_new_version_badge">New version!</string>
+  <string name="about_page_no_new_version">You\'re up to date</string>
   <string name="about_page_license">License</string>
   <string name="about_page_system">System</string>
   <string name="about_page_title">About</string>
   <string name="about_page_version">Version</string>
+  <string name="update_dialog_new_version_found">New version available!</string>
+  <string name="update_dialog_release_notes">What\'s new</string>
+  <string name="update_dialog_no_release_notes">No release notes</string>
+  <string name="update_dialog_ignore">Ignore this version</string>
+  <string name="update_dialog_update">Update</string>
+  <string name="update_dialog_preparing_download">Testing download routes…</string>
+  <string name="update_dialog_download_started">Download started. Check the notification shade for progress</string>
+  <string name="update_dialog_download_failed">All download routes failed. Try again later</string>
   <string name="app_name">YuiHub</string>
   <string name="assistant_detail_basic_desc">Configure name, avatar, model, and parameters</string>
   <string name="assistant_detail_extensions_desc">Manage quick messages, prompt injections, lorebooks and skills</string>

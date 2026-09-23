@@ -1,10 +1,22 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <resources>
+  <string name="about_page_check_update_failed">アップデートの確認に失敗しました</string>
+  <string name="about_page_checking_update">アップデートを確認中…</string>
   <string name="about_page_github">Github</string>
+  <string name="about_page_new_version_badge">新バージョンあり！</string>
+  <string name="about_page_no_new_version">最新です</string>
   <string name="about_page_license">ライセンス</string>
   <string name="about_page_system">システム</string>
   <string name="about_page_title">アプリについて</string>
   <string name="about_page_version">バージョン</string>
+  <string name="update_dialog_new_version_found">新バージョンがあります！</string>
+  <string name="update_dialog_release_notes">更新内容</string>
+  <string name="update_dialog_no_release_notes">更新内容なし</string>
+  <string name="update_dialog_ignore">このバージョンを無視</string>
+  <string name="update_dialog_update">更新</string>
+  <string name="update_dialog_preparing_download">ダウンロード経路をテスト中…</string>
+  <string name="update_dialog_download_started">ダウンロードを開始しました。通知バーで進捗を確認できます</string>
+  <string name="update_dialog_download_failed">すべてのダウンロード経路が利用できません</string>
   <string name="about_page_website">ウェブサイト</string>
   <string name="add">追加</string>
   <string name="app_name">YuiHub</string>
