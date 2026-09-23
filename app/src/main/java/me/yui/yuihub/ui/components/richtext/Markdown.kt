@@ -66,8 +66,10 @@ import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -806,6 +808,7 @@ private fun Paragraph(
 
     val textStyle = LocalTextStyle.current
     val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
     val latexColorArgb = LocalContentColor.current.toArgb()
     val accentOverride = LocalMarkdownAccentColor.current
     FlowRow(
@@ -831,6 +834,7 @@ private fun Paragraph(
                         onClickCitation = onClickCitation,
                         style = textStyle,
                         density = density,
+                        textMeasurer = textMeasurer,
                         trim = trim,
                         enableLatexRendering = enableLatexRendering,
                         latexColorArgb = latexColorArgb,
@@ -1015,6 +1019,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
     inlineContents: MutableMap<String, InlineTextContent>,
     colorScheme: ColorScheme,
     density: Density,
+    textMeasurer: TextMeasurer,
     style: TextStyle,
     enableLatexRendering: Boolean = true,
     latexColorArgb: Int = 0,
@@ -1054,6 +1059,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                         inlineContents = inlineContents,
                         colorScheme = colorScheme,
                         density = density,
+                        textMeasurer = textMeasurer,
                         style = style,
                         enableLatexRendering = enableLatexRendering,
                         latexColorArgb = latexColorArgb,
@@ -1072,6 +1078,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                         inlineContents = inlineContents,
                         colorScheme = colorScheme,
                         density = density,
+                        textMeasurer = textMeasurer,
                         style = style,
                         enableLatexRendering = enableLatexRendering,
                         latexColorArgb = latexColorArgb,
@@ -1090,6 +1097,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                         inlineContents = inlineContents,
                         colorScheme = colorScheme,
                         density = density,
+                        textMeasurer = textMeasurer,
                         style = style,
                         enableLatexRendering = enableLatexRendering,
                         latexColorArgb = latexColorArgb,
@@ -1109,10 +1117,27 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                 val domain = linkText.substringAfter("citation,")
                 val id = linkDest
                 if (id.length == 6) {
+                    val citationLabelStyle = TextStyle(
+                        fontSize = 10.sp,
+                        lineHeight = 10.sp,
+                        fontFamily = JetbrainsMono,
+                        color = colorScheme.onTertiaryContainer,
+                        fontWeight = FontWeight.Thin
+                    )
+                    // 用 TextMeasurer 实测标签宽度: 按字符数估算(如 length*7sp)对中文
+                    // 会严重低估(中文实际约 13-14sp/字), 导致标签内文字被挤压换行
+                    val measuredWidth = with(density) {
+                        textMeasurer.measure(
+                            text = AnnotatedString(domain),
+                            style = citationLabelStyle,
+                            maxLines = 1,
+                        ).size.width.toSp()
+                    }
                     inlineContents.putIfAbsent(
                         "citation:$linkDest", InlineTextContent(
                             placeholder = Placeholder(
-                                width = (domain.length * 7).sp,
+                                // 留出圆角内边距, 避免文字贴边被裁
+                                width = (measuredWidth.value + 10f).sp,
                                 height = 1.em,
                                 placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
                             ), children = {
@@ -1128,13 +1153,8 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                                     Text(
                                         text = domain,
                                         modifier = Modifier.wrapContentSize(),
-                                        style = TextStyle(
-                                            fontSize = 10.sp,
-                                            lineHeight = 10.sp,
-                                            fontFamily = JetbrainsMono,
-                                            color = colorScheme.onTertiaryContainer,
-                                            fontWeight = FontWeight.Thin
-                                        ),
+                                        style = citationLabelStyle,
+                                        maxLines = 1,
                                     )
                                 }
                             })
@@ -1262,6 +1282,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                     inlineContents = inlineContents,
                     colorScheme = colorScheme,
                     density = density,
+                    textMeasurer = textMeasurer,
                     style = style,
                     enableLatexRendering = enableLatexRendering,
                     latexColorArgb = latexColorArgb,
