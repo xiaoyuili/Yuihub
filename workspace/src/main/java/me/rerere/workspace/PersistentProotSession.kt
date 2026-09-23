@@ -58,6 +58,11 @@ class PersistentProotSession private constructor(
             val session = PersistentProotSession(process)
             session.startPumps()
             try {
+                // 握手时校验 /tmp 存在且可写; 异常(如 App 启动清理后目录缺失)就地重建,
+                // 否则后续命令的临时脚本写入会直接 exit 127
+                session.writeRaw(
+                    "if ! [ -d /tmp ] || ! [ -w /tmp ]; then mkdir -p /tmp && chmod 1777 /tmp; fi\n"
+                )
                 session.writeRaw("printf '%s\\n' '$INIT_MARKER'\n")
                 val deadline = System.currentTimeMillis() + initTimeoutMs
                 while (true) {
@@ -270,6 +275,7 @@ class PersistentProotSession private constructor(
         marker: String,
     ): String = buildString {
         append("__YUIHUB_TMP='").append(CMD_TMP_PREFIX).append(java.lang.Long.toUnsignedString(System.nanoTime(), 36)).append("'\n")
+        append("__YUIHUB_TMP_DIR='\${__YUIHUB_TMP%/*}'\n")
         val cmdChunks = appendAssignments(this, "__YUIHUB_CMD", command.toByteArray(Charsets.UTF_8))
         val inChunks = if (stdin != null && stdin.isNotEmpty()) {
             appendAssignments(this, "__YUIHUB_IN", stdin)
@@ -278,6 +284,8 @@ class PersistentProotSession private constructor(
         }
         append("__YUIHUB_CWD='").append(cwdSpec.replace("'", "'\\''")).append("'\n")
         append("__YUIHUB_MK='").append(marker).append("'\n")
+        // /tmp 自愈: 目录被清理(如 App 启动时 cleanupAllTempDirs)时先重建, 避免脚本写入失败 exit 127
+        append("mkdir -p -- \"\${'\$'}__YUIHUB_TMP_DIR\"\n")
         append("printf '%s' \"").append(varRefs("__YUIHUB_CMD", cmdChunks)).append("\" | base64 -d > \"\$__YUIHUB_TMP\"\n")
         // cd 失败时 && 短路, 子壳退出码 = cd 的退出码; 不用 "|| exit $?" —— 此处的 $? 是 read 的, 不是上一行的
         if (inChunks > 0) {

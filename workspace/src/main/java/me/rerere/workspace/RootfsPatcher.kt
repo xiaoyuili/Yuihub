@@ -15,7 +15,12 @@ class RootfsPatcher {
         // 每条 shell 命令都要走一次, 这里用 marker 记住已完成的参数集直接返回。
         val marker = File(etcDir, PATCH_MARKER)
         val signature = options.markerSignature()
-        if (marker.isFile && marker.readText() == signature) return
+        val alreadyPatched = marker.isFile && marker.readText() == signature
+        // /tmp 不在 marker 短路内: App 启动时 cleanupAllTempDirs 会删掉 rootfs 的 /tmp 与
+        // /var/tmp, 若只靠 marker 短路, 重启后首次命令的临时脚本(写在 /tmp)会因目录缺失
+        // 直接 exit 127。这里每次都重建, 仅几个 mkdir/stat, 开销可忽略。
+        ensureTempDirs(linuxDir)
+        if (alreadyPatched) return
 
         ensureRootfsDns(etcDir, options.nameservers)
         ensureHosts(etcDir, options.hostname)
@@ -23,7 +28,6 @@ class RootfsPatcher {
         ensureLocale(etcDir, options.locale)
         ensureGroupNames(etcDir, options.groupIds.ifEmpty { currentSupplementaryGroupIds() })
         ensureAptMirror(linuxDir)
-        ensureTempDirs(linuxDir)
         marker.writeText(signature)
     }
 
