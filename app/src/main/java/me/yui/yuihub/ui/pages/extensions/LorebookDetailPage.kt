@@ -30,14 +30,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,7 +49,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -102,7 +100,6 @@ private const val TAB_SETTINGS = 2
 fun LorebookDetailPage(bookId: String, vm: LorebookVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val pagerState = rememberPagerState { 3 }
 
     val id = remember(bookId) { runCatching { Uuid.parse(bookId) }.getOrNull() }
@@ -118,7 +115,7 @@ fun LorebookDetailPage(bookId: String, vm: LorebookVM = koinViewModel()) {
 
     Scaffold(
         topBar = {
-            LargeFlexibleTopAppBar(
+            TopAppBar(
                 title = { Text(book.name.ifBlank { stringResource(R.string.prompt_page_unnamed_lorebook) }) },
                 navigationIcon = { BackButton() },
                 actions = {
@@ -131,11 +128,9 @@ fun LorebookDetailPage(bookId: String, vm: LorebookVM = koinViewModel()) {
                         }
                     }
                 },
-                scrollBehavior = scrollBehavior,
                 colors = CustomColors.topBarColors,
             )
         },
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = CustomColors.topBarColors.containerColor,
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
