@@ -12,6 +12,7 @@ local.properties
 .history
 .kotlin
 # YuiHub fork: 签名密钥不入库
+/keystore/
 *.jks
 *.keystore
 
