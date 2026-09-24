@@ -8,7 +8,6 @@ import me.rerere.hugeicons.stroke.ArrowDown01
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Refresh03
 import me.rerere.hugeicons.stroke.Tools
-import me.rerere.hugeicons.stroke.Share01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Cancel01
 import androidx.compose.animation.core.animate
@@ -128,11 +127,9 @@ import me.yui.yuihub.ui.components.nav.FloatingBottomBar
 import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
 import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
 import me.yui.yuihub.ui.components.ui.AutoAIIcon
-import me.yui.yuihub.ui.components.ui.ShareSheet
 import me.yui.yuihub.ui.components.ui.SiliconFlowPowerByIcon
 import me.yui.yuihub.ui.components.ui.Tag
 import me.yui.yuihub.ui.components.ui.TagType
-import me.yui.yuihub.ui.components.ui.rememberShareSheetState
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.hooks.useEditState
@@ -207,16 +204,7 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                     }
                 },
                 actions = {
-                    val shareSheetState = rememberShareSheetState()
-                    ShareSheet(shareSheetState)
                     ModelConnectionTester(providerSetting = provider)
-                    IconButton(
-                        onClick = {
-                            shareSheetState.show(provider)
-                        }
-                    ) {
-                        Icon(HugeIcons.Share01, null)
-                    }
                 }
             )
         },
