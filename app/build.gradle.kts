@@ -19,6 +19,9 @@ plugins {
 android {
     namespace = "me.yui.yuihub"
     compileSdk = 37
+    // 与 workspace 模块一致：容器内只有 termux-ndk 的 aarch64 版 r29，
+    // 不指定时 AGP 会去找默认版本 → NDK 视为未配置 → strip 工具表为空，所有 .so 不 strip
+    ndkVersion = "29.0.14206865"
 
     defaultConfig {
         applicationId = "me.yui.yuihub"
@@ -150,6 +153,7 @@ configurations.matching { it.name.endsWith("UnitTestRuntimeClasspath") }.configu
 dependencies {
     implementation(libs.quickjs)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.work.runtime.ktx)
@@ -236,14 +240,6 @@ dependencies {
 
     // YAML front matter
     implementation(libs.snakeyaml)
-
-    // zxing
-    implementation(libs.zxing.core)
-
-    // quickie (qrcode scanner)
-    implementation(libs.quickie.bundled)
-    implementation(libs.barcode.scanning)
-    implementation(libs.androidx.camera.core)
 
     // Room
     implementation(libs.androidx.room.runtime)
