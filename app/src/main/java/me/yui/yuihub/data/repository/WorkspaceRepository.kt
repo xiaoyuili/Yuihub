@@ -324,6 +324,20 @@ class WorkspaceRepository(
         manager.rootfsFileSize(workspace.root, path, workspace.bindMounts())
     }
 
+    /** 按 Rootfs 内绝对路径读取 mtime（毫秒），供写冲突检测；不存在返回 null */
+    suspend fun rootfsFileMtime(
+        id: String,
+        path: String,
+    ): Long? = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        manager.ensureWorkspace(workspace.root)
+        manager.rootfsFileMtime(workspace.root, path, workspace.bindMounts())
+    }
+
+    /** 任意一个 shell 就绪的 workspace（子代理产物快照用；没有就绪工作区返回 null） */
+    suspend fun getReadyWorkspaceAny(): WorkspaceEntity? =
+        dao.getAll().firstOrNull { it.shellStatus == WorkspaceShellStatus.READY.name }
+
     /** 按 Rootfs 内绝对路径导出文件内容, 支持 /workspace、bind mount 与 Rootfs 内部路径 */
     suspend fun exportRootfsFile(
         id: String,

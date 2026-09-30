@@ -255,6 +255,17 @@ class WorkspaceManager(
         extraBindMounts: List<WorkspaceBindMount> = emptyList(),
     ): Long = resolveRootfsFile(root, path, extraBindMounts).also { it.requireReadableFile(path) }.length()
 
+    /** Rootfs 内文件 mtime（毫秒）；不存在返回 null（P1-3 写冲突检测用） */
+    fun rootfsFileMtime(
+        root: String,
+        path: String,
+        extraBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): Long? {
+        val file = resolveRootfsFile(root, path, extraBindMounts)
+        if (!file.exists() || !file.isFile) return null
+        return file.lastModified()
+    }
+
     fun exportRootfsFile(
         root: String,
         path: String,

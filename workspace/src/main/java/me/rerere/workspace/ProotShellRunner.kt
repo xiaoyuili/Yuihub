@@ -27,8 +27,15 @@ class ProotShellRunner(
     private val patcher: RootfsPatcher = RootfsPatcher(),
 ) : WorkspaceShellRunner {
 
-    // 每个 workspace root 一个常驻会话; rootfs 挂载表是启动参数, 不能跨 root 复用
-    private val sessions = ConcurrentHashMap<String, PersistentProotSession>()
+    // 每个 workspace root 一个常驻会话; rootfs 挂载表是启动参数, 不能跨 root 复用。
+    // 挂载表签名随会话一起记录: 挂载源目录可能晚于会话启动才出现（如 /upload 首次上传前被
+    // exists() 过滤掉），签名不一致时销毁重建，否则会话内永远看不到新挂载点。
+    private val sessions = ConcurrentHashMap<String, SessionEntry>()
+
+    private class SessionEntry(
+        val mountsSignature: List<String>,
+        val session: PersistentProotSession,
+    )
 
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
         if (!context.linuxDir.hasUsableRootfs()) {
@@ -70,25 +77,29 @@ class ProotShellRunner(
         }
 
         val maxAge = SESSION_IDLE_TIMEOUT_MS
+        val mountsSignature = context.bindMounts
+            .filter { it.source.exists() }
+            .map { it.prootBindSpec() }
         while (true) {
-            val reused = sessions[context.root]
-            if (reused != null && !reused.isAlive()) {
-                sessions.remove(context.root, reused)
-                reused.destroy()
+            val entry = sessions[context.root]
+            if (entry != null && (!entry.session.isAlive() || entry.mountsSignature != mountsSignature)) {
+                sessions.remove(context.root, entry)
+                entry.session.destroy()
                 continue
             }
+            val reused = entry?.session
             if (reused != null && System.currentTimeMillis() - reused.lastUsedAtMs.get() > maxAge) {
-                sessions.remove(context.root, reused)
+                sessions.remove(context.root, entry)
                 reused.destroy()
                 continue
             }
             val session = reused ?: run {
                 val created = launchSession(context, proot, loader)
-                val existing = sessions.putIfAbsent(context.root, created)
+                val existing = sessions.putIfAbsent(context.root, SessionEntry(mountsSignature, created))
                 if (existing != null) {
                     // 并发下另一个线程先建了会话, 用它的, 销毁自己的多余实例
                     created.destroy()
-                    existing
+                    existing.session
                 } else {
                     created
                 }
@@ -97,14 +108,14 @@ class ProotShellRunner(
                 session.execute(context)
             } catch (e: IOException) {
                 // 会话死亡(进程被系统杀/流断裂): 重建一次再试; 再失败则透出错误
-                if (sessions.remove(context.root, session)) {
+                if (sessions.remove(context.root, SessionEntry(mountsSignature, session))) {
                     session.destroy()
                 }
                 val fresh = launchSession(context, proot, loader)
-                val raced = sessions.putIfAbsent(context.root, fresh)
+                val raced = sessions.putIfAbsent(context.root, SessionEntry(mountsSignature, fresh))
                 if (raced != null) {
                     fresh.destroy()
-                    raced.execute(context)
+                    raced.session.execute(context)
                 } else {
                     fresh.execute(context)
                 }
@@ -220,11 +231,11 @@ class ProotShellRunner(
         isDirectory && File(this, "bin/sh").isFile
 
     fun destroySession(root: String) {
-        sessions.remove(root)?.destroy()
+        sessions.remove(root)?.session?.destroy()
     }
 
     fun destroyAllSessions() {
-        sessions.values.forEach { it.destroy() }
+        sessions.values.forEach { it.session.destroy() }
         sessions.clear()
     }
 

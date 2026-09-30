@@ -66,6 +66,8 @@ data class WorkspaceFileEntry(
     val isDirectory: Boolean,
     val sizeBytes: Long,
     val updatedAt: Long,
+    /** P1-3: 本次写入是否覆盖了已存在的同名文件（新建为 false） */
+    val overwrote: Boolean = false,
 )
 
 data class WorkspaceSearchMatch(

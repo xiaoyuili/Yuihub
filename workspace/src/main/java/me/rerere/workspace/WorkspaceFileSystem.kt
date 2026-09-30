@@ -48,9 +48,11 @@ class WorkspaceFileSystem(
         val file = resolvePath(root, path)
         require(!file.exists() || overwrite) { "File already exists: $path" }
         require(!file.exists() || file.isFile) { "Path is not a file: $path" }
+        // P1-3: 记录写入前是否存在，供返回值标记 overwrote
+        val overwrote = file.exists()
         file.parentFile?.mkdirs()
         file.writeBytes(bytes)
-        return file.toEntry(root)
+        return file.toEntry(root).copy(overwrote = overwrote)
     }
 
     fun importBytes(root: File, path: String, inputStream: InputStream): WorkspaceFileEntry {

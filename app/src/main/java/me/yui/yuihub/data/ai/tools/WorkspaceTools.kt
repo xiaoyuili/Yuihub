@@ -85,6 +85,21 @@ private fun createReadFileTool(
     needsApproval = { needsApproval("workspace_read_file") },
     execute = {
         val path = it.jsonObject.absolutePath("path")
+        // P2-3: /upload 无上传时挂载源目录可能为空（RepositoryModule 已 mkdirs，但旧版残留可能缺失），
+        // 给出明确语义而不是裸 NOT_FOUND，避免模型把它当异常反复排查
+        if (path == "/upload" || path.startsWith("/upload/")) {
+            val size = runCatching { workspaceRepository.rootfsFileSize(workspaceId, path) }.getOrNull()
+            if (size == null) {
+                return@Tool listOf(
+                    UIMessagePart.Text(
+                        buildJsonObject {
+                            put("path", path)
+                            put("text", "(no file at this path — /upload holds user-uploaded files and may be empty when nothing has been uploaded yet; this is normal, not an error)")
+                        }.toString()
+                    )
+                )
+            }
+        }
         if (path.isImagePath()) {
             workspaceRepository.readImageInRootfs(workspaceId, path)
         } else {
@@ -110,6 +125,8 @@ private fun createWriteFileTool(
     description = """
         Write a UTF-8 text file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
         Use /workspace for the workspace files area.
+        Concurrency guard: if the file changed on disk since the mtime you pass in `expectedMtimeMs` (e.g. another session wrote it),
+        the write is rejected with WRITE_CONFLICT unless you set force=true; pass force=true to overwrite deliberately.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -123,6 +140,14 @@ private fun createWriteFileTool(
                     put("type", "boolean")
                     put("description", "Whether to overwrite an existing file. Defaults to true.")
                 })
+                put("expectedMtimeMs", buildJsonObject {
+                    put("type", "integer")
+                    put("description", "Optional: mtime (ms) you believe the file currently has (from a previous read/write result). Write is rejected if it changed meanwhile.")
+                })
+                put("force", buildJsonObject {
+                    put("type", "boolean")
+                    put("description", "Deliberately overwrite despite a detected conflict. Defaults to false.")
+                })
             },
             required = listOf("path", "text"),
         )
@@ -133,6 +158,23 @@ private fun createWriteFileTool(
         val path = params.absolutePath("path")
         val text = params.string("text") ?: error("text is required")
         val overwrite = params["overwrite"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: true
+        val expectedMtime = params["expectedMtimeMs"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+        val force = params["force"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
+
+        // P1-3 写冲突检测：调用方给了 expectedMtimeMs 且磁盘文件比它新 → 说明有其它会话写过；
+        // 未显式 force 时拒绝并给出双方时间戳，避免并发双写静默 last-writer-wins
+        if (expectedMtime != null) {
+            val currentMtime = runCatching {
+                workspaceRepository.rootfsFileMtime(workspaceId, path)
+            }.getOrNull()
+            if (currentMtime != null && currentMtime > expectedMtime) {
+                error(
+                    "WRITE_CONFLICT: $path was modified by another session (disk mtime=$currentMtime, your expectedMtimeMs=$expectedMtime). " +
+                        "Re-read the file and merge, or pass force=true to overwrite deliberately."
+                )
+            }
+        }
+
         val entry = workspaceRepository.writeTextInRootfs(workspaceId, path, text, overwrite)
         listOf(UIMessagePart.Text(entry.toJson().toString()))
     },
@@ -320,8 +362,12 @@ private fun createShellTool(
                     if (result.truncated) {
                         put("truncated", true)
                         put(
+                            "truncatedMarker",
+                            "[truncated: showing first ${result.stdout.length} of more chars (cap ${MAX_OUTPUT_CHARS / 1024}K)]",
+                        )
+                        put(
                             "truncatedHint",
-                            "Output exceeded ${MAX_OUTPUT_CHARS / 1024}K chars and was cut off. " +
+                            "Output exceeded ${MAX_OUTPUT_CHARS / 1024}K chars and was cut off mid-stream. " +
                                 "Use pipes like `cmd 2>&1 | tail -c 4000`, `| head -50`, `| grep keyword`, " +
                                 "or redirect to a file and read parts of it."
                         )
@@ -404,6 +450,8 @@ private suspend fun WorkspaceRepository.writeTextInRootfs(
         workspaceId = workspaceId,
         action = "Write file",
         command = """
+            overwrote=0
+            if [ -e $pathArg ]; then overwrote=1; fi
             if [ -e $pathArg ] && [ ${(!overwrite).shellFlag()} = 1 ]; then
               printf '%s\n' ${"File already exists: $path".shellQuote()} >&2
               exit 1
@@ -416,6 +464,7 @@ private suspend fun WorkspaceRepository.writeTextInRootfs(
             mkdir -p -- "${'$'}parent" || exit 1
             cat > $pathArg || exit 1
             ${statEntryCommand(path)}
+            printf '%s\0' "${'$'}overwrote"
         """.trimIndent(),
         stdin = text.toByteArray(Charsets.UTF_8),
     )
@@ -457,8 +506,25 @@ private fun statEntryCommand(path: String): String {
     """.trimIndent()
 }
 
-private fun String.parseRootfsEntry(): WorkspaceFileEntry =
-    parseRootfsEntries().singleOrNull() ?: error("Invalid file metadata output")
+private fun String.parseRootfsEntry(): WorkspaceFileEntry {
+    val fields = split('\u0000').dropLastWhile { it.isEmpty() }
+    // 4 字段 = stat 输出; 5 字段 = stat + overwrote 标记（writeTextInRootfs 附加）
+    require(fields.size == 4 || fields.size == 5) { "Invalid file metadata output" }
+    val chunk = fields.take(4)
+    val type = chunk[0]
+    val size = chunk[1].toLongOrNull() ?: error("Invalid file size: ${chunk[1]}")
+    val updatedAt = (chunk[2].toLongOrNull() ?: error("Invalid file mtime: ${chunk[2]}")) * 1_000L
+    val path = chunk[3]
+    val overwrote = fields.getOrNull(4) == "1"
+    return WorkspaceFileEntry(
+        path = path,
+        name = path.rootfsName(),
+        isDirectory = type == "d",
+        sizeBytes = size,
+        updatedAt = updatedAt,
+        overwrote = overwrote,
+    )
+}
 
 private fun String.parseRootfsEntries(): List<WorkspaceFileEntry> {
     val fields = split('\u0000').dropLastWhile { it.isEmpty() }
@@ -529,6 +595,9 @@ private fun WorkspaceFileEntry.toJson() = buildJsonObject {
     put("isDirectory", isDirectory)
     put("sizeBytes", sizeBytes)
     put("updatedAt", updatedAt)
+    // P1-3: ISO8601 可读时间与覆盖标记（毫秒时间戳 updatedAt 保留，向后兼容）
+    put("updatedAtIso", java.time.Instant.ofEpochMilli(updatedAt).toString())
+    put("overwrote", overwrote)
 }
 
 /**
