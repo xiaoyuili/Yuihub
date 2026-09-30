@@ -60,6 +60,19 @@ android {
                 }
             }
         }
+
+        // debug 签名固定到 workspace 内密钥: 容器重置会清掉 ~/.android/debug.keystore,
+        // 签名一变手机上旧版本就无法覆盖安装; keystore/ 已被 gitignore, 文件丢失时回退 AGP 默认行为
+        val debugStoreFile = rootProject.file("keystore/debug.keystore")
+        if (debugStoreFile.exists()) {
+            // AGP 已预建 debug 签名配置, 只能覆盖不能重名 create
+            getByName("debug") {
+                storeFile = debugStoreFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildTypes {
@@ -76,6 +89,7 @@ android {
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
         }
         debug {
+            signingConfig = signingConfigs.getByName("debug")
             applicationIdSuffix = ".debug"
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
@@ -93,7 +107,9 @@ android {
         getByName("androidTest").assets.srcDirs("$projectDir/schemas")
     }
     androidResources {
-        generateLocaleConfig = true
+        // 动态生成 LocaleConfig 的任务 (generateDebugLocaleConfig) 在 AGP 9.3 下每次构建都重跑 (约 2.3s),
+        // 改为静态资源: 需要增删语言时同步更新 app/src/main/res/xml/locale_config.xml 并把此开关改回 true
+        generateLocaleConfig = false
     }
     packaging {
         jniLibs {
