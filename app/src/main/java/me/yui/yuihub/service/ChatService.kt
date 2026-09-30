@@ -4,7 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import androidx.core.net.toUri
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -29,10 +29,19 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import me.yui.yuihub.data.ai.prompts.buildMemorySnapshotText
 import me.yui.yuihub.data.ai.prompts.isMemorySnapshot
 import me.yui.yuihub.data.ai.prompts.withMemorySnapshot
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.Tool
@@ -57,15 +66,25 @@ import me.yui.yuihub.data.ai.GenerationHandler
 import me.yui.yuihub.data.ai.mcp.McpManager
 import me.yui.yuihub.data.ai.memory.MemoryExtractor
 import me.yui.yuihub.data.ai.tools.createConversationTools
+import me.yui.yuihub.data.ai.tools.local.ASK_USER_TOOL_NAME
 import me.yui.yuihub.data.ai.tools.local.LocalTools
 import me.yui.yuihub.data.ai.tools.createSearchTools
 import me.yui.yuihub.data.ai.tools.createMcpManageTools
 import me.yui.yuihub.data.ai.tools.createSkillManageTools
 import me.yui.yuihub.data.ai.tools.createSkillTools
 import me.yui.yuihub.data.ai.tools.createWorkspaceTools
+import me.yui.yuihub.data.ai.tools.SPAWN_AGENT_TOOL_NAME
+import me.yui.yuihub.data.ai.tools.FOLLOWUP_AGENT_TOOL_NAME
+import me.yui.yuihub.data.ai.tools.AGENT_SESSION_NOT_FOUND
+import me.yui.yuihub.data.ai.tools.SUBAGENT_RESULT_INLINE_CHARS
 import me.yui.yuihub.data.ai.tools.createSubagentTool
+import me.yui.yuihub.data.ai.tools.createFollowupAgentTool
+import me.yui.yuihub.data.ai.tools.createPollAgentTool
+import me.yui.yuihub.data.ai.tools.createCancelAgentTool
+import me.yui.yuihub.data.ai.tools.createListAgentsTool
 import me.yui.yuihub.data.ai.tools.createVisionTool
 import me.yui.yuihub.data.files.SkillManager
+import me.yui.yuihub.data.files.FileFolders
 import me.yui.yuihub.data.ai.transformers.Base64ImageToLocalFileTransformer
 import me.yui.yuihub.data.ai.transformers.DocumentAsPromptTransformer
 import me.yui.yuihub.data.ai.transformers.PlaceholderTransformer
@@ -108,11 +127,34 @@ import me.yui.yuihub.utils.estimateTokenCount
 import me.yui.yuihub.utils.estimateWindowTokens
 import me.rerere.workspace.WorkspaceShellStatus
 import java.time.Instant
+import java.io.File
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
+import kotlinx.coroutines.CancellationException
 
 private const val TAG = "ChatService"
+
+// 子代理工具循环步数上限: 严于主代理默认值, 防止失控子任务无限制消耗 token
+private const val CHILD_AGENT_MAX_STEPS = 32
+
+// 子代理平台限制声明 (P1-2): 经工具 systemPrompt 注入子代理系统提示,
+// 把「工具不存在」的隐式限制变成平台明确声明, 避免子代理把缺工具理解成环境缺失而自行排查。
+// P2-5: 同时声明沙箱预置缺口（无 python3 / shell 为 UTC / 无 tzdata / 产物目录约定），
+// 避免子代理浪费轮次自查环境；产物统一写 /workspace/subagents/<sessionId>/ 便于清理与归属
+private const val CHILD_AGENT_PLATFORM_DECLARATION =
+    "<child_agent_constraints>\n" +
+        "You are a CHILD agent spawned by a parent agent. Platform restrictions:\n" +
+        "- You CANNOT spawn further child agents (spawn_agent) or follow up on other agents (followup_agent). These tools do not exist in your environment by design — do not search for them or work around them.\n" +
+        "- You CANNOT modify the skill library (manage_skill save/delete are rejected). Report desired skill changes to the parent agent.\n" +
+        "- Tools requiring user approval are unavailable to you; report them to the parent agent instead.\n" +
+        "- ask_user is unavailable: there is no interactive user in your session.\n" +
+        "Sandbox environment facts (do NOT waste turns re-checking these):\n" +
+        "- python3 is NOT installed; if the task needs it, install with apt-get or use node/shell instead.\n" +
+        "- The shell clock is UTC (no tzdata). TZ=Asia/Shanghai date will show a wrong label; use get_time_info for the user's local time (+08:00).\n" +
+        "- /upload may not exist when there are no user uploads; treat ls errors there as empty, not broken.\n" +
+        "- Write your deliverables under /workspace/subagents/<your sessionId>/ (create it) so the parent and user can find them.\n" +
+        "</child_agent_constraints>"
 
 internal fun backgroundTextGenerationParams(
     model: Model,
@@ -356,6 +398,17 @@ class ChatService(
         val session = getOrCreateSession(conversationId) // 确保 session 存在
         val conversation = conversationRepo.getConversationById(conversationId)
         if (conversation != null) {
+            // 正在生成中的会话以内存态为权威：生成中的流式消息只在节点收尾时落库，
+            // 数据库里只有用户消息。切回该对话时若用 DB 快照覆盖内存态，
+            // 正在流式输出的思考/工具调用会被抹掉，UI 退化为「用户消息+加载中」直到下一个 chunk。
+            val memoryState = session.state.value
+            val hasLiveGeneration = session.isGenerating || memoryState.currentMessages.any { message ->
+                message.parts.any { it is UIMessagePart.Tool && (it.isPending || !it.isExecuted) }
+            }
+            if (hasLiveGeneration) {
+                settingsStore.updateAssistant(memoryState.assistantId)
+                return
+            }
             session.mutationLock.withLock {
                 updateConversation(conversationId, conversation)
             }
@@ -744,7 +797,6 @@ class ChatService(
                     assistant = assistant,
                     conversation = conversation,
                     useExternalWebSearch = useExternalWebSearch,
-                    allowSubagent = true,
                     parentConversationId = conversationId,
                 ),
             ).onCompletion {
@@ -823,7 +875,6 @@ class ChatService(
         assistant: Assistant,
         conversation: Conversation,
         useExternalWebSearch: Boolean,
-        allowSubagent: Boolean,
         parentConversationId: Uuid,
     ): List<Tool> {
         val tools = buildList {
@@ -858,27 +909,52 @@ class ChatService(
                 )
             )
         }
-        if (allowSubagent) {
-            add(
-                createSubagentTool { description, prompt ->
-                    runChildAgent(
-                        parentConversationId = parentConversationId,
-                        settings = settings,
-                        assistant = assistant,
-                        conversation = conversation,
-                        useExternalWebSearch = useExternalWebSearch,
-                        description = description,
-                        prompt = prompt,
-                    )
-                }
-            )
-        }
+        add(
+            createSubagentTool { description, prompt, async, timeoutMs, maxToolCalls ->
+                runChildAgent(
+                    parentConversationId = parentConversationId,
+                    settings = settings,
+                    assistant = assistant,
+                    conversation = conversation,
+                    useExternalWebSearch = useExternalWebSearch,
+                    description = description,
+                    prompt = prompt,
+                    async = async,
+                    timeoutMs = timeoutMs,
+                    maxToolCalls = maxToolCalls,
+                )
+            }
+        )
+        add(
+            createPollAgentTool { taskId -> pollChildAgent(taskId) }
+        )
+        add(
+            createCancelAgentTool { taskId -> cancelChildAgent(taskId) }
+        )
+        add(
+            createListAgentsTool { listChildAgents(parentConversationId) }
+        )
+        add(
+            createFollowupAgentTool { sessionId, message ->
+                followUpChildAgent(
+                    sessionId = sessionId,
+                    message = message,
+                    settings = settings,
+                    assistant = assistant,
+                    conversation = conversation,
+                    useExternalWebSearch = useExternalWebSearch,
+                )
+            }
+        )
         createVisionToolIfReady(settings, assistant, conversation)?.let(::add)
         }
         return tools
     }
 
-    // harness spawn-in-process：子 agent 空会话、继承 workspace/model/tools，禁止再派生子 agent
+    // harness spawn-in-process：子 agent 继承 workspace/model/tools，禁止再派生子 agent；
+    // 子代理以真实子会话落库（parent_conversation_id 归属父会话），抽屉树实时可见、点开可看完整轨迹。
+    // 返回结构化 JSON（P0-1）：status/result/toolCalls/时间/files/sessionId，供父代理区分失败类型与追问。
+    // P0-2: async=true 立即返回 taskId（poll_agent 取结果）；timeoutMs/maxToolCalls 控制面；默认同步阻塞（向后兼容）
     private suspend fun runChildAgent(
         parentConversationId: Uuid,
         settings: Settings,
@@ -887,66 +963,599 @@ class ChatService(
         useExternalWebSearch: Boolean,
         description: String,
         prompt: String,
+        async: Boolean = false,
+        timeoutMs: Long? = null,
+        maxToolCalls: Int? = null,
     ): String {
-        val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId)
-            ?: error("Model not found for child agent")
         val childId = Uuid.random()
-        val childMessages = listOf(UIMessage.user(prompt))
-        val childTools = buildAgentTools(
+        if (async) {
+            // 异步派发：在应用作用域起独立协程，立即返回 taskId；父代理后续 poll/cancel/followup
+            subagentManager.registerAsyncTask(childId, parentConversationId, description)
+            appScope.launch {
+                var taskStatus = SubagentTaskStatus.COMPLETED
+                var taskResult: String? = null
+                try {
+                    taskResult = executeChildAgent(
+                        childId = childId,
+                        description = description,
+                        userMessages = listOf(UIMessage.user(prompt)),
+                        parentConversationId = parentConversationId,
+                        settings = settings,
+                        assistant = assistant,
+                        conversation = conversation,
+                        useExternalWebSearch = useExternalWebSearch,
+                        timeoutMs = timeoutMs,
+                        maxToolCalls = maxToolCalls,
+                        cancelSignal = subagentManager.cancelSignal(childId),
+                    )
+                } catch (e: ChildAgentTimeoutException) {
+                    // 超时的部分结果在异常里，转 TIMEOUT 终态供 poll 取回
+                    taskStatus = SubagentTaskStatus.TIMEOUT
+                    taskResult = e.partialResultJson
+                } catch (e: ChildAgentCancelledException) {
+                    taskStatus = SubagentTaskStatus.CANCELLED
+                    taskResult = e.partialResultJson
+                } catch (e: CancellationException) {
+                    taskStatus = SubagentTaskStatus.CANCELLED
+                } catch (e: Throwable) {
+                    taskStatus = SubagentTaskStatus.FAILED
+                    taskResult = agentErrorJson("error", "${e.javaClass.simpleName}: ${e.message.orEmpty()}")
+                }
+                subagentManager.completeAsyncTask(childId, taskStatus, taskResult)
+            }
+            return buildJsonObject {
+                put("status", "running")
+                put("taskId", childId.toString())
+                put("description", description)
+                put("hint", "Poll with poll_agent(taskId) to fetch progress/result; cancel with cancel_agent(taskId).")
+            }.toString()
+        }
+        return executeChildAgent(
+            childId = childId,
+            description = description,
+            userMessages = listOf(UIMessage.user(prompt)),
+            parentConversationId = parentConversationId,
             settings = settings,
             assistant = assistant,
             conversation = conversation,
             useExternalWebSearch = useExternalWebSearch,
-            allowSubagent = false,
+            timeoutMs = timeoutMs,
+            maxToolCalls = maxToolCalls,
+        )
+    }
+
+    /** P0-2 b) poll_agent：运行中返回进度（工具调用数/最近动作），终态返回完整结果 */
+    private suspend fun pollChildAgent(taskId: String): String {
+        // GC 顺带清理，保证 poll 到的任务都在 TTL 内
+        subagentManager.collectExpired()
+        val id = runCatching { Uuid.parse(taskId.trim()) }.getOrNull()
+            ?: return agentErrorJson("AGENT_TASK_NOT_FOUND", "Invalid taskId: $taskId")
+        val task = subagentManager.getTask(id)
+            ?: return agentErrorJson(
+                "AGENT_TASK_NOT_FOUND",
+                "Unknown taskId: $taskId (only async-spawned agents are pollable; sync results are returned inline)",
+            )
+        return if (task.status == SubagentTaskStatus.RUNNING) {
+            val run = subagentManager.runningOf(task.parentConversationId).firstOrNull { it.childId == id }
+            buildJsonObject {
+                put("status", "running")
+                put("taskId", taskId)
+                put("description", task.description)
+                put("durationMs", System.currentTimeMillis() - task.startedAt)
+                put("toolCalls", run?.messages?.sumOf { m -> m.parts.count { it is UIMessagePart.Tool } } ?: 0)
+                run?.messages?.lastOrNull()?.parts?.lastOrNull()?.let { lastPart ->
+                    val preview = when (lastPart) {
+                        is UIMessagePart.Text -> lastPart.text.take(120)
+                        is UIMessagePart.Tool -> "→ ${lastPart.toolName}"
+                        is UIMessagePart.Reasoning -> lastPart.reasoning.take(120)
+                        else -> null
+                    }
+                    if (!preview.isNullOrBlank()) put("latestAction", preview)
+                }
+            }.toString()
+        } else {
+            buildJsonObject {
+                put("status", task.status.name.lowercase())
+                put("taskId", taskId)
+                put("description", task.description)
+                put("durationMs", (task.endedAt ?: System.currentTimeMillis()) - task.startedAt)
+                if (task.resultJson != null) {
+                    put("result", task.resultJson)
+                }
+                put("sessionId", task.taskId.toString())
+            }.toString()
+        }
+    }
+
+    /** P0-2 c) cancel_agent：置取消信号；执行协程收到后停止并落 CANCELLED 终态 */
+    private suspend fun cancelChildAgent(taskId: String): String {
+        val id = runCatching { Uuid.parse(taskId.trim()) }.getOrNull()
+            ?: return agentErrorJson("AGENT_TASK_NOT_FOUND", "Invalid taskId: $taskId")
+        val cancelled = subagentManager.cancel(id)
+        return if (cancelled) {
+            buildJsonObject {
+                put("status", "cancelling")
+                put("taskId", taskId)
+                put("hint", "The child agent will stop at its next cancellation checkpoint; poll for final state.")
+            }.toString()
+        } else {
+            agentErrorJson("AGENT_TASK_NOT_FOUND", "Task $taskId is not running (already finished or unknown)")
+        }
+    }
+
+    /** P0-2 c) list_agents：本会话的 async 任务（含 RUNNING 与终态） */
+    private suspend fun listChildAgents(parentConversationId: Uuid): String {
+        subagentManager.collectExpired()
+        val tasks = subagentManager.listTasks(parentConversationId)
+        return buildJsonObject {
+            put("count", tasks.size)
+            put("agents", buildJsonArray {
+                tasks.forEach { task ->
+                    add(buildJsonObject {
+                        put("taskId", task.taskId.toString())
+                        put("description", task.description)
+                        put("status", task.status.name.lowercase())
+                        put("durationMs", (task.endedAt ?: System.currentTimeMillis()) - task.startedAt)
+                        if (task.expiresAt != null) put("sessionExpiresAt", task.expiresAt)
+                    })
+                }
+            })
+        }.toString()
+    }
+
+    /**
+     * 追问既有子代理（P0-4）：复用同一子会话上下文继续生成。
+     * 会话不存在（被删/从未派发）返回 AGENT_SESSION_NOT_FOUND，不抛异常，让父代理能明确感知。
+     */
+    private suspend fun followUpChildAgent(
+        sessionId: String,
+        message: String,
+        settings: Settings,
+        assistant: Assistant,
+        conversation: Conversation,
+        useExternalWebSearch: Boolean,
+    ): String {
+        val childId = runCatching { Uuid.parse(sessionId.trim()) }.getOrNull()
+            ?: return agentErrorJson(AGENT_SESSION_NOT_FOUND, "Unknown sessionId: $sessionId")
+        val existing = conversationRepo.getConversationById(childId)
+        if (existing == null || existing.parentConversationId == null) {
+            return agentErrorJson(
+                AGENT_SESSION_NOT_FOUND,
+                "No child-agent session for sessionId $sessionId (it may have been deleted, or it is not a child-agent session)",
+            )
+        }
+        // 用库里的最新归属链，防止主会话迁移助手后追问时串环境
+        return executeChildAgent(
+            childId = childId,
+            description = existing.title,
+            userMessages = listOf(UIMessage.user(message)),
+            parentConversationId = existing.parentConversationId!!, // 已在上方判空
+            settings = settings,
+            assistant = assistant,
+            conversation = existing,
+            useExternalWebSearch = useExternalWebSearch,
+            isFollowUp = true,
+        )
+    }
+
+    private suspend fun executeChildAgent(
+        childId: Uuid,
+        description: String,
+        userMessages: List<UIMessage>,
+        parentConversationId: Uuid,
+        settings: Settings,
+        assistant: Assistant,
+        conversation: Conversation,
+        useExternalWebSearch: Boolean,
+        isFollowUp: Boolean = false,
+        timeoutMs: Long? = null,
+        maxToolCalls: Int? = null,
+        cancelSignal: CompletableDeferred<Unit>? = null,
+    ): String {
+        val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId)
+            ?: error("Model not found for child agent")
+        // 追问时把新消息追加到既有子会话；首轮则建新子会话（title=description，继承父配置）
+        val baseConversation = if (isFollowUp) {
+            conversation.copy(
+                messageNodes = conversation.messageNodes + userMessages.map { it.toMessageNode() },
+            )
+        } else {
+            Conversation(
+                id = childId,
+                assistantId = conversation.assistantId,
+                title = description,
+                messageNodes = emptyList(),
+                customSystemPrompt = conversation.customSystemPrompt,
+                modeInjectionIds = conversation.modeInjectionIds,
+                lorebookIds = conversation.lorebookIds,
+                workspaceCwd = conversation.workspaceCwd,
+                parentConversationId = parentConversationId,
+            ).updateCurrentMessages(userMessages)
+        }
+        // 生成开始前落库：抽屉树立即出现子代理行；失败/取消也保留已产生的轨迹
+        saveConversation(childId, baseConversation)
+        // 同步 session 初始态：session 默认用「当前设置助手」建空会话，若用户此时切换过助手，
+        // 后续整对象保存会把错误的 assistantId 落库，先对齐一次
+        getOrCreateSession(childId).mutationLock.withLock {
+            updateConversation(childId, baseConversation)
+        }
+
+        val childTools = buildChildAgentTools(
+            settings = settings,
+            assistant = assistant,
+            conversation = baseConversation,
+            useExternalWebSearch = useExternalWebSearch,
             parentConversationId = parentConversationId,
-        ).filter { it.name != "ask_user" }.map { it.copy(needsApproval = { false }) }
-        var latest = childMessages
+        )
+        val startedAtMs = System.currentTimeMillis()
+        // P1-1 方案A: 生成前扫一次 /workspace，结束时 diff 出 shell 等非工具写入
+        val workspaceSnapshotBefore = withContext(Dispatchers.IO) { snapshotWorkspaceFiles() }
+        var latest: List<UIMessage> = baseConversation.currentMessages
+        var failed: Throwable? = null
         subagentManager.start(
             childId = childId,
             parentConversationId = parentConversationId,
             description = description,
         )
         try {
-            generationHandler.generateText(
-                settings = settings,
-                model = model,
-                messages = childMessages,
-                assistant = assistant.copy(streamOutput = false),
-                conversationId = childId,
-                conversationSystemPrompt = conversation.customSystemPrompt,
-                conversationModeInjectionIds = conversation.modeInjectionIds,
-                conversationLorebookIds = conversation.lorebookIds,
-                workspaceCwd = conversation.workspaceCwd,
-                inputTransformers = buildList {
-                    addAll(inputTransformers)
-                    add(templateTransformer)
-                    add(workspaceReminderTransformer)
-                },
-                outputTransformers = outputTransformers,
-                tools = childTools,
-                maxSteps = 32,
-            ).collect { chunk ->
-                when (chunk) {
-                    is GenerationChunk.Messages -> {
-                        latest = chunk.messages
-                        // 实时上报子代理进度, 供聊天页过程演示
-                        subagentManager.updateMessages(childId, chunk.messages)
+            // P0-2 c): timeout / cancel 任意一个触发即终止生成；用 select 竞速，胜出方决定终止类型。
+            // timeoutMs 不设且无 cancelSignal 时直接收集（零开销路径）
+            val collectBlock: suspend () -> Unit = {
+                generationHandler.generateText(
+                    settings = settings,
+                    model = model,
+                    messages = baseConversation.currentMessages,
+                    assistant = assistant.copy(streamOutput = false),
+                    conversationId = childId,
+                    conversationSystemPrompt = baseConversation.customSystemPrompt,
+                    conversationModeInjectionIds = baseConversation.modeInjectionIds,
+                    conversationLorebookIds = baseConversation.lorebookIds,
+                    workspaceCwd = baseConversation.workspaceCwd,
+                    inputTransformers = buildList {
+                        addAll(inputTransformers)
+                        add(templateTransformer)
+                        add(workspaceReminderTransformer)
+                    },
+                    outputTransformers = outputTransformers,
+                    tools = childTools,
+                    maxSteps = maxToolCalls?.plus(1)?.coerceAtMost(CHILD_AGENT_MAX_STEPS) ?: CHILD_AGENT_MAX_STEPS,
+                ).collect { chunk ->
+                    when (chunk) {
+                        is GenerationChunk.Messages -> {
+                            latest = chunk.messages
+                            // 流式写回子会话 session（抽屉树/子会话页实时可见），与其它写者串行
+                            val childSession = getOrCreateSession(childId)
+                            childSession.mutationLock.withLock {
+                                updateConversation(
+                                    childId,
+                                    childSession.state.value.updateCurrentMessages(chunk.messages)
+                                )
+                            }
+                            // 实时上报子代理进度, 供聊天页过程演示
+                            subagentManager.updateMessages(childId, chunk.messages)
+                        }
                     }
                 }
             }
-        } catch (e: CancellationException) {
-            subagentManager.finish(
-                childId = childId,
-                result = "cancelled: ${e.message.orEmpty()}"
-            )
-            throw e
+            when {
+                timeoutMs == null && cancelSignal == null -> collectBlock()
+                else -> withTimeoutOrNull(timeoutMs ?: Long.MAX_VALUE) {
+                    if (cancelSignal == null) {
+                        collectBlock()
+                    } else {
+                        // cancel 与正常结束竞速：监听协程等到信号即抛出，
+                        // coroutineScope 会取消兄弟协程（collectBlock），终止生成
+                        try {
+                            coroutineScope {
+                                launch {
+                                    cancelSignal.await()
+                                    throw ChildAgentCancelledException(null)
+                                }
+                                collectBlock()
+                            }
+                        } catch (e: ChildAgentCancelledException) {
+                            throw e
+                        }
+                    }
+                } ?: run {
+                    // withTimeoutOrNull 返回 null = 超时
+                    failed = ChildAgentTimeoutException(null)
+                }
+            }
+        } catch (e: ChildAgentTimeoutException) {
+            failed = e
+        } catch (e: ChildAgentCancelledException) {
+            failed = e
+        } catch (e: Throwable) {
+            // 取消与失败都要注销, 否则僵尸 run 泄漏内存且 UI 提示会误显示。
+            // NonCancellable 收尾：取消路径下父协程已不可挂起，但仍要把子会话部分轨迹落库。
+            // 取消向上传播（CME 语义不变），其它异常转为结构化 error 返回给父代理（P0-1）
+            failed = e
+        } finally {
+            subagentManager.finish(childId)
+            withContext(NonCancellable) { saveChildAgentFinal(childId) }
         }
+        val failure = failed
+        if (failure is CancellationException) throw failure
         conversationRepo.recordTokenUsage(parentConversationId.toString(), latest)
-        val answer = latest.lastOrNull { it.role == MessageRole.ASSISTANT }?.toText()?.trim().orEmpty()
-        val finalAnswer = answer.ifBlank { "Child agent '$description' finished with no text output." }
-        subagentManager.finish(childId, finalAnswer)
-        return finalAnswer
+        return buildChildAgentResultJson(
+            childId = childId,
+            description = description,
+            latest = latest,
+            startedAtMs = startedAtMs,
+            failure = failure,
+            workspaceSnapshotBefore = workspaceSnapshotBefore,
+        )
     }
+
+    /**
+     * 子代理结果结构化封装（P0-1/P0-2）：
+     * - status: ok / empty_output / error / timeout / cancelled
+     * - result 截断到 [SUBAGENT_RESULT_INLINE_CHARS] 并加显式尾标记，全文落盘 /tool_outputs/<childId>.md（fullResultPath）
+     * - empty_output 时附 toolCalls 摘要（工具名+次数），父代理可判断子代理做过什么
+     * - P1-1 选型方案A: files = 工具写入路径 + /workspace 快照 diff（shell 产物）。
+     *   性能开销：两次 O(会话期写入量) 的目录遍历，深度限制 6 层、上限 5000 条目，
+     *   适用规模：工作区文件在数千级以内；超大工作区建议靠 WRITE_CONFLICT 而非全量 diff。
+     */
+    private suspend fun buildChildAgentResultJson(
+        childId: Uuid,
+        description: String,
+        latest: List<UIMessage>,
+        startedAtMs: Long,
+        failure: Throwable?,
+        workspaceSnapshotBefore: Map<String, FileSnapshot>? = null,
+    ): String {
+        val endedAtMs = System.currentTimeMillis()
+        val answer = latest.lastOrNull { it.role == MessageRole.ASSISTANT }?.toText()?.trim().orEmpty()
+        val toolCalls = latest.flatMap { it.parts }.filterIsInstance<UIMessagePart.Tool>()
+        val filesWritten = toolCalls
+            .filter { it.toolName == "workspace_write_file" || it.toolName == "workspace_edit_file" }
+            .mapNotNull { part ->
+                runCatching { part.inputAsJson().jsonObject["path"]?.jsonPrimitive?.contentOrNull }.getOrNull()
+            }
+            .toMutableSet()
+        // P1-1 方案A: 合并 shell 重定向等非工具写入（新增或 mtime/size 变化的 /workspace 文件）
+        if (workspaceSnapshotBefore != null) {
+            runCatching {
+                val after = snapshotWorkspaceFiles()
+                after.forEach { (path, snap) ->
+                    val before = workspaceSnapshotBefore[path]
+                    if (before == null || before != snap) filesWritten += path
+                }
+            }.onFailure { Log.w(TAG, "workspace snapshot diff failed", it) }
+        }
+        val toolSummary = toolCalls
+            .groupBy { it.toolName }
+            .map { (name, calls) -> "$name x${calls.size}" }
+            .joinToString(", ")
+
+        val status = when {
+            failure is ChildAgentTimeoutException -> "timeout"
+            failure is ChildAgentCancelledException -> "cancelled"
+            failure != null -> "error"
+            answer.isBlank() -> "empty_output"
+            else -> "ok"
+        }
+        return buildJsonObject {
+            put("status", status)
+            put("description", description)
+            put("sessionId", childId.toString())
+            if (failure != null) {
+                put("error", "${failure.javaClass.simpleName}: ${failure.message.orEmpty()}".trim())
+            }
+            // 选型说明（P0-1）：empty_output 时选方案 a（自动附工具摘要），不补发总结轮——
+            // 补发会加倍 token 与延迟，且子代理无文本输出往往本就是「只干活」型任务，摘要已足够。
+            // P2-1: 保留字符串 toolCalls 兼容，新增结构化 toolCallsDetail
+            if (toolCalls.isNotEmpty()) {
+                if (status == "empty_output") {
+                    put("toolCalls", toolSummary)
+                }
+                put("toolCallsDetail", buildJsonArray {
+                    toolCalls.groupBy { it.toolName }
+                        .forEach { (name, calls) ->
+                            add(buildJsonObject {
+                                put("name", name)
+                                put("count", calls.size)
+                            })
+                        }
+                })
+            }
+            put("startedAt", startedAtMs)
+            put("endedAt", endedAtMs)
+            put("durationMs", endedAtMs - startedAtMs)
+            if (filesWritten.isNotEmpty()) {
+                put("files", buildJsonArray { filesWritten.forEach { add(it) } })
+            }
+            if (failure == null) {
+                put("result", truncateChildResult(childId, answer))
+            }
+        }.toString()
+    }
+
+    /** /workspace 文件快照条目（P1-1: mtime+size 足以识别外部写入） */
+    private data class FileSnapshot(val sizeBytes: Long, val mtimeMs: Long)
+
+    /**
+     * 扫描 /workspace（宿主侧 filesDir 对应目录）。
+     * 深度 6 / 上限 5000 条目防失控；/tool_outputs 是平台产物区不纳入 diff。
+     */
+    private suspend fun snapshotWorkspaceFiles(): Map<String, FileSnapshot> {
+        val workspaceRoot = findWorkspaceFilesDir() ?: return emptyMap()
+        val result = HashMap<String, FileSnapshot>()
+        val maxDepth = 6
+        val maxEntries = 5000
+        fun walk(dir: File, relative: String, depth: Int) {
+            if (result.size >= maxEntries || depth > maxDepth) return
+            val files = dir.listFiles() ?: return
+            for (file in files) {
+                if (result.size >= maxEntries) return
+                if (file.name.startsWith(".")) continue
+                val rel = if (relative.isEmpty()) file.name else "$relative/${file.name}"
+                if (file.isDirectory) {
+                    walk(file, rel, depth + 1)
+                } else {
+                    result["/workspace/$rel"] = FileSnapshot(file.length(), file.lastModified())
+                }
+            }
+        }
+        walk(workspaceRoot, "", 0)
+        return result
+    }
+
+    /** 找到任一已就绪 workspace 的宿主侧 files 目录（/workspace 即它） */
+    private suspend fun findWorkspaceFilesDir(): File? {
+        return runCatching {
+            val workspace = workspaceRepository.getReadyWorkspaceAny()
+                ?: return@runCatching null
+            File(context.filesDir, "workspaces/${workspace.root}/files")
+        }.getOrNull()?.takeIf { it.isDirectory }
+    }
+
+    /** result 截断 + 尾标记 + 全文落盘 /tool_outputs（P0-2）；工具层与模型侧共享同一常量 */
+    private fun truncateChildResult(childId: Uuid, answer: String): String {
+        if (answer.length <= SUBAGENT_RESULT_INLINE_CHARS) return answer
+        runCatching {
+            val dir = File(context.filesDir, FileFolders.TOOL_OUTPUTS).apply { mkdirs() }
+            File(dir, "$childId.md").writeText(answer)
+        }
+        return buildString {
+            append(answer.take(SUBAGENT_RESULT_INLINE_CHARS))
+            append("\n\n[TRUNCATED: showing ${SUBAGENT_RESULT_INLINE_CHARS} of ${answer.length} chars. ")
+            append("Full result saved to /tool_outputs/$childId.md — read it with workspace_read_file or shell if you need the rest.]")
+        }
+    }
+
+private fun agentErrorJson(code: String, message: String): String =
+    buildJsonObject {
+        put("status", "error")
+        put("error", "$code: $message")
+    }.toString()
+
+/** P0-2 c): 子代理超时（携带部分结果的 JSON，供 async 路径转 TIMEOUT 终态） */
+internal class ChildAgentTimeoutException(val partialResultJson: String?) :
+    RuntimeException("Child agent timed out")
+
+/** P0-2 c): 子代理被 cancel_agent 取消（携带部分结果） */
+internal class ChildAgentCancelledException(val partialResultJson: String?) :
+    RuntimeException("Child agent cancelled")
+
+    /** 子代理结束后把内存态落库（收尾 reasoning、刷新 updateAt），与主会话收尾一致 */
+    private suspend fun saveChildAgentFinal(childId: Uuid) {
+        val session = sessions[childId] ?: return
+        session.mutationLock.withLock {
+            val current = session.state.value
+            val finished = current.copy(
+                messageNodes = current.messageNodes.map { node ->
+                    node.copy(messages = node.messages.map { it.finishReasoning() })
+                },
+                updateAt = Instant.now(),
+            )
+            saveConversation(childId, finished)
+        }
+    }
+
+    /**
+     * 删除会话及其全部子代理子会话。正在生成的会话先停止：
+     * 父会话停止会级联取消运行中的子代理工具，其 NonCancellable 收尾可能把子会话重新落库，
+     * 因此必须在停止完成之后再读取一次子会话列表并删除，避免删后复活成孤儿。
+     * 返回被删除的子会话 + 本会话，供 UI 判断当前页跳转。
+     */
+    suspend fun deleteConversationTree(conversation: Conversation): List<Conversation> {
+        if (sessions[conversation.id]?.isGenerating == true) {
+            stopGeneration(conversation.id)
+        }
+        conversationRepo.getSubconversationsOfParentOnce(conversation.id).forEach { sub ->
+            if (sessions[sub.id]?.isGenerating == true) {
+                stopGeneration(sub.id)
+            }
+        }
+        val subs = conversationRepo.getSubconversationsOfParentOnce(conversation.id)
+        subs.forEach { conversationRepo.deleteConversation(it) }
+        conversationRepo.deleteConversation(conversation)
+        return subs + conversation
+    }
+
+    /** 父会话迁移助手时，子代理子会话跟随：先同步活跃 session 内存态，再批量改库 */
+    suspend fun moveSubconversationsToAssistant(parentId: Uuid, targetAssistantId: Uuid) {
+        sessions.values
+            .filter { it.state.value.parentConversationId == parentId }
+            .forEach { updateConversationState(it.id) { c -> c.copy(assistantId = targetAssistantId) } }
+        conversationRepo.updateSubconversationsAssistant(parentId, targetAssistantId)
+    }
+
+    /**
+     * 子代理工具集: 继承主代理的全部工具, 但重新收敛安全边界:
+     * - 移除 spawn_agent 与 followup_agent (子代理不得再派生/追问) 与 ask_user (没有可交互的用户)
+     * - 移除 manage_skill 的写能力 (P1-5): 子代理不得静默改技能库, save/delete 返回 rejected
+     * - 需要用户审批的工具不静默放行 (子代理没有审批 UI, 放行等于绕过用户配置):
+     *   按真实入参判定, 需要审批时返回明确错误, 由子代理转告主代理自行处理
+     *
+     * 同时通过 systemPrompt 给子代理下发明确的平台限制声明 (P1-2):
+     * 把「工具不存在」升级为「平台明确拒绝」, 避免子代理自行排查浪费轮次
+     */
+    private suspend fun buildChildAgentTools(
+        settings: Settings,
+        assistant: Assistant,
+        conversation: Conversation,
+        useExternalWebSearch: Boolean,
+        parentConversationId: Uuid,
+    ): List<Tool> =
+        buildAgentTools(
+            settings = settings,
+            assistant = assistant,
+            conversation = conversation,
+            useExternalWebSearch = useExternalWebSearch,
+            parentConversationId = parentConversationId,
+        )
+            .filter {
+                it.name != SPAWN_AGENT_TOOL_NAME &&
+                    it.name != FOLLOWUP_AGENT_TOOL_NAME &&
+                    it.name != ASK_USER_TOOL_NAME
+            }
+            .map { tool ->
+                when {
+                    // P1-5: 技能库写入仅限主代理 (会直接生效到用户共享的 /skills), 子代理明确拒绝
+                    tool.name == "manage_skill" && conversation.parentConversationId != null -> tool.copy(
+                        execute = { args ->
+                            val action = runCatching {
+                                args.jsonObject["action"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            }.getOrDefault("")
+                            if (action == "save" || action == "delete") {
+                                error(
+                                    "REJECTED: child agents cannot modify the skill library (action=$action). " +
+                                        "Report the desired skill change to the main agent so it can apply it."
+                                )
+                            }
+                            tool.execute(args)
+                        }
+                    )
+
+                    // 空 JSON 预判: 无入参就需审批的工具 (如 shell/审批类 MCP) 直接包装拦截
+                    !tool.needsApproval(JsonObject(emptyMap())) -> tool
+
+                    else -> tool.copy(
+                        execute = { args ->
+                            if (tool.needsApproval(args)) {
+                                error(
+                                    "Tool '${tool.name}' requires user approval, which is unavailable in child agents. " +
+                                        "Report this to the main agent so it can run the tool itself (with approval) instead."
+                                )
+                            }
+                            tool.execute(args)
+                        }
+                    )
+                }
+            }
+            .map { tool ->
+                // P1-2: 给子代理的第一个工具附加平台限制声明, 经 tool.systemPrompt 注入系统提示。
+                // 选型说明: 选「声明式拒绝」而非「下发 spawn_agent 再返回 rejected」——
+                // 声明在会话开始即可见, 不浪费一次注定失败的调用轮
+                if (tool.name == "workspace_read_file") {
+                    tool.copy(systemPrompt = { _, _ -> CHILD_AGENT_PLATFORM_DECLARATION })
+                } else {
+                    tool
+                }
+            }
 
     /**
      * 聊天模型无视觉能力且用户配置了视觉模型时，提供 vision_analyze 工具。

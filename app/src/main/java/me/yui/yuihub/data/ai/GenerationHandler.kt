@@ -4,20 +4,29 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -47,6 +56,8 @@ import me.yui.yuihub.data.ai.transformers.onGenerationFinish
 import me.yui.yuihub.data.ai.transformers.transforms
 import me.yui.yuihub.data.ai.transformers.visualTransforms
 import me.yui.yuihub.data.ai.tools.buildMemoryTools
+import me.yui.yuihub.data.ai.tools.SPAWN_AGENT_TOOL_NAME
+import me.yui.yuihub.data.ai.tools.FOLLOWUP_AGENT_TOOL_NAME
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.model.Assistant
@@ -66,6 +77,9 @@ private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
 private const val MAX_PROVIDER_NETWORK_RETRIES = 3
 private const val INITIAL_PROVIDER_RETRY_DELAY_MS = 1_000L
+
+/** P0-1 路线A: 同批 spawn/followup_agent 的并发上限，超出排队等待 */
+private const val SPAWN_AGENT_CONCURRENCY = 4
 
 private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(cause)
 
@@ -257,23 +271,44 @@ class GenerationHandler(
             }
 
             // Handle tools (execute approved tools, handle denied tools)
-            // 每完成一个工具立即 emit, 避免整批执行期间 UI 无变化让用户误以为卡住
-            val executedTools = arrayListOf<UIMessagePart.Tool>()
+            // P0-1 路线A: spawn/followup_agent 真并行执行（async + Semaphore 上限），普通工具仍串行。
+            // 串行根源证据：同批 2 个 spawn 的执行窗口零重叠、总阻塞 ≈Σ 各子代理时长。
+            // 普通工具不并行：同批「先写后读」「读后删」类调用存在时序依赖，乱序会破坏语义
+            // （写竞争已有 opt-in WRITE_CONFLICT 兑底，但读旧值等竞态无法兑底）；
+            // spawn 类子代理设计上就是独立任务，共享文件系统（mtime 兑底），可安全并行。
+            // 结果按调用顺序写回（与完成顺序解耦），结果顺序 = 调用顺序。
+            val executedTools = java.util.concurrent.ConcurrentHashMap.newKeySet<UIMessagePart.Tool>()
+            // 普通工具的全局串行锁：同批普通工具保持调用顺序逐个执行
+            val serialToolMutex = Mutex()
+
+            // Flow 不变量：emit 必须发生在 flow 自身协程，跨协程 emit（哪怕有 Mutex 串行）
+            // 会触发 "Emission from another coroutine" 崩溃。并行 worker 只把结果投进 Channel，
+            // 由 flow 主协程在 drainResults 里统一合并写回并 emit。
+            val resultChannel = Channel<UIMessagePart.Tool>(Channel.UNLIMITED)
+
             suspend fun pushExecuted(updated: UIMessagePart.Tool) {
                 executedTools += updated
-                val lastMessage = messages.last()
-                val parts = lastMessage.parts.map { part ->
-                    if (part is UIMessagePart.Tool) {
-                        (executedTools.find { it.toolCallId == part.toolCallId } ?: part)
-                    } else part
-                }
-                messages = messages.dropLast(1) + lastMessage.copy(parts = parts)
-                emit(GenerationChunk.Messages(messages))
+                resultChannel.send(updated)
             }
-            toolsToProcess.forEach { tool ->
+
+            suspend fun drainResults() {
+                while (true) {
+                    val updated = resultChannel.tryReceive().getOrNull() ?: break
+                    val lastMessage = messages.last()
+                    val parts = lastMessage.parts.map { part ->
+                        if (part is UIMessagePart.Tool) {
+                            (executedTools.find { it.toolCallId == part.toolCallId } ?: part)
+                        } else part
+                    }
+                    messages = messages.dropLast(1) + lastMessage.copy(parts = parts)
+                    emit(GenerationChunk.Messages(messages))
+                }
+            }
+
+            // 单个工具的完整执行（审批/拒绝/应答/异常分支），异常转为工具输出不外抛（取消除外）。
+            suspend fun executeSingleTool(tool: UIMessagePart.Tool) {
                 when (tool.approvalState) {
                     is ToolApprovalState.Denied -> {
-                        // Tool was denied by user
                         val reason = (tool.approvalState as ToolApprovalState.Denied).reason
                         pushExecuted(
                             tool.copy(
@@ -294,7 +329,6 @@ class GenerationHandler(
                     }
 
                     is ToolApprovalState.Answered -> {
-                        // Tool was answered by user (e.g., ask_user tool)
                         val answer = (tool.approvalState as ToolApprovalState.Answered).answer
                         pushExecuted(
                             tool.copy(
@@ -310,15 +344,10 @@ class GenerationHandler(
                     }
 
                     else -> {
-                        // Auto or Approved - execute the tool
                         runCatching {
                             val toolDef = toolsInternal.find { toolDef -> toolDef.name == tool.toolName }
                                 ?: error("Tool ${tool.toolName} not found")
-                            val args = runCatching {
-                                json.parseToJsonElement(tool.input.ifBlank { "{}" })
-                            }.getOrElse {
-                                error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}")
-                            }
+                            val args = parseToolArguments(tool)
                             Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
                             val toolStartMs = SystemClock.elapsedRealtime()
                             val result = withToolProgress(processingStatus, toolDef.name) {
@@ -330,34 +359,41 @@ class GenerationHandler(
                                     output = maybeTruncateToolOutput(tool.toolCallId, result)
                                 )
                             )
-                        }.onFailure {
+                        }.onFailure { e ->
                             // 取消必须向上传播，否则停止生成会被误报为工具执行错误
-                            if (it is CancellationException) throw it
-                            it.printStackTrace()
+                            if (e is CancellationException) throw e
                             pushExecuted(
                                 tool.copy(
                                     output = listOf(
-                                        UIMessagePart.Text(
-                                            json.encodeToString(
-                                                buildJsonObject {
-                                                    put(
-                                                        "error",
-                                                        JsonPrimitive(buildString {
-                                                            append("[${it.javaClass.name}] ${it.message}")
-                                                            // 堆栈全量进历史会白占上下文：截到 2K 保留关键帧
-                                                            append("\n${it.stackTraceToString().take(2048)}")
-                                                        })
-                                                    )
-                                                }
-                                            )
-                                        )
+                                        UIMessagePart.Text(toolErrorJson(tool.toolName, e))
                                     )
                                 )
                             )
                         }
                     }
                 }
+ }
+            // 并行执行：spawn/followup 走 async+Semaphore；普通工具全部投进 async 但在 mutex 内串行，
+            // 两者都能与对方并行。worker 只产结果进 resultChannel，绝不直接 emit。
+            // 父代理取消（flow 被取消）时 coroutineScope 会级联取消全部子协程，语义与串行版一致。
+            val spawnSemaphore = Semaphore(SPAWN_AGENT_CONCURRENCY)
+            coroutineScope {
+                toolsToProcess.map { tool ->
+                    async {
+                        val isAgentTool = tool.toolName == SPAWN_AGENT_TOOL_NAME ||
+                            tool.toolName == FOLLOWUP_AGENT_TOOL_NAME
+                        if (isAgentTool) {
+                            spawnSemaphore.withPermit { executeSingleTool(tool) }
+                        } else {
+                            // 普通工具拿全局锁后按获取锁的顺序执行——async 按调用顺序启动，
+                            // 同批普通工具实际执行顺序与调用顺序一致
+                            serialToolMutex.withLock { executeSingleTool(tool) }
+                        }
+                    }
+                }
             }
+            // 全部 worker 结束后，由 flow 主协程统一 drain 结果并 emit（Flow 透明性合规）
+            drainResults()
 
             if (executedTools.isEmpty()) {
                 // No results to add (all tools were pending)
@@ -722,6 +758,29 @@ class GenerationHandler(
             processingStatus.value = null
             throw e
         }
+    }
+
+    /**
+     * 工具参数 JSON 解析（P1-2）：strict 失败后宽松模式自动重试 1 次（本地重解析，不重新请求
+     * 模型，不放大 token）；仍失败则降级为单行可读错误，不再把带协程栈的原始异常抛进上下文。
+     * 实现在 [ToolArgumentParser]（纯函数层，有 JVM 单测覆盖），此处只负责日志。
+     */
+    private fun parseToolArguments(tool: UIMessagePart.Tool): JsonElement {
+        return try {
+            ToolArgumentParser.parse(json, tool.input, tool.toolName)
+        } catch (e: ToolArgumentException) {
+            Log.w(TAG, "parseToolArguments: invalid JSON for ${tool.toolName} (${e.message}), input=${tool.input.take(200)}", e)
+            error(ToolArgumentParser.invalidArgsMessage(tool.toolName, e))
+        }
+    }
+
+    /**
+     * 面向模型的工具错误统一为单行 JSON（P1-4），格式化逻辑在 [ToolArgumentParser.formatError]；
+     * 原始栈打印到 logcat 供排障，不进入模型上下文。
+     */
+    private fun toolErrorJson(toolName: String, error: Throwable): String {
+        Log.w(TAG, "Tool $toolName failed", error)
+        return ToolArgumentParser.formatError(toolName, error)
     }
 
     private fun maybeTruncateToolOutput(
