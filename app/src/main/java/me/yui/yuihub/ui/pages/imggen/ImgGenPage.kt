@@ -46,8 +46,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -90,7 +92,6 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.hugeicons.stroke.Cancel01
-import me.rerere.hugeicons.stroke.Colors
 import me.rerere.hugeicons.stroke.Copy01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.FloppyDisk
@@ -102,13 +103,11 @@ import me.yui.yuihub.data.files.FileUtils
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.ui.components.ai.ModelSelector
 import me.yui.yuihub.ui.components.nav.BackButton
-import me.yui.yuihub.ui.components.nav.FloatingBottomBar
-import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
-import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
 import me.yui.yuihub.ui.components.ui.FormItem
 import me.yui.yuihub.ui.components.ui.ImagePreviewDialog
 import me.yui.yuihub.ui.components.ui.OutlinedNumberInput
 import me.yui.yuihub.ui.context.LocalToaster
+import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.ImageUtils
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -121,6 +120,7 @@ fun ImageGenPage(
     vm: ImgGenVM = koinViewModel()
 ) {
     val pagerState = rememberPagerState { 2 }
+    val scope = rememberCoroutineScope()
 
     val isGenerating by vm.isGenerating.collectAsStateWithLifecycle()
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -157,34 +157,36 @@ fun ImageGenPage(
             )
         },
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding),
+        ) {
+            SecondaryTabRow(
+                selectedTabIndex = pagerState.currentPage,
+            ) {
+                Tab(
+                    selected = pagerState.currentPage == 0,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                    text = { Text(stringResource(R.string.imggen_page_title)) },
+                )
+                Tab(
+                    selected = pagerState.currentPage == 1,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                    text = { Text(stringResource(R.string.imggen_page_gallery)) },
+                )
+            }
             HorizontalPager(
                 state = pagerState,
-                modifier = modifier
-                    .padding(innerPadding)
-                    .consumeWindowInsets(innerPadding)
+                beyondViewportPageCount = 2,
+                modifier = Modifier.fillMaxSize(),
             ) { page ->
-            when (page) {
-                0 -> ImageGenScreen(vm = vm)
-                1 -> ImageGalleryScreen(vm = vm, isActive = pagerState.currentPage == 1)
+                when (page) {
+                    0 -> ImageGenScreen(vm = vm)
+                    1 -> ImageGalleryScreen(vm = vm, isActive = pagerState.currentPage == 1)
+                }
             }
-            }
-            FloatingBottomBar(
-                pagerState = pagerState,
-                tabs = listOf(
-                    FloatingBottomBarTab(
-                        icon = HugeIcons.Colors,
-                        label = stringResource(R.string.imggen_page_title),
-                    ),
-                    FloatingBottomBarTab(
-                        icon = HugeIcons.Image03,
-                        label = stringResource(R.string.imggen_page_gallery),
-                    ),
-                ),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = innerPadding.calculateBottomPadding()),
-            )
         }
     }
 }
@@ -242,7 +244,7 @@ private fun ImageGenScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + FloatingBottomBarDefaults.ContentBottom)
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp)
             .imePadding()
     ) {
         Box(
@@ -339,104 +341,116 @@ private fun InputBar(
             }
         }
 
-    Column(
+    Surface(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = CustomColors.cardColorsOnSurfaceContainer.containerColor,
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        ),
     ) {
-        if (referenceImages.isNotEmpty()) {
-            ReferenceImagesRow(
-                images = referenceImages,
-                onRemove = vm::removeReferenceImage
-            )
-        }
-
-        OutlinedTextField(
-            value = prompt,
-            onValueChange = vm::updatePrompt,
-            placeholder = { Text(stringResource(R.string.imggen_page_prompt_placeholder)) },
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 140.dp),
-            minLines = 1,
-            maxLines = 5,
-            shape = MaterialTheme.shapes.large,
-            textStyle = MaterialTheme.typography.bodySmall,
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ModelSelector(
-                modelId = settings.imageGenerationModelId,
-                providers = settings.providers,
-                type = ModelType.IMAGE,
-                onlyIcon = true,
-                onSelect = { model ->
-                    scope.launch {
-                        vm.settingsStore.update { oldSettings ->
-                            oldSettings.copy(imageGenerationModelId = model.id)
-                        }
-                    }
-                }
-            )
-
-            IconButton(
-                onClick = onShowSettings
-            ) {
-                Icon(HugeIcons.Tools, null)
-            }
-
-            IconButton(
-                onClick = {
-                    imagePickerLauncher.launch("image/*")
-                }
-            ) {
-                Icon(
-                    imageVector = HugeIcons.Add01,
-                    contentDescription = "Add reference image"
+            if (referenceImages.isNotEmpty()) {
+                ReferenceImagesRow(
+                    images = referenceImages,
+                    onRemove = vm::removeReferenceImage
                 )
             }
 
-            Spacer(modifier = Modifier.weight(1f))
+            OutlinedTextField(
+                value = prompt,
+                onValueChange = vm::updatePrompt,
+                placeholder = { Text(stringResource(R.string.imggen_page_prompt_placeholder)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 140.dp),
+                minLines = 1,
+                maxLines = 5,
+                shape = MaterialTheme.shapes.large,
+                textStyle = MaterialTheme.typography.bodySmall,
+            )
 
-            val canSend = prompt.isNotBlank()
-            Surface(
-                onClick = {
-                    if (!isGenerating) {
-                        if (referenceImages.isEmpty()) {
-                            vm.generateImage()
-                        } else {
-                            vm.editImage()
-                        }
-                    } else {
-                        vm.cancelGeneration()
-                    }
-                },
-                enabled = isGenerating || canSend,
-                modifier = Modifier.size(40.dp),
-                shape = CircleShape,
-                color = when {
-                    isGenerating -> MaterialTheme.colorScheme.errorContainer
-                    !canSend -> MaterialTheme.colorScheme.surfaceContainerHigh
-                    else -> MaterialTheme.colorScheme.primary
-                },
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
+                ModelSelector(
+                    modelId = settings.imageGenerationModelId,
+                    providers = settings.providers,
+                    type = ModelType.IMAGE,
+                    onlyIcon = true,
+                    onSelect = { model ->
+                        scope.launch {
+                            vm.settingsStore.update { oldSettings ->
+                                oldSettings.copy(imageGenerationModelId = model.id)
+                            }
+                        }
+                    }
+                )
+
+                IconButton(
+                    onClick = onShowSettings
+                ) {
+                    Icon(HugeIcons.Tools, null)
+                }
+
+                IconButton(
+                    onClick = {
+                        imagePickerLauncher.launch("image/*")
+                    }
                 ) {
                     Icon(
-                        imageVector = if (isGenerating) HugeIcons.Cancel01 else HugeIcons.ArrowUp02,
-                        contentDescription = stringResource(R.string.imggen_page_generate_image),
-                        tint = when {
-                            isGenerating -> MaterialTheme.colorScheme.onErrorContainer
-                            !canSend -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            else -> MaterialTheme.colorScheme.onPrimary
-                        },
-                        modifier = Modifier.size(20.dp)
+                        imageVector = HugeIcons.Add01,
+                        contentDescription = "Add reference image"
                     )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                val canSend = prompt.isNotBlank()
+                Surface(
+                    onClick = {
+                        if (!isGenerating) {
+                            if (referenceImages.isEmpty()) {
+                                vm.generateImage()
+                            } else {
+                                vm.editImage()
+                            }
+                        } else {
+                            vm.cancelGeneration()
+                        }
+                    },
+                    enabled = isGenerating || canSend,
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                    color = when {
+                        isGenerating -> MaterialTheme.colorScheme.errorContainer
+                        !canSend -> MaterialTheme.colorScheme.surfaceContainerHigh
+                        else -> MaterialTheme.colorScheme.primary
+                    },
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = if (isGenerating) HugeIcons.Cancel01 else HugeIcons.ArrowUp02,
+                            contentDescription = stringResource(R.string.imggen_page_generate_image),
+                            tint = when {
+                                isGenerating -> MaterialTheme.colorScheme.onErrorContainer
+                                !canSend -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                else -> MaterialTheme.colorScheme.onPrimary
+                            },
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
@@ -621,7 +635,7 @@ private fun ImageGalleryScreen(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + FloatingBottomBarDefaults.ContentBottom),
+                contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxSize(),
