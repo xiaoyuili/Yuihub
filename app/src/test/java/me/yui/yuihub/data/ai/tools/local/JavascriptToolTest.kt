@@ -1,4 +1,4 @@
-package me.rerere.rikkahub.data.ai.tools.local
+package me.yui.yuihub.data.ai.tools.local
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

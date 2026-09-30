@@ -116,11 +116,33 @@ fun createSkillManageTools(skillManager: SkillManager): List<Tool> = listOf(
 
 private fun renderSkills(skillManager: SkillManager): String {
     val skills = skillManager.listSkills()
-    if (skills.isEmpty()) return "No skills exist yet. Use action=save to create one."
+    // P2: /skills 下无 SKILL.md 的目录与普通文件会被 listSkills 静默过滤，
+    // 模型看不到它们的存在就无法清理或复用，这里显式提示
+    val skillsDir = skillManager.getSkillsDir()
+    val registeredDirs = skills.mapTo(HashSet()) { it.skillDir.name }
+    val unregistered = skillsDir.listFiles()
+        .orEmpty()
+        .filter { entry ->
+            if (entry.isDirectory) {
+                entry.name !in registeredDirs && !entry.name.startsWith(".")
+            } else {
+                !entry.name.startsWith(".")
+            }
+        }
+        .map { it.name }
     return buildString {
-        appendLine("Skills (${skills.size}):")
-        skills.forEach { skill ->
-            appendLine("- ${skill.name}: ${skill.description.ifBlank { "(no description)" }}")
+        if (skills.isEmpty()) {
+            appendLine("No skills exist yet. Use action=save to create one.")
+        } else {
+            appendLine("Skills (${skills.size}):")
+            skills.forEach { skill ->
+                appendLine("- ${skill.name}: ${skill.description.ifBlank { "(no description)" }}")
+            }
+        }
+        if (unregistered.isNotEmpty()) {
+            appendLine()
+            appendLine("Warning: ${unregistered.size} unregistered entries in /skills (missing or invalid SKILL.md): ${unregistered.joinToString(", ")}")
+            appendLine("They are invisible to use_skill. Clean them up or add a valid SKILL.md if they should be registered.")
         }
     }
 }
