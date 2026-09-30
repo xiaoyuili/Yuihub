@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -56,6 +57,7 @@ import me.rerere.hugeicons.stroke.Download01
 import me.rerere.hugeicons.stroke.FileImport
 import me.rerere.hugeicons.stroke.MoreVertical
 import me.rerere.hugeicons.stroke.Puzzle
+import me.rerere.hugeicons.stroke.Search01
 import me.yui.yuihub.data.files.SkillFrontmatterParser
 import me.yui.yuihub.data.files.SkillMetadata
 import me.yui.yuihub.Screen
@@ -78,6 +80,7 @@ fun SkillsPage() {
     var showAddDialog by rememberSaveable { mutableStateOf(false) }
     var showImportDialog by rememberSaveable { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<SkillMetadata?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     val fileImportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -87,6 +90,18 @@ fun SkillsPage() {
                 toaster.show(context.getString(R.string.skills_page_import_success, message))
             } else {
                 toaster.show(context.getString(R.string.skills_page_import_failed, message))
+            }
+        }
+    }
+
+    val normalizedQuery = searchQuery.trim()
+    val filteredSkills = remember(skills, normalizedQuery) {
+        if (normalizedQuery.isBlank()) {
+            skills
+        } else {
+            skills.filter {
+                it.name.contains(normalizedQuery, ignoreCase = true) ||
+                    it.description.contains(normalizedQuery, ignoreCase = true)
             }
         }
     }
@@ -116,7 +131,19 @@ fun SkillsPage() {
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (skills.isEmpty()) {
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(stringResource(R.string.skills_page_search_placeholder)) },
+                    leadingIcon = { Icon(HugeIcons.Search01, contentDescription = null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(50),
+                )
+            }
+
+            if (filteredSkills.isEmpty()) {
                 item {
                     Column(
                         modifier = Modifier
@@ -132,20 +159,23 @@ fun SkillsPage() {
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            text = stringResource(R.string.skills_page_empty_title),
+                            text = if (normalizedQuery.isBlank()) stringResource(R.string.skills_page_empty_title)
+                            else stringResource(R.string.skills_page_no_match),
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Text(
-                            text = stringResource(R.string.skills_page_empty_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        if (normalizedQuery.isBlank()) {
+                            Text(
+                                text = stringResource(R.string.skills_page_empty_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
 
-            items(skills, key = { it.skillDir.absolutePath }) { skill ->
+            items(filteredSkills, key = { it.skillDir.absolutePath }) { skill ->
                 SkillCard(
                     skill = skill,
                     onClick = { navController.navigate(Screen.SkillDetail(skill.name)) },
