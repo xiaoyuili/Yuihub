@@ -290,6 +290,7 @@
   <string name="chat_page_export_format">내보내기 형식</string>
   <string name="chat_page_export_image">이미지로 내보내기</string>
   <string name="chat_page_export_image_desc">대화를 PNG 이미지로 내보내기</string>
+  <string name="chat_page_export_include_reasoning">사고 과정 내보내기</string>
   <string name="chat_page_export_image_expand_reasoning">사고 과정 확장</string>
   <string name="chat_page_export_markdown">Markdown</string>
   <string name="chat_page_export_markdown_desc">대화를 마크다운 파일로 내보내기</string>
@@ -994,6 +995,7 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="share">공유</string>
   <string name="share_handler_page_title">어시스턴트 선택</string>
   <string name="shortcut_take_picture">사진 찍고 질문하기</string>
+  <string name="shortcut_image_generation">이미지 생성</string>
   <string name="silicon_flow_description">**세계를 선도하는 AI 서비스 제공업체로, 인공 일반 지능(AGI)의 발전을 통해 인류에 기여합니다.**</string>
   <string name="silicon_flow_website">웹사이트: [https://cloud.siliconflow.cn/](https://cloud.siliconflow.cn/i/u1Ia4Ycf)</string>
   <string name="skill_detail_page_content">콘텐츠</string>
@@ -1111,6 +1113,8 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="setting_page_preferences_ui_desc">메시지 표시, 글꼴, 코드 블록</string>
   <string name="skills_page_import_from_file">파일에서 가져오기</string>
   <string name="skills_page_add_manually">수동으로 추가</string>
+  <string name="skills_page_search_placeholder">스킬 검색</string>
+  <string name="skills_page_no_match">일치하는 스킬 없음</string>
   <string name="setting_model_page_tab_model">모델</string>
   <string name="setting_model_page_tab_prompt">프롬프트</string>
   <string name="setting_model_page_prompt_translation">번역</string>

@@ -290,6 +290,7 @@
   <string name="chat_page_export_format">匯出格式</string>
   <string name="chat_page_export_image">匯出為圖片</string>
   <string name="chat_page_export_image_desc">將對話匯出為PNG圖片</string>
+  <string name="chat_page_export_include_reasoning">匯出思維過程</string>
   <string name="chat_page_export_image_expand_reasoning">展開思維過程</string>
   <string name="chat_page_export_markdown">Markdown</string>
   <string name="chat_page_export_markdown_desc">將對話匯出為markdown檔案</string>
@@ -992,6 +993,7 @@
   <string name="share">分享</string>
   <string name="share_handler_page_title">選擇一個助手處理分享</string>
   <string name="shortcut_take_picture">拍照提問</string>
+  <string name="shortcut_image_generation">圖片生成</string>
   <string name="silicon_flow_description">**全球領先的 AI 能力提供商，加速 AGI 普惠人類。**</string>
   <string name="silicon_flow_website">官網: [https://cloud.siliconflow.cn/](https://cloud.siliconflow.cn/i/u1Ia4Ycf)</string>
   <string name="skill_detail_page_content">內容</string>
@@ -1109,6 +1111,8 @@
   <string name="setting_page_preferences_ui_desc">訊息顯示、字型、程式碼區塊</string>
   <string name="skills_page_import_from_file">從檔案匯入</string>
   <string name="skills_page_add_manually">手動新增</string>
+  <string name="skills_page_search_placeholder">搜尋技能</string>
+  <string name="skills_page_no_match">找不到符合的技能</string>
   <string name="setting_model_page_tab_model">模型</string>
   <string name="setting_model_page_tab_prompt">提示詞</string>
   <string name="setting_model_page_prompt_translation">翻譯</string>

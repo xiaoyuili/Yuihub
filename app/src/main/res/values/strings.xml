@@ -226,6 +226,7 @@
   <string name="chat_page_export_format">Export Format</string>
   <string name="chat_page_export_image">Export as Image</string>
   <string name="chat_page_export_image_desc">Export conversation as PNG image</string>
+  <string name="chat_page_export_include_reasoning">Export Reasoning</string>
   <string name="chat_page_export_image_expand_reasoning">Expand Reasoning</string>
   <string name="chat_page_export_markdown">Markdown</string>
   <string name="chat_page_export_markdown_desc">Export conversation as a markdown file</string>
@@ -855,6 +856,7 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="share">Share</string>
   <string name="share_handler_page_title">Select an Assistant</string>
   <string name="shortcut_take_picture">Take Picture &amp; Ask</string>
+  <string name="shortcut_image_generation">Image Generation</string>
   <string name="skill_detail_page_content">Content</string>
   <string name="skill_detail_page_create">Create</string>
   <string name="skill_detail_page_delete_confirm">Are you sure you want to delete file "%s"?</string>
@@ -917,6 +919,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="setting_theme_page_delete_theme_message">Are you sure you want to delete this theme?</string>
   <string name="skills_page_import_from_file">Import from File</string>
   <string name="skills_page_add_manually">Add manually</string>
+  <string name="skills_page_search_placeholder">Search skills</string>
+  <string name="skills_page_no_match">No matching skills</string>
   <string name="setting_model_page_tab_model">Model</string>
   <string name="setting_model_page_tab_prompt">Prompts</string>
   <string name="setting_model_page_prompt_title">Title Generation</string>

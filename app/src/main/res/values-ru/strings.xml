@@ -290,6 +290,7 @@
   <string name="chat_page_export_format">Формат экспорта</string>
   <string name="chat_page_export_image">Экспортировать как изображение</string>
   <string name="chat_page_export_image_desc">Экспортировать переписку как изображение PNG</string>
+  <string name="chat_page_export_include_reasoning">Экспортировать рассуждение</string>
   <string name="chat_page_export_image_expand_reasoning">Развернуть рассуждение</string>
   <string name="chat_page_export_markdown">Markdown</string>
   <string name="chat_page_export_markdown_desc">Экспортировать разговор как файл Markdown</string>
@@ -994,6 +995,7 @@
   <string name="share">Поделиться</string>
   <string name="share_handler_page_title">Выбрать ассистента</string>
   <string name="shortcut_take_picture">Сделать фото и спросить</string>
+  <string name="shortcut_image_generation">Генерация изображений</string>
   <string name="silicon_flow_description">**Ведущий мировой поставщик ИИ-возможностей, ускоряющий AGI на благо человечества.**</string>
   <string name="silicon_flow_website">Веб-сайт: [https://cloud.siliconflow.cn/](https://cloud.siliconflow.cn/i/u1Ia4Ycf)</string>
   <string name="skill_detail_page_content">Контент</string>
@@ -1111,6 +1113,8 @@
   <string name="setting_page_preferences_ui_desc">Отображение сообщений, шрифты, блоки кода</string>
   <string name="skills_page_import_from_file">Импортировать из файла</string>
   <string name="skills_page_add_manually">Добавить вручную</string>
+  <string name="skills_page_search_placeholder">Поиск навыков</string>
+  <string name="skills_page_no_match">Нет подходящих навыков</string>
   <string name="setting_model_page_tab_model">Модель</string>
   <string name="setting_model_page_tab_prompt">Промпты</string>
   <string name="setting_model_page_prompt_translation">Перевод</string>

@@ -221,6 +221,7 @@
   <string name="chat_page_export_format">导出格式</string>
   <string name="chat_page_export_image">导出为图片</string>
   <string name="chat_page_export_image_desc">将对话导出为PNG图片</string>
+  <string name="chat_page_export_include_reasoning">导出思维过程</string>
   <string name="chat_page_export_image_expand_reasoning">展开思维过程</string>
   <string name="chat_page_export_markdown">Markdown</string>
   <string name="chat_page_export_markdown_desc">将对话导出为markdown文件</string>
@@ -806,6 +807,7 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="share">分享</string>
   <string name="share_handler_page_title">选择一个助手处理分享</string>
   <string name="shortcut_take_picture">拍照提问</string>
+  <string name="shortcut_image_generation">图片生成</string>
   <string name="skill_detail_page_content">内容</string>
   <string name="skill_detail_page_create">创建</string>
   <string name="skill_detail_page_delete_confirm">确定要删除文件“%s”吗？</string>
@@ -880,6 +882,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="setting_page_preferences_ui_desc">消息显示、字体、代码块</string>
   <string name="skills_page_import_from_file">从文件导入</string>
   <string name="skills_page_add_manually">手动添加</string>
+  <string name="skills_page_search_placeholder">搜索技能</string>
+  <string name="skills_page_no_match">没有匹配的技能</string>
   <string name="setting_model_page_tab_model">模型</string>
   <string name="setting_model_page_tab_prompt">提示词</string>
   <string name="setting_model_page_prompt_title">标题生成</string>

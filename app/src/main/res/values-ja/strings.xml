@@ -290,6 +290,7 @@
   <string name="chat_page_export_format">エクスポート形式</string>
   <string name="chat_page_export_image">画像としてエクスポート</string>
   <string name="chat_page_export_image_desc">会話をPNG画像としてエクスポート</string>
+  <string name="chat_page_export_include_reasoning">思考過程を出力</string>
   <string name="chat_page_export_image_expand_reasoning">思考過程を展開</string>
   <string name="chat_page_export_markdown">Markdown</string>
   <string name="chat_page_export_markdown_desc">会話をmarkdownファイルとしてエクスポート</string>
@@ -994,6 +995,7 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="share">共有</string>
   <string name="share_handler_page_title">共有を処理するアシスタントを選択</string>
   <string name="shortcut_take_picture">写真で質問</string>
+  <string name="shortcut_image_generation">画像生成</string>
   <string name="silicon_flow_description">**世界をリードするAI能力プロバイダー、AGIの普及を加速して人類に貢献。**</string>
   <string name="silicon_flow_website">公式サイト: [https://cloud.siliconflow.cn/](https://cloud.siliconflow.cn/i/u1Ia4Ycf)</string>
   <string name="skill_detail_page_content">コンテンツ</string>
@@ -1111,6 +1113,8 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="setting_page_preferences_ui_desc">メッセージ表示、フォント、コードブロック</string>
   <string name="skills_page_import_from_file">ファイルからインポート</string>
   <string name="skills_page_add_manually">手動追加</string>
+  <string name="skills_page_search_placeholder">スキルを検索</string>
+  <string name="skills_page_no_match">一致するスキルがありません</string>
   <string name="setting_model_page_tab_model">モデル</string>
   <string name="setting_model_page_tab_prompt">プロンプト</string>
   <string name="setting_model_page_prompt_translation">翻訳</string>
