@@ -20,6 +20,7 @@ import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.MagicWand01
 import me.rerere.hugeicons.stroke.McpServer
 import me.rerere.hugeicons.stroke.Puzzle
+import me.rerere.hugeicons.stroke.UserMultiple
 import me.yui.yuihub.Screen
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.CardGroup
@@ -74,6 +75,12 @@ fun ExtensionsPage() {
                         leadingContent = { Icon(HugeIcons.Folder01, null) },
                         headlineContent = { Text(stringResource(R.string.extensions_page_workspace)) },
                         supportingContent = { Text(stringResource(R.string.extensions_page_workspace_desc)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.SubagentPersonas) },
+                        leadingContent = { Icon(HugeIcons.UserMultiple, null) },
+                        supportingContent = { Text(stringResource(R.string.setting_page_subagent_roles_desc)) },
+                        headlineContent = { Text(stringResource(R.string.setting_page_subagent_roles)) },
                     )
                     item(
                         onClick = { navController.navigate(Screen.SettingMcp) },

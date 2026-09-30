@@ -47,6 +47,8 @@ import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.data.model.InjectionPosition
 import me.yui.yuihub.data.model.Lorebook
 import me.yui.yuihub.data.model.PromptInjection
+import me.yui.yuihub.data.model.BuiltinSubagentPersonas
+import me.yui.yuihub.data.model.SubagentPersona
 import me.yui.yuihub.data.model.Tag
 import me.yui.yuihub.ui.theme.CustomTheme
 import me.yui.yuihub.ui.theme.PresetThemes
@@ -129,6 +131,7 @@ class SettingsStore(
         val SELECT_ASSISTANT = stringPreferencesKey("select_assistant")
         val ASSISTANTS = stringPreferencesKey("assistants")
         val ASSISTANT_TAGS = stringPreferencesKey("assistant_tags")
+        val SUBAGENT_PERSONAS = stringPreferencesKey("subagent_personas")
 
         // 搜索
         val SEARCH_SERVICES = stringPreferencesKey("search_services")
@@ -191,6 +194,9 @@ class SettingsStore(
                 assistantTags = preferences[ASSISTANT_TAGS]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
+                subagentPersonas = preferences[SUBAGENT_PERSONAS]?.let {
+                    JsonInstant.decodeFromString(it)
+                } ?: BuiltinSubagentPersonas.all(),
                 providers = JsonInstant.decodeFromString(preferences[PROVIDERS] ?: "[]"),
                 assistants = JsonInstant.decodeFromString(preferences[ASSISTANTS] ?: "[]"),
                 dynamicColor = preferences[DYNAMIC_COLOR] == true,
@@ -356,6 +362,7 @@ class SettingsStore(
             preferences[ASSISTANTS] = JsonInstant.encodeToString(settings.assistants)
             preferences[SELECT_ASSISTANT] = settings.assistantId.toString()
             preferences[ASSISTANT_TAGS] = JsonInstant.encodeToString(settings.assistantTags)
+            preferences[SUBAGENT_PERSONAS] = JsonInstant.encodeToString(settings.subagentPersonas)
 
             preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(settings.searchServices)
             preferences[SEARCH_COMMON] = JsonInstant.encodeToString(settings.searchCommonOptions)
@@ -475,6 +482,8 @@ data class Settings(
     val providers: List<ProviderSetting> = DEFAULT_PROVIDERS,
     val assistants: List<Assistant> = DEFAULT_ASSISTANTS,
     val assistantTags: List<Tag> = emptyList(),
+    // 子代理角色（空列表 = 用户删光了，不再恢复内置）
+    val subagentPersonas: List<SubagentPersona> = BuiltinSubagentPersonas.all(),
     val searchServices: List<SearchServiceOptions> = listOf(SearchServiceOptions.DEFAULT),
     val searchCommonOptions: SearchCommonOptions = SearchCommonOptions(),
     val searchServiceSelected: Int = 0,

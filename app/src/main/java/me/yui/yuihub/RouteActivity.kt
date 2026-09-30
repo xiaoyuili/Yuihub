@@ -92,6 +92,9 @@ import me.yui.yuihub.ui.pages.extensions.ModeInjectionPage
 import me.yui.yuihub.ui.pages.extensions.skills.SkillDetailPage
 import me.yui.yuihub.ui.pages.extensions.skills.SkillsPage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspacePage
+import me.yui.yuihub.ui.pages.automation.ScheduledTaskEditPage
+import me.yui.yuihub.ui.pages.automation.ScheduledTasksPage
+import me.yui.yuihub.ui.pages.automation.SubagentPersonasPage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceDetailPage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceFileEditorPage
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceTerminalPage
@@ -491,6 +494,18 @@ class RouteActivity : ComponentActivity() {
                                 WorkspacePage()
                             }
 
+                            entry<Screen.ScheduledTasks> {
+                                ScheduledTasksPage()
+                            }
+
+                            entry<Screen.ScheduledTaskEdit> { key ->
+                                ScheduledTaskEditPage(taskId = key.id)
+                            }
+
+                            entry<Screen.SubagentPersonas> {
+                                SubagentPersonasPage()
+                            }
+
                             entry<Screen.WorkspaceDetail> { key ->
                                 WorkspaceDetailPage(key.id)
                             }
@@ -691,6 +706,15 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Workspaces : Screen
+
+    @Serializable
+    data object ScheduledTasks : Screen
+
+    @Serializable
+    data class ScheduledTaskEdit(val id: String? = null) : Screen
+
+    @Serializable
+    data object SubagentPersonas : Screen
 
     @Serializable
     data class WorkspaceDetail(val id: String) : Screen

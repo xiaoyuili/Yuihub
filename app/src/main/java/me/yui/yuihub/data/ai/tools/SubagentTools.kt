@@ -1,5 +1,7 @@
 package me.yui.yuihub.data.ai.tools
 
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -8,6 +10,7 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
+import me.yui.yuihub.data.model.SubagentPersona
 
 const val SPAWN_AGENT_TOOL_NAME = "spawn_agent"
 const val FOLLOWUP_AGENT_TOOL_NAME = "followup_agent"
@@ -29,10 +32,13 @@ const val SUBAGENT_RESULT_INLINE_CHARS = 2_000
  * 结果经 poll_agent 取回；完成事件随 poll 结果注入下一轮父对话。
  */
 fun createSubagentTool(
-    onSpawn: suspend (description: String, prompt: String, async: Boolean, timeoutMs: Long?, maxToolCalls: Int?) -> String,
+    personas: List<SubagentPersona> = emptyList(),
+    onSpawn: suspend (description: String, prompt: String, async: Boolean, timeoutMs: Long?, maxToolCalls: Int?, personaName: String?) -> String,
 ): Tool = Tool(
     name = SPAWN_AGENT_TOOL_NAME,
-    description = """
+    description = buildString {
+        append(
+            """
         Delegate a self-contained subtask to a fresh child agent (empty history; shares workspace, model and tools).
         Use only when a task is truly independent and long-running (e.g. broad research spanning many lookups); do not spawn for simple questions or single-step lookups — answer directly instead.
         The prompt must stand alone - include all files, constraints and expected output format. Children cannot spawn children.
@@ -41,7 +47,23 @@ fun createSubagentTool(
         Optional timeoutMs cancels a runaway child (status=timeout, partial result preserved); maxToolCalls caps its tool round-trips.
         To ask a finished child agent follow-up questions, pass its sessionId to followup_agent instead of spawning again.
         Multiple spawn_agent calls in one turn run in parallel (up to 4 concurrently).
-    """.trimIndent(),
+            """.trimIndent()
+        )
+        if (personas.isNotEmpty()) {
+            append("\n\navailable specialists (pass their name as `agent` to give the child a role ")
+            append("prompt and a restricted tool set; omit to use a plain general child):\n")
+            personas.forEach { persona ->
+                append("- ")
+                append(persona.name)
+                if (persona.allowedTools.isNotEmpty()) {
+                    append(" (tools: ")
+                    append(persona.allowedTools.sorted().joinToString(", "))
+                    append(")")
+                }
+                append('\n')
+            }
+        }
+    },
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
@@ -53,6 +75,16 @@ fun createSubagentTool(
                     put("type", "string")
                     put("description", "Self-contained instructions for the child agent")
                 })
+                if (personas.isNotEmpty()) {
+                    put("agent", buildJsonObject {
+                        put("type", "string")
+                        put(
+                            "enum",
+                            buildJsonArray { personas.forEach { add(it.name) } }
+                        )
+                        put("description", "Optional specialist role for the child (see the available specialists list).")
+                    })
+                }
                 put("async", buildJsonObject {
                     put("type", "boolean")
                     put("description", "If true, return {taskId} immediately and poll later with poll_agent. Default false (block until done).")
@@ -79,7 +111,11 @@ fun createSubagentTool(
         val async = obj["async"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
         val timeoutMs = obj["timeoutMs"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
         val maxToolCalls = obj["maxToolCalls"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
-        val result = onSpawn(description, prompt, async, timeoutMs, maxToolCalls)
+        val personaName = obj["agent"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+        if (personaName != null && personas.none { it.name == personaName }) {
+            error("unknown agent role '$personaName'; available: ${personas.joinToString(", ") { it.name }}")
+        }
+        val result = onSpawn(description, prompt, async, timeoutMs, maxToolCalls, personaName)
         listOf(
             UIMessagePart.Text(result)
         )
