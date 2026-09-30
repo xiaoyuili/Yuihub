@@ -26,7 +26,6 @@ import me.yui.yuihub.ui.components.ui.permission.rememberPermissionState
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.hooks.ChatInputState
 import me.yui.yuihub.utils.ImageUtils
-import me.yui.yuihub.utils.isAllowedFileType
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import java.io.File
@@ -174,26 +173,19 @@ internal fun rememberChatAttachmentPickerActions(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isNotEmpty()) {
                 scope.launch {
+                    // agent 客户端接受任意文件类型，不再按白名单过滤
                     val documents = uris.mapNotNull { uri ->
                         val fileName = filesManager.getFileNameFromUri(uri) ?: "file"
                         val mime = filesManager.getFileMimeType(uri) ?: "text/plain"
-                        if (isAllowedFileType(fileName, mime)) {
-                            val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
-                                ?: run {
-                                    toaster.show(
-                                        resources.getString(R.string.chat_input_file_read_failed, fileName),
-                                        type = ToastType.Error
-                                    )
-                                    return@mapNotNull null
-                                }
-                            UIMessagePart.Document(url = localUri.toString(), fileName = fileName, mime = mime)
-                        } else {
-                            toaster.show(
-                                resources.getString(R.string.chat_input_unsupported_file_type, fileName),
-                                type = ToastType.Error
-                            )
-                            null
-                        }
+                        val localUri = filesManager.createChatFilesByContents(listOf(uri)).firstOrNull()
+                            ?: run {
+                                toaster.show(
+                                    resources.getString(R.string.chat_input_file_read_failed, fileName),
+                                    type = ToastType.Error
+                                )
+                                return@mapNotNull null
+                            }
+                        UIMessagePart.Document(url = localUri.toString(), fileName = fileName, mime = mime)
                     }
                     if (documents.isNotEmpty()) {
                         inputState.addFiles(documents)
