@@ -130,6 +130,8 @@ import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.Folder
 import me.yui.yuihub.data.repository.ConversationRepository
+import me.yui.yuihub.service.SubagentManager
+import kotlinx.coroutines.flow.map
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.ui.components.ai.AssistantPicker
 import me.yui.yuihub.ui.components.ui.BackupReminderCard
@@ -196,6 +198,14 @@ fun ChatDrawerContent(
         initialValue = emptyMap(),
     )
 
+    // 子代理树：数量（决定哪行显示箭头）/展开状态/子会话列表/运行中状态
+    val subagentManager: SubagentManager = koinInject()
+    val subconversationCounts by drawerVm.subconversationCounts.collectAsStateWithLifecycle()
+    val expandedSubagentIds by drawerVm.expandedSubagentIds.collectAsStateWithLifecycle()
+    val runningSubagentIds by subagentManager.runs
+        .map { runs -> runs.values.map { it.childId }.toSet() }
+        .collectAsStateWithLifecycle(initialValue = emptySet())
+
     // 侧滑页面板：当前助手绑定工作区、且该工作区在本机存在并已就绪时，提供「会话 / 文件」切换
     //（状态存 VM，从详情页返回时保留现场）
     val workspaceId = settings.getCurrentAssistant().workspaceId
@@ -254,6 +264,9 @@ fun ChatDrawerContent(
             )
         )
     }
+
+    // 子代理删除确认
+    var subagentToDelete by remember { mutableStateOf<Conversation?>(null) }
 
     // 移动对话状态
     var showMoveToAssistantSheet by remember { mutableStateOf(false) }
@@ -433,6 +446,18 @@ fun ChatDrawerContent(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f),
+                            subconversationCounts = subconversationCounts,
+                            expandedSubagentIds = expandedSubagentIds,
+                            runningSubagentIds = runningSubagentIds,
+                            subconversationsLoader = { drawerVm.subconversationsOf(it) },
+                            onToggleSubagentExpand = { drawerVm.toggleSubagentExpanded(it) },
+                            onClickSubagent = {
+                                navigateToChatPage(navController, it.id)
+                            },
+                            onRequestDeleteSubagent = { sub ->
+                                // 长按先弹确认（与主对话删除一致），确认后才删除
+                                subagentToDelete = sub
+                            },
                             onClick = {
                                 navigateToChatPage(navController, it.id)
                             },
@@ -778,6 +803,37 @@ fun ChatDrawerContent(
     }
 
     // 移动到助手 Bottom Sheet
+    // 子代理删除确认弹窗：小圆角（M3 默认 28dp 全圆角观感太「胶囊」，14dp 与卡片圆角一致）
+    subagentToDelete?.let { sub ->
+        AlertDialog(
+            onDismissRequest = { subagentToDelete = null },
+            shape = RoundedCornerShape(14.dp),
+            title = { Text(stringResource(R.string.confirm_delete)) },
+            text = { Text(sub.title.ifBlank { stringResource(R.string.chat_page_new_message) }) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        subagentToDelete = null
+                        scope.launch {
+                            repo.deleteConversation(sub)
+                            conversations.refresh()
+                            if (sub.id == current.id) {
+                                navigateToChatPage(navController)
+                            }
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { subagentToDelete = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
+
     if (showMoveToAssistantSheet) {
         ModalBottomSheet(
             onDismissRequest = {

@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 import me.rerere.workspace.WorkspaceFileEntry
 import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.SettingsStore
+import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.Folder
 import me.yui.yuihub.data.repository.ConversationRepository
 import me.yui.yuihub.data.repository.FolderRepository
@@ -36,7 +37,7 @@ import kotlin.uuid.Uuid
 class ChatDrawerVM(
     private val context: Application,
     private val settingsStore: SettingsStore,
-    conversationRepo: ConversationRepository,
+    private val conversationRepo: ConversationRepository,
     private val folderRepo: FolderRepository,
     private val chatService: ChatService,
     private val savedStateHandle: SavedStateHandle,
@@ -104,6 +105,28 @@ class ChatDrawerVM(
     val folders: StateFlow<List<Folder>> = assistantIdFlow
         .flatMapLatest { folderRepo.getFoldersOfAssistant(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // 各父会话的子代理子会话数量（Room Flow，决定抽屉里哪行显示展开箭头）
+    val subconversationCounts: StateFlow<Map<Uuid, Int>> = conversationRepo
+        .getSubconversationCounts()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // 抽屉里展开的父会话（默认全折叠）；切换助手时重置
+    private val _expandedSubagentIds = MutableStateFlow<Set<Uuid>>(emptySet())
+    val expandedSubagentIds: StateFlow<Set<Uuid>> = _expandedSubagentIds.asStateFlow()
+
+    fun toggleSubagentExpanded(conversationId: Uuid) {
+        _expandedSubagentIds.value = if (conversationId in _expandedSubagentIds.value) {
+            _expandedSubagentIds.value - conversationId
+        } else {
+            _expandedSubagentIds.value + conversationId
+        }
+    }
+
+    /** 展开的父会话的子会话列表（Room Flow 响应式，子代理生成中实时刷新） */
+    fun subconversationsOf(conversationId: Uuid): Flow<List<Conversation>> {
+        return conversationRepo.getSubconversationsOfParent(conversationId)
+    }
 
     val conversations: Flow<PagingData<ConversationListItem>> =
         combine(assistantIdFlow, _selectedFolderId) { assistantId, folderId ->
@@ -176,10 +199,12 @@ class ChatDrawerVM(
 
     init {
         // 助手切换时重置文件夹筛选，回到「聊天」视图，
-        // 避免继续显示上一个助手文件夹内的会话（文件夹是助手内分组）
+        // 避免继续显示上一个助手文件夹内的会话（文件夹是助手内分组），
+        // 同时收起子代理展开状态
         viewModelScope.launch {
             assistantIdFlow.collect {
                 _selectedFolderId.value = null
+                _expandedSubagentIds.value = emptySet()
             }
         }
     }

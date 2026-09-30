@@ -96,6 +96,7 @@ import me.yui.yuihub.utils.JsonInstant
 import me.yui.yuihub.utils.openUrl
 import me.yui.yuihub.utils.urlDecode
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.uuid.Uuid
 
 // 用户气泡固定为 iMessage 蓝（用户从配色方案中选定）；不跟随主题色，各主题下表现一致
 private val UserBubbleColor = Color(0xFF0A84FF)
@@ -105,6 +106,7 @@ fun ChatMessage(
     node: MessageNode,
     modifier: Modifier = Modifier,
     loading: Boolean = false,
+    conversationId: Uuid? = null,
     model: Model? = null,
     assistant: Assistant? = null,
     lastMessage: Boolean = false,
@@ -166,6 +168,7 @@ fun ChatMessage(
                 parts = message.parts,
                 annotations = message.annotations,
                 loading = loading,
+                conversationId = conversationId,
                 model = model,
                 onToolApproval = onToolApproval,
                 onToolAnswer = onToolAnswer,
@@ -265,6 +268,7 @@ private fun MessagePartsBlock(
     parts: List<UIMessagePart>,
     annotations: List<UIMessageAnnotation>,
     loading: Boolean,
+    conversationId: Uuid?,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onUserMessageClick: (() -> Unit)? = null,
@@ -343,6 +347,7 @@ private fun MessagePartsBlock(
                                     ChatMessageToolStep(
                                         tool = step.tool,
                                         loading = loading && !step.tool.isExecuted,
+                                        conversationId = conversationId,
                                         onToolApproval = onToolApproval,
                                         onToolAnswer = onToolAnswer,
                                     )

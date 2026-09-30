@@ -255,7 +255,8 @@ class ChatVM(
 
     fun deleteConversation(conversation: Conversation): Job =
         viewModelScope.launch {
-            conversationRepo.deleteConversation(conversation)
+            // 级联删除子代理子会话，并返回被删会话集合供抽屉判断当前页跳转
+            chatService.deleteConversationTree(conversation)
         }
 
     fun updatePinnedStatus(conversation: Conversation) {
@@ -274,9 +275,12 @@ class ChatVM(
             )
             if (conversation.id == _conversationId) {
                 chatService.saveConversation(_conversationId, updatedConversation)
+                // 子代理子会话跟随父会话迁移助手，否则留在原助手下成孤儿
+                chatService.moveSubconversationsToAssistant(conversation.id, targetAssistantId)
                 settingsStore.updateAssistant(targetAssistantId)
             } else {
                 conversationRepo.updateConversation(updatedConversation)
+                chatService.moveSubconversationsToAssistant(conversation.id, targetAssistantId)
             }
         }
     }

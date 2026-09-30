@@ -56,6 +56,7 @@ import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Tools
 import me.yui.yuihub.R
 import me.yui.yuihub.data.ai.tools.SPAWN_AGENT_TOOL_NAME
+import me.yui.yuihub.data.ai.tools.local.ASK_USER_TOOL_NAME
 import me.yui.yuihub.service.SubagentManager
 import me.yui.yuihub.service.SubagentRun
 import me.yui.yuihub.ui.components.message.tools.ToolUIContext
@@ -69,8 +70,7 @@ import me.yui.yuihub.ui.components.ui.flowRowMetaStyle
 import me.yui.yuihub.ui.components.ui.flowRowTitleStyle
 import me.yui.yuihub.ui.modifier.shimmer
 import me.yui.yuihub.utils.JsonInstant
-
-private const val ASK_USER_TOOL_NAME = "ask_user"
+import kotlin.uuid.Uuid
 
 @Composable
 fun ChainOfThoughtScope.ChatMessageServerToolStep(tool: UIMessagePart.ServerTool) {
@@ -108,6 +108,7 @@ fun ChainOfThoughtScope.ChatMessageServerToolStep(tool: UIMessagePart.ServerTool
 fun ChainOfThoughtScope.ChatMessageToolStep(
     tool: UIMessagePart.Tool,
     loading: Boolean = false,
+    conversationId: Uuid? = null,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
 ) {
@@ -176,7 +177,7 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
                 )
                 // 子代理运行中: 显示计时与最近动作, 避免长时间无反馈像卡住
                 if (loading && tool.toolName == SPAWN_AGENT_TOOL_NAME) {
-                    SubagentRunningHint()
+                    SubagentRunningHint(parentConversationId = conversationId)
                 }
             }
         },
@@ -505,14 +506,19 @@ private fun ToolDenyReasonDialog(
 /**
  * 子代理运行提示: 每秒刷新计时, 展示子代理最近一条动作 (回复片段或工具调用)。
  * 子代理契约是主代理必须等待结果, 这里解决的是「等待期用户以为卡住」。
+ * 按父会话过滤, 避免多会话并行生成时串扰显示其它会话的子代理。
  */
 @Composable
-private fun SubagentRunningHint() {
+private fun SubagentRunningHint(parentConversationId: Uuid?) {
     val subagentManager = remember { getKoin().get<SubagentManager>() }
     val run by produceState<SubagentRun?>(initialValue = null) {
         subagentManager.runs.collect { runs ->
-            // 工具串行执行, 同一时刻最多一个运行中的子代理, 取最近一条即可
-            value = runs.values.lastOrNull { !it.finished }
+            // 工具串行执行, 同一时刻最多一个运行中的子代理, 取最早启动的即可
+            value = if (parentConversationId == null) {
+                null
+            } else {
+                runs.values.firstOrNull { it.parentConversationId == parentConversationId }
+            }
         }
     }
     var elapsedSec by remember { mutableStateOf(0) }
