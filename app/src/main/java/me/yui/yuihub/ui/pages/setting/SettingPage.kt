@@ -59,6 +59,7 @@ import me.rerere.hugeicons.stroke.Book03
 import me.rerere.hugeicons.stroke.Brain02
 import me.rerere.hugeicons.stroke.Clapping01
 import me.rerere.hugeicons.stroke.Database02
+import me.rerere.hugeicons.stroke.Clock01
 import me.rerere.hugeicons.stroke.GlobalSearch
 import me.rerere.hugeicons.stroke.LookTop
 import me.rerere.hugeicons.stroke.Megaphone01
@@ -193,6 +194,12 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                     modifier = Modifier.padding(horizontal = 8.dp),
                     title = { Text(stringResource(R.string.setting_page_data_settings)) },
                 ) {
+                    item(
+                        onClick = { navController.navigate(Screen.ScheduledTasks) },
+                        leadingContent = { Icon(HugeIcons.Clock01, null) },
+                        supportingContent = { Text(stringResource(R.string.setting_page_automation_desc)) },
+                        headlineContent = { Text(stringResource(R.string.setting_page_automation)) },
+                    )
                     item(
                         onClick = { navController.navigate(Screen.Backup) },
                         leadingContent = { Icon(HugeIcons.Database02, null) },

@@ -13,6 +13,7 @@ import me.yui.yuihub.data.db.dao.GenMediaDAO
 import me.yui.yuihub.data.db.dao.ManagedFileDAO
 import me.yui.yuihub.data.db.dao.MemoryDAO
 import me.yui.yuihub.data.db.dao.MessageNodeDAO
+import me.yui.yuihub.data.db.dao.ScheduledTaskDAO
 import me.yui.yuihub.data.db.dao.TokenLedgerDAO
 import me.yui.yuihub.data.db.dao.WorkspaceDAO
 import me.yui.yuihub.data.db.entity.ConversationEntity
@@ -33,6 +34,7 @@ import me.yui.yuihub.data.db.migrations.Migration_28_29
 import me.yui.yuihub.data.db.migrations.Migration_29_30
 import me.yui.yuihub.data.db.migrations.Migration_8_9
 import me.yui.yuihub.utils.JsonInstant
+import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
 
 @Database(
     entities = [
@@ -45,8 +47,9 @@ import me.yui.yuihub.utils.JsonInstant
         WorkspaceEntity::class,
         FolderEntity::class,
         TokenLedgerEntity::class,
+        ScheduledTaskEntity::class,
     ],
-    version = 35,
+    version = 36,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -78,6 +81,8 @@ import me.yui.yuihub.utils.JsonInstant
         AutoMigration(from = 33, to = 34),
         // 34→35：会话表加 parent_conversation_id 列与索引（子代理子会话归属）
         AutoMigration(from = 34, to = 35),
+        // 35→36：定时任务表（自动化）
+        AutoMigration(from = 35, to = 36),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
@@ -99,6 +104,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun folderDao(): FolderDAO
 
     abstract fun tokenLedgerDao(): TokenLedgerDAO
+
+    abstract fun scheduledTaskDao(): ScheduledTaskDAO
 }
 
 object TokenUsageConverter {

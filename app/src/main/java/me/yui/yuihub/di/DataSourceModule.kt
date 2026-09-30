@@ -173,6 +173,10 @@ val dataSourceModule = module {
     }
 
     single {
+        get<AppDatabase>().scheduledTaskDao()
+    }
+
+    single {
         MessageFtsManager(get())
     }
 

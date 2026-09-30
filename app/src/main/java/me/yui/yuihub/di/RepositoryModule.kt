@@ -10,6 +10,7 @@ import me.yui.yuihub.data.repository.FolderRepository
 import me.yui.yuihub.data.repository.FilesRepository
 import me.yui.yuihub.data.repository.GenMediaRepository
 import me.yui.yuihub.data.repository.MemoryRepository
+import me.yui.yuihub.data.repository.ScheduledTaskRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.rerere.workspace.ProotShellRunner
 import me.rerere.workspace.RootfsInstaller
@@ -41,6 +42,10 @@ val repositoryModule = module {
 
     single {
         FavoriteRepository(get())
+    }
+
+    single {
+        ScheduledTaskRepository(get(), get())
     }
 
     single {

@@ -1,6 +1,7 @@
 package me.yui.yuihub.di
 
 import me.yui.yuihub.ui.pages.assistant.AssistantVM
+import me.yui.yuihub.ui.pages.automation.ScheduledTasksVM
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantDetailVM
 import me.yui.yuihub.ui.pages.backup.BackupVM
 import me.yui.yuihub.ui.pages.chat.ChatDrawerVM
@@ -36,6 +37,7 @@ val viewModelModule = module {
         )
     }
     viewModelOf(::ChatDrawerVM)
+    viewModelOf(::ScheduledTasksVM)
     viewModelOf(::SettingVM)
     viewModelOf(::DebugVM)
     viewModelOf(::AssistantVM)

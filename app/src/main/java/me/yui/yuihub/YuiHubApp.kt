@@ -35,6 +35,8 @@ import me.yui.yuihub.utils.CrashHandler
 import me.yui.yuihub.utils.DatabaseUtil
 import me.yui.yuihub.utils.EmojiData
 import me.yui.yuihub.data.repository.WorkspaceRepository
+import me.yui.yuihub.data.repository.ScheduledTaskRepository
+import me.yui.yuihub.worker.ScheduledTaskScheduler
 import me.rerere.workspace.WorkspaceManager
 import me.yui.yuihub.utils.StartupTracer
 import org.koin.android.ext.android.get
@@ -95,6 +97,9 @@ class YuiHubApp : Application() {
         // 同步常驻保活服务与设置开关
         syncKeepAwakeService()
 
+        // 重建定时任务调度（跨重启/恢复备份后校准）
+        rescheduleAutomationTasks()
+
         // Increment launch count
         incrementLaunchCount()
 
@@ -108,6 +113,21 @@ class YuiHubApp : Application() {
                 Log.i(TAG, "incrementLaunchCount: $count")
             }.onFailure {
                 Log.e(TAG, "incrementLaunchCount failed", it)
+            }
+        }
+    }
+
+    /**
+     * 重建定时任务调度：WorkManager 会跨重启保留已入队任务，但系统可能因省电策略丢弃，
+     * 且升级/恢复备份后任务表可能变化；启动时按数据库现状全量重排一次最稳。
+     */
+    private fun rescheduleAutomationTasks() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching {
+                val repository = get<ScheduledTaskRepository>()
+                ScheduledTaskScheduler.rescheduleAll(this@YuiHubApp, repository)
+            }.onFailure {
+                Log.e(TAG, "rescheduleAutomationTasks failed", it)
             }
         }
     }
