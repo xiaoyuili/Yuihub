@@ -101,7 +101,10 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
             "response.output_item.added" -> {
                 val item = payload["item"]?.jsonObject ?: return emptyList()
                 val type = item["type"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
-                val id = item["id"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
+                // function_call 的 item.id 在规范中是可选的, 只有 call_id 必填
+                val id = item["id"]?.jsonPrimitive?.contentOrNull
+                    ?: item["call_id"]?.jsonPrimitive?.contentOrNull
+                    ?: return emptyList()
                 // 登记 output_index → item id，供缺 item_id 的 delta/done 事件反查
                 payload["output_index"]?.jsonPrimitive?.intOrNull?.let { state.itemIdByOutputIndex[it] = id }
                 when (type) {
@@ -130,7 +133,9 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
             "response.output_item.done" -> {
                 val item = payload["item"]?.jsonObject ?: return emptyList()
                 val type = item["type"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
-                val id = item["id"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
+                val id = item["id"]?.jsonPrimitive?.contentOrNull
+                    ?: item["call_id"]?.jsonPrimitive?.contentOrNull
+                    ?: return emptyList()
                 when (type) {
                     "reasoning" -> {
                         val metadata = OpenAIReasoningMetadata(
@@ -162,20 +167,23 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
                 }
             }
             "response.function_call_arguments.delta" -> {
-                // 中转站可能不带 item_id（也不发 delta 事件只发 done），反查不到时跳过等 done 补齐
-                val requiredItemId = itemId ?: return emptyList()
+                // 中转站可能不带 item_id（也不发 delta 事件只发 done），反查不到时跳过等 done 补齐；
+                // 部分兼容网关只带 call_id，再回退一层
+                val toolCallId = itemId?.let { state.toolCallIdsByItemId[it] ?: it }
+                    ?: payload["call_id"]?.jsonPrimitive?.contentOrNull
+                    ?: return emptyList()
                 state.toolDelta(
-                    state.toolCallIdsByItemId[requiredItemId] ?: requiredItemId,
+                    toolCallId,
                     payload["delta"]?.jsonPrimitive?.contentOrNull ?: "",
                 )
             }
             "response.function_call_arguments.done" -> {
-                // 部分中转不发 delta 只发 done 且不带 item_id：用 output_index 反查；
-                // 仍拿不到时用当前唯一未闭合的 function_call 兕底（单工具循环场景）
-                val requiredItemId = itemId
-                    ?: state.toolCallIdsByItemId.keys.singleOrNull()
+                // 部分中转不发 delta 只发 done 且不带 item_id：用 output_index / call_id 反查；
+                // 仍拿不到时用当前唯一未闭合的 function_call 兑底（单工具循环场景）
+                val toolCallId = itemId?.let { state.toolCallIdsByItemId[it] ?: it }
+                    ?: payload["call_id"]?.jsonPrimitive?.contentOrNull
+                    ?: state.toolCallIdsByItemId.keys.singleOrNull()?.let { state.toolCallIdsByItemId[it] }
                     ?: return emptyList()
-                val toolCallId = state.toolCallIdsByItemId[requiredItemId] ?: requiredItemId
                 buildList {
                     if (toolCallId !in state.toolIdsWithInput) {
                         addAll(state.toolDelta(

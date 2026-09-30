@@ -133,15 +133,11 @@ private fun SwipeableFavoriteCard(
         initialValue = SwipeToDismissBoxValue.Settled,
     )
 
-    LaunchedEffect(dismissState.currentValue) {
-        when (dismissState.currentValue) {
-            SwipeToDismissBoxValue.EndToStart -> {
-                // Reset before removal so undo cannot restore a dismissed swipe state.
-                dismissState.reset()
-                onDelete()
-            }
-
-            else -> {}
+    // 以 settledValue 为 key：currentValue 在回弹动画中途就会翻到最近的锚点，
+    // 会重启此 effect 并在 onDelete() 执行前把它取消。
+    LaunchedEffect(dismissState.settledValue) {
+        if (dismissState.settledValue == SwipeToDismissBoxValue.EndToStart) {
+            onDelete()
         }
     }
 
