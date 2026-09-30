@@ -254,7 +254,9 @@ class RouteActivity : ComponentActivity() {
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
-        val startScreen = Screen.Chat(
+        val startScreen: NavKey = if (this@RouteActivity.intent?.data?.toString() == "yuihub://image-generation") {
+            Screen.ImageGen
+        } else Screen.Chat(
             id = this@RouteActivity.intent?.getStringExtra("conversationId")
                 ?: if (readBooleanPreference("create_new_conversation_on_start", true)) {
                     Uuid.random().toString()

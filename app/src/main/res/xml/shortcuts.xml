@@ -12,4 +12,16 @@
             android:data="yuihub://shortcut" />
         <categories android:name="android.shortcut.conversation" />
     </shortcut>
+    <shortcut
+        android:shortcutId="image_generation"
+        android:enabled="true"
+        android:icon="@drawable/ic_image_generation"
+        android:shortcutShortLabel="@string/shortcut_image_generation"
+        android:shortcutLongLabel="@string/shortcut_image_generation">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetClass="me.yui.yuihub.RouteActivity"
+            android:data="yuihub://image-generation" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
 </shortcuts>
