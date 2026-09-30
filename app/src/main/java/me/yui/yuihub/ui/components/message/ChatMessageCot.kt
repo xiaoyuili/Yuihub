@@ -2,6 +2,7 @@ package me.yui.yuihub.ui.components.message
 
 import androidx.compose.ui.util.fastForEachIndexed
 import me.rerere.ai.ui.UIMessagePart
+import me.yui.yuihub.data.ai.tools.TODO_TOOL_NAME
 
 /**
  * 思考步骤类型，用于分组 Reasoning、客户端 Tool 和 ServerTool
@@ -26,11 +27,17 @@ sealed interface ThinkingStep {
 sealed interface MessagePartBlock {
     data class ThinkingBlock(val steps: List<ThinkingStep>) : MessagePartBlock
     data class ContentBlock(val part: UIMessagePart, val index: Int) : MessagePartBlock
+
+    /** 计划（todo_write）工具调用, 在正文中以清单卡片展示 */
+    data class TodoBlock(val tool: UIMessagePart.Tool, val index: Int) : MessagePartBlock
 }
 
 /**
  * 将 parts 分组成 ThinkingBlock 和 ContentBlock
  * 连续的 Reasoning、客户端 Tool 和 ServerTool 会被分组到一个 ThinkingBlock 中
+ *
+ * 已执行的 todo_write 会从思考链中拆出, 单独作为 [MessagePartBlock.TodoBlock]
+ * 在正文位置渲染为清单卡片（与生成中的普通 ToolStep 区分）。
  */
 fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
     val result = mutableListOf<MessagePartBlock>()
@@ -50,7 +57,12 @@ fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
             }
 
             is UIMessagePart.Tool -> {
-                currentThinkingSteps.add(ThinkingStep.ToolStep(part))
+                if (part.toolName == TODO_TOOL_NAME && part.isExecuted) {
+                    flushThinkingSteps()
+                    result.add(MessagePartBlock.TodoBlock(part, index))
+                } else {
+                    currentThinkingSteps.add(ThinkingStep.ToolStep(part))
+                }
             }
 
             is UIMessagePart.ServerTool -> {

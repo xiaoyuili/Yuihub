@@ -71,6 +71,7 @@ import me.yui.yuihub.data.ai.tools.local.LocalTools
 import me.yui.yuihub.data.ai.tools.createSearchTools
 import me.yui.yuihub.data.ai.tools.createMcpManageTools
 import me.yui.yuihub.data.ai.tools.createSkillManageTools
+import me.yui.yuihub.data.ai.tools.createTodoTool
 import me.yui.yuihub.data.ai.tools.createSkillTools
 import me.yui.yuihub.data.ai.tools.createWorkspaceTools
 import me.yui.yuihub.data.ai.tools.SPAWN_AGENT_TOOL_NAME
@@ -111,6 +112,7 @@ import me.yui.yuihub.data.model.CompressionSummary
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.localFileUrls
 import me.yui.yuihub.data.model.MessageNode
+import me.yui.yuihub.data.model.SubagentPersona
 import me.yui.yuihub.data.model.replaceRegexes
 import me.yui.yuihub.data.model.toMessageNode
 import me.yui.yuihub.data.repository.ConversationRepository
@@ -429,6 +431,38 @@ class ChatService(
     }
 
     // ---- 发送消息 ----
+
+    /**
+     * 定时任务入口：在指定助手下新建会话，写入 prompt 并立即开始生成。
+     *
+     * 不复用 [sendMessage] 的队列路径：队列走的是「当前会话」的 session 与当前助手，
+     * 而定时任务需要指定助手且不依赖 UI 是否打开该会话。这里直接落库 + 复用同一会话 session。
+     *
+     * @return 新建会话的 id
+     */
+    suspend fun startScheduledConversation(
+        assistantId: Uuid,
+        title: String,
+        prompt: String,
+    ): Uuid {
+        val conversationId = Uuid.random()
+        val settings = settingsStore.settingsFlowRaw.first()
+        val assistant = settings.getAssistantById(assistantId) ?: settings.getCurrentAssistant()
+        val session = getOrCreateSession(conversationId)
+        session.mutationLock.withLock {
+            val newConversation = Conversation.ofId(
+                id = conversationId,
+                assistantId = assistant.id,
+                newConversation = true,
+            ).copy(title = title)
+                .updateCurrentMessages(assistant.presetMessages)
+            updateConversation(conversationId, newConversation)
+            conversationRepo.insertConversation(newConversation)
+        }
+        // 进入正常发送链路（会经过 autoCompress / 工具 / 通知等全部流程）
+        sendMessage(conversationId, listOf(UIMessagePart.Text(prompt)), answer = true)
+        return conversationId
+    }
 
     fun getMessageQueueFlow(conversationId: Uuid): StateFlow<MessageQueueState> =
         getOrCreateSession(conversationId).messageQueue.state
@@ -896,6 +930,7 @@ class ChatService(
         }
         addAll(createSkillManageTools(skillManager))
         addAll(createMcpManageTools(mcpManager, settingsStore))
+        add(createTodoTool())
         mcpManager.getAllAvailableTools().forEach { (serverId, serverName, tool) ->
             add(
                 Tool(
@@ -910,7 +945,9 @@ class ChatService(
             )
         }
         add(
-            createSubagentTool { description, prompt, async, timeoutMs, maxToolCalls ->
+            createSubagentTool(
+                personas = settings.subagentPersonas,
+            ) { description, prompt, async, timeoutMs, maxToolCalls, personaName ->
                 runChildAgent(
                     parentConversationId = parentConversationId,
                     settings = settings,
@@ -922,6 +959,7 @@ class ChatService(
                     async = async,
                     timeoutMs = timeoutMs,
                     maxToolCalls = maxToolCalls,
+                    personaName = personaName,
                 )
             }
         )
@@ -966,7 +1004,11 @@ class ChatService(
         async: Boolean = false,
         timeoutMs: Long? = null,
         maxToolCalls: Int? = null,
+        personaName: String? = null,
     ): String {
+        val persona = personaName?.let { name ->
+            settings.subagentPersonas.find { it.name == name }
+        }
         val childId = Uuid.random()
         if (async) {
             // 异步派发：在应用作用域起独立协程，立即返回 taskId；父代理后续 poll/cancel/followup
@@ -987,6 +1029,7 @@ class ChatService(
                         timeoutMs = timeoutMs,
                         maxToolCalls = maxToolCalls,
                         cancelSignal = subagentManager.cancelSignal(childId),
+                        persona = persona,
                     )
                 } catch (e: ChildAgentTimeoutException) {
                     // 超时的部分结果在异常里，转 TIMEOUT 终态供 poll 取回
@@ -1021,6 +1064,7 @@ class ChatService(
             useExternalWebSearch = useExternalWebSearch,
             timeoutMs = timeoutMs,
             maxToolCalls = maxToolCalls,
+            persona = persona,
         )
     }
 
@@ -1151,6 +1195,7 @@ class ChatService(
         timeoutMs: Long? = null,
         maxToolCalls: Int? = null,
         cancelSignal: CompletableDeferred<Unit>? = null,
+        persona: SubagentPersona? = null,
     ): String {
         val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId)
             ?: error("Model not found for child agent")
@@ -1186,8 +1231,27 @@ class ChatService(
             conversation = baseConversation,
             useExternalWebSearch = useExternalWebSearch,
             parentConversationId = parentConversationId,
+            persona = persona,
         )
         val startedAtMs = System.currentTimeMillis()
+        // 角色提示词追加到系统提示尾部（不依赖 allowConversationSystemPrompt 开关，子代理一定会生效）
+        val childAssistant = if (persona != null && persona.systemPrompt.isNotBlank()) {
+            assistant.copy(
+                systemPrompt = buildString {
+                    if (assistant.systemPrompt.isNotBlank()) {
+                        append(assistant.systemPrompt)
+                        append("\n\n")
+                    }
+                    append("<agent_role name=\"")
+                    append(persona.name)
+                    append("\">\n")
+                    append(persona.systemPrompt)
+                    append("\n</agent_role>")
+                }
+            )
+        } else {
+            assistant
+        }
         // P1-1 方案A: 生成前扫一次 /workspace，结束时 diff 出 shell 等非工具写入
         val workspaceSnapshotBefore = withContext(Dispatchers.IO) { snapshotWorkspaceFiles() }
         var latest: List<UIMessage> = baseConversation.currentMessages
@@ -1205,7 +1269,7 @@ class ChatService(
                     settings = settings,
                     model = model,
                     messages = baseConversation.currentMessages,
-                    assistant = assistant.copy(streamOutput = false),
+                    assistant = childAssistant.copy(streamOutput = false),
                     conversationId = childId,
                     conversationSystemPrompt = baseConversation.customSystemPrompt,
                     conversationModeInjectionIds = baseConversation.modeInjectionIds,
@@ -1499,6 +1563,7 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
         conversation: Conversation,
         useExternalWebSearch: Boolean,
         parentConversationId: Uuid,
+        persona: SubagentPersona? = null,
     ): List<Tool> =
         buildAgentTools(
             settings = settings,
@@ -1554,6 +1619,14 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                     tool.copy(systemPrompt = { _, _ -> CHILD_AGENT_PLATFORM_DECLARATION })
                 } else {
                     tool
+                }
+            }
+            // 角色白名单：只保留允许的工具（空集 = 不限制），在平台声明之后执行以免误删声明载体
+            .let { tools ->
+                if (persona == null || persona.allowedTools.isEmpty()) {
+                    tools
+                } else {
+                    tools.filter { it.name in persona.allowedTools }
                 }
             }
 
