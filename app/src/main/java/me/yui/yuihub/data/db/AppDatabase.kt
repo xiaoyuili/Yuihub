@@ -46,7 +46,7 @@ import me.yui.yuihub.utils.JsonInstant
         FolderEntity::class,
         TokenLedgerEntity::class,
     ],
-    version = 34,
+    version = 35,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -76,6 +76,8 @@ import me.yui.yuihub.utils.JsonInstant
         AutoMigration(from = 31, to = 32),
         // 33→34：补查询索引（assistant_id / folder_id / is_pinned+update_at、记忆表 assistant_id）
         AutoMigration(from = 33, to = 34),
+        // 34→35：会话表加 parent_conversation_id 列与索引（子代理子会话归属）
+        AutoMigration(from = 34, to = 35),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)

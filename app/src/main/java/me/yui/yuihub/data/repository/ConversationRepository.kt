@@ -378,6 +378,7 @@ class ConversationRepository(
             lorebookIds = JsonInstant.encodeToString(conversation.lorebookIds),
             workspaceCwd = conversation.workspaceCwd ?: "",
             folderId = conversation.folderId?.toString() ?: "",
+            parentConversationId = conversation.parentConversationId?.toString() ?: "",
         )
     }
 
@@ -398,6 +399,7 @@ class ConversationRepository(
             lorebookIds = JsonInstant.decodeFromString(conversationEntity.lorebookIds),
             workspaceCwd = conversationEntity.workspaceCwd.ifEmpty { null },
             folderId = conversationEntity.folderId.ifEmpty { null }?.let { Uuid.parse(it) },
+            parentConversationId = conversationEntity.parentConversationId.ifEmpty { null }?.let { Uuid.parse(it) },
         )
     }
 
@@ -426,6 +428,41 @@ class ConversationRepository(
         )
     }
 
+    /** 某会话的子会话（子代理），按创建时间升序 */
+    fun getSubconversationsOfParent(parentId: Uuid): Flow<List<Conversation>> {
+        return conversationDAO.getSubconversationsOfParent(parentId.toString())
+            .map { list -> list.map { conversationSummaryToConversation(it) } }
+    }
+
+    suspend fun getSubconversationsOfParentOnce(parentId: Uuid): List<Conversation> {
+        return conversationDAO.getSubconversationsOfParentOnce(parentId.toString())
+            .map { conversationSummaryToConversation(it) }
+    }
+
+    /** 各父会话的子会话数量（含 0 的不出现在结果里） */
+    fun getSubconversationCounts(): Flow<Map<Uuid, Int>> {
+        return conversationDAO.getSubconversationCounts().map { list ->
+            list.mapNotNull { row ->
+                runCatching { Uuid.parse(row.parentConversationId) }.getOrNull()
+                    ?.let { it to row.count }
+            }.toMap()
+        }
+    }
+
+    /** 助手下全部子会话（完整实体，供级联删除） */
+    suspend fun getSubconversationsOfAssistant(assistantId: Uuid): List<Conversation> {
+        return conversationDAO.getSubconversationsOfAssistantOnce(assistantId.toString())
+            .map { entity ->
+                val nodes = loadMessageNodes(entity.id)
+                conversationEntityToConversation(entity, nodes)
+            }
+    }
+
+    /** 子会话跟随父会话迁移助手 */
+    suspend fun updateSubconversationsAssistant(parentId: Uuid, assistantId: Uuid) {
+        conversationDAO.updateSubconversationsAssistant(parentId.toString(), assistantId.toString())
+    }
+
     private fun conversationSummaryToConversation(entity: LightConversationEntity): Conversation {
         return Conversation(
             id = Uuid.parse(entity.id),
@@ -436,6 +473,7 @@ class ConversationRepository(
             updateAt = Instant.ofEpochMilli(entity.updateAt),
             messageNodes = emptyList(),
             folderId = entity.folderId.ifEmpty { null }?.let { Uuid.parse(it) },
+            parentConversationId = entity.parentConversationId.ifEmpty { null }?.let { Uuid.parse(it) },
         )
     }
 
@@ -537,6 +575,7 @@ data class LightConversationEntity(
     val createAt: Long,
     val updateAt: Long,
     val folderId: String = "",
+    val parentConversationId: String = "",
 )
 
 data class ConversationPageResult(

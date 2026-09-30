@@ -10,6 +10,7 @@ import androidx.room.PrimaryKey
     indices = [
         Index("assistant_id"),
         Index("folder_id"),
+        Index("parent_conversation_id"),
         Index(value = ["is_pinned", "update_at"]),
     ]
 )
@@ -38,4 +39,6 @@ data class ConversationEntity(
     val workspaceCwd: String = "",
     @ColumnInfo("folder_id", defaultValue = "")
     val folderId: String = "",
+    @ColumnInfo("parent_conversation_id", defaultValue = "")
+    val parentConversationId: String = "",
 )

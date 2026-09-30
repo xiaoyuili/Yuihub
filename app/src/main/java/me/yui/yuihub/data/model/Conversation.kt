@@ -50,6 +50,8 @@ data class Conversation(
     val workspaceCwd: String? = null,
     // 所属文件夹（助手内分组），null 表示未归入任何文件夹
     val folderId: Uuid? = null,
+    // 父会话 id（子代理会话的归属），null 表示普通会话
+    val parentConversationId: Uuid? = null,
     @Transient
     val newConversation: Boolean = false,
     // 自动压缩产生的历史摘要（按时间序递增，最新在后）
