@@ -1273,4 +1273,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="subagent_page_delete_message">Delete role \"%1$s\"?</string>
   <string name="setting_page_subagent_roles">Subagent roles</string>
   <string name="setting_page_subagent_roles_desc">Specialist roles for delegated work</string>
+  <string name="subagent_page_tools_all_desc">Child agent may use every tool</string>
+  <string name="subagent_page_tools_selected">Selected %1$d / %2$d</string>
+  <string name="subagent_page_tools_select_all">Select all</string>
+  <string name="subagent_page_tools_clear">Clear</string>
 </resources>

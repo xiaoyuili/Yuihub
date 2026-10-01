@@ -4,29 +4,31 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -40,9 +42,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Delete01
@@ -58,11 +62,12 @@ import me.yui.yuihub.ui.components.ui.RikkaConfirmDialog
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
 import org.koin.compose.koinInject
-import kotlinx.coroutines.launch
 
 /**
  * 子代理角色页：管理 spawn_agent 可用的专家角色（提示词 + 工具白名单）。
  * 内置探索者/审查者/规划者首次启动时写入，用户可编辑或删除。
+ *
+ * 新建入口在顶栏右上角（与页面「右上角添加」的交互一致）。
  */
 @Composable
 fun SubagentPersonasPage() {
@@ -78,13 +83,16 @@ fun SubagentPersonasPage() {
             TopAppBar(
                 title = { Text(stringResource(R.string.subagent_page_title)) },
                 navigationIcon = { BackButton() },
+                actions = {
+                    IconButton(onClick = { editing = SubagentPersona() }) {
+                        Icon(
+                            imageVector = HugeIcons.Add01,
+                            contentDescription = stringResource(R.string.subagent_page_add),
+                        )
+                    }
+                },
                 colors = CustomColors.topBarColors,
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { editing = SubagentPersona() }) {
-                Icon(HugeIcons.Add01, contentDescription = stringResource(R.string.subagent_page_add))
-            }
         },
         containerColor = CustomColors.topBarColors.containerColor,
     ) { innerPadding ->
@@ -121,7 +129,12 @@ fun SubagentPersonasPage() {
                     text = stringResource(R.string.subagent_page_empty_desc),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
                 )
+                Spacer(modifier = Modifier.height(18.dp))
+                Button(onClick = { editing = SubagentPersona() }) {
+                    Text(stringResource(R.string.subagent_page_add))
+                }
             }
         } else {
             LazyColumn(
@@ -130,7 +143,7 @@ fun SubagentPersonasPage() {
                     start = 16.dp,
                     end = 16.dp,
                     top = 8.dp,
-                    bottom = 96.dp,
+                    bottom = 32.dp,
                 ),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -211,6 +224,7 @@ private fun SubagentPersonaCard(
     )
     Card(
         modifier = modifier.fillMaxWidth(),
+        onClick = onEdit,
         colors = CustomColors.cardColorsOnSurfaceContainer,
     ) {
         Column(
@@ -285,7 +299,9 @@ private fun SubagentPersonaCard(
                     stringResource(
                         R.string.subagent_page_tools_count,
                         persona.allowedTools.size,
-                        persona.allowedTools.sorted().take(3).joinToString(", ") +
+                        persona.allowedTools.sorted().take(3)
+                            .map { SubagentToolCatalog.displayName(it) }
+                            .joinToString(", ") +
                             if (persona.allowedTools.size > 3) "…" else "",
                     )
                 },
@@ -297,7 +313,10 @@ private fun SubagentPersonaCard(
 }
 
 /**
- * 角色编辑弹层：名称、提示词、工具白名单多选（不勾 = 不限制）。
+ * 角色编辑弹层：名称、提示词、工具权限。
+ *
+ * 工具权限两种模式：全部允许（不限制）与自定义白名单；自定义模式提供全选/清空快捷操作，
+ * 每个工具以中文名展示，与设置页的工具命名保持一致。
  */
 @Composable
 private fun SubagentPersonaEditSheet(
@@ -310,10 +329,12 @@ private fun SubagentPersonaEditSheet(
     var allowedTools by remember(initial.id) { mutableStateOf(initial.allowedTools) }
     var unrestricted by remember(initial.id) { mutableStateOf(initial.allowedTools.isEmpty()) }
 
-    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -343,40 +364,100 @@ private fun SubagentPersonaEditSheet(
                 modifier = Modifier.fillMaxWidth(),
             )
 
+            // ---- 工具权限 ----
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = CustomColors.cardColorsOnSurfaceContainer.containerColor,
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(
-                        text = stringResource(R.string.subagent_page_tools),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f),
-                    )
-                    FilterChip(
-                        selected = unrestricted,
-                        onClick = { unrestricted = !unrestricted },
-                        label = { Text(stringResource(R.string.subagent_page_tools_all)) },
-                    )
-                }
-                if (!unrestricted) {
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        SubagentToolCatalog.ENTRIES.forEach { (toolName, _) ->
-                            FilterChip(
-                                selected = toolName in allowedTools,
-                                onClick = {
-                                    allowedTools = if (toolName in allowedTools) {
-                                        allowedTools - toolName
-                                    } else {
-                                        allowedTools + toolName
-                                    }
-                                },
-                                label = { Text(toolName, style = MaterialTheme.typography.labelSmall) },
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.subagent_page_tools_all),
+                                style = MaterialTheme.typography.bodyMedium,
                             )
+                            Text(
+                                text = stringResource(R.string.subagent_page_tools_all_desc),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = unrestricted,
+                            onCheckedChange = { unrestricted = it },
+                        )
+                    }
+                }
+
+                if (!unrestricted) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = stringResource(
+                                R.string.subagent_page_tools_selected,
+                                allowedTools.size,
+                                SubagentToolCatalog.ENTRIES.size,
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(
+                            onClick = { allowedTools = SubagentToolCatalog.ENTRIES.map { it.first }.toSet() },
+                        ) {
+                            Text(stringResource(R.string.subagent_page_tools_select_all))
+                        }
+                        TextButton(onClick = { allowedTools = emptySet() }) {
+                            Text(stringResource(R.string.subagent_page_tools_clear))
+                        }
+                    }
+
+                    SubagentToolCatalog.ENTRIES.forEach { entry ->
+                        val toolName = entry.first
+                        val checked = toolName in allowedTools
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (checked) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                            } else {
+                                CustomColors.cardColorsOnSurfaceContainer.containerColor
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = SubagentToolCatalog.displayName(toolName),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                    Text(
+                                        text = toolName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    )
+                                }
+                                Switch(
+                                    checked = checked,
+                                    onCheckedChange = { on ->
+                                        allowedTools = if (on) allowedTools + toolName else allowedTools - toolName
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -393,7 +474,8 @@ private fun SubagentPersonaEditSheet(
                         )
                     )
                 },
-                enabled = name.isNotBlank() && systemPrompt.isNotBlank(),
+                enabled = name.isNotBlank() && systemPrompt.isNotBlank() &&
+                    (unrestricted || allowedTools.isNotEmpty()),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.automation_edit_save))

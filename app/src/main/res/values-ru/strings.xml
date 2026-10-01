@@ -1444,4 +1444,8 @@
   <string name="subagent_page_delete_message">Удалить роль «%1$s»?</string>
   <string name="setting_page_subagent_roles">Роли подагентов</string>
   <string name="setting_page_subagent_roles_desc">Специализированные роли для делегирования</string>
+  <string name="subagent_page_tools_all_desc">Подагент может использовать все инструменты</string>
+  <string name="subagent_page_tools_selected">Выбрано %1$d / %2$d</string>
+  <string name="subagent_page_tools_select_all">Выбрать все</string>
+  <string name="subagent_page_tools_clear">Очистить</string>
 </resources>

@@ -50,6 +50,10 @@ object SubagentToolCatalog {
         "calendar_create" to "创建日历事件",
         "vision_analyze" to "图像理解",
     ).sortedBy { it.first }
+
+    /** 工具名 -> 中文显示名；未知工具回退为原名 */
+    fun displayName(toolName: String): String =
+        ENTRIES.firstOrNull { it.first == toolName }?.second ?: toolName
 }
 
 /**

@@ -1444,4 +1444,8 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="subagent_page_delete_message">役割「%1$s」を削除しますか？</string>
   <string name="setting_page_subagent_roles">サブエージェントの役割</string>
   <string name="setting_page_subagent_roles_desc">委任作業に使う専門役割</string>
+  <string name="subagent_page_tools_all_desc">子エージェントはすべてのツールを使用できます</string>
+  <string name="subagent_page_tools_selected">選択済み %1$d / %2$d</string>
+  <string name="subagent_page_tools_select_all">すべて選択</string>
+  <string name="subagent_page_tools_clear">クリア</string>
 </resources>

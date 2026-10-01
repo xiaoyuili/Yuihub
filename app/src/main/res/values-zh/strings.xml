@@ -1269,4 +1269,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="subagent_page_delete_message">确定要删除角色“%1$s”吗？</string>
   <string name="setting_page_subagent_roles">子代理角色</string>
   <string name="setting_page_subagent_roles_desc">委派任务时使用的专家角色</string>
+  <string name="subagent_page_tools_all_desc">子代理可使用全部工具</string>
+  <string name="subagent_page_tools_selected">已选 %1$d / %2$d</string>
+  <string name="subagent_page_tools_select_all">全选</string>
+  <string name="subagent_page_tools_clear">清空</string>
 </resources>
