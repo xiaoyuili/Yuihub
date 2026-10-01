@@ -1281,4 +1281,6 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="chat_message_todo_count_hint">已完成 %1$d / %2$d</string>
   <string name="chat_message_todo_collapse">收起</string>
   <string name="plan_bar_expand">展开计划</string>
+  <string name="chat_message_tool_todo_update">更新计划</string>
+  <string name="chat_message_tool_todo_update_progress">更新计划 · %1$d/%2$d</string>
 </resources>

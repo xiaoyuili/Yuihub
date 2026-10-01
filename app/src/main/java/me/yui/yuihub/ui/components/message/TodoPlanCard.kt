@@ -12,10 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -58,29 +56,6 @@ fun findActivePlan(messages: List<UIMessage>): List<TodoEntry> =
 
 /** 计划条目（对外暴露给聊天页顶栏使用） */
 data class TodoEntry(val content: String, val status: String)
-
-/**
- * 计划（todo_write）卡片：在正文中展示模型的执行清单与实时进度。
- *
- * 展示的是「这一次调用时的清单」——同一轮里模型多次更新会渲染成多张卡片，
- * 形成计划演进的时间线（与消息历史一致，天然持久化）。
- */
-@Composable
-fun TodoPlanCard(
-    toolInput: String,
-    modifier: Modifier = Modifier,
-) {
-    val todos = remember(toolInput) { parseTodos(toolInput) }
-    if (todos.isEmpty()) return
-
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
-    ) {
-        TodoPlanContent(todos = todos)
-    }
-}
 
 /**
  * 计划卡片内容（列表 + 进度头）。顶栏面板与正文卡片共用，保证两处观感一致。

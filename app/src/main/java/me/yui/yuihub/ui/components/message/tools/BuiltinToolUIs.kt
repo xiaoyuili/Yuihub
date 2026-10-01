@@ -23,6 +23,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,9 +50,11 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.common.http.jsonObjectOrNull
+import me.yui.yuihub.data.ai.tools.TODO_TOOL_NAME
 import me.rerere.highlight.CodeHighlightText
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Clipboard
+import me.rerere.hugeicons.stroke.CheckList
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Eraser
 import me.rerere.hugeicons.stroke.GlobalSearch
@@ -845,3 +848,53 @@ private fun ScrapeWebPreview(content: JsonElement) {
         }
     }
 }
+
+/**
+ * 计划工具（todo_write）在思考链中的折叠步骤。
+ *
+ * 完整清单由输入栏上方的计划细条常驻展示，这里只保留一行摘要（进度 + 当前步骤），
+ * 既让用户知道模型更新过计划，又不至于把正文挤乱。
+ */
+object TodoToolUI : ToolUIRenderer {
+    override val toolName: String = TODO_TOOL_NAME
+
+    override fun icon(context: ToolUIContext): ImageVector = HugeIcons.CheckList
+
+    @Composable
+    override fun title(context: ToolUIContext): String {
+        val todos = remember(context.arguments) { parseTodoArguments(context.arguments) }
+        val completed = todos.count { it.second == "completed" }
+        return if (todos.isEmpty()) {
+            stringResource(R.string.chat_message_tool_todo_update)
+        } else {
+            stringResource(R.string.chat_message_tool_todo_update_progress, completed, todos.size)
+        }
+    }
+
+    override fun hasSummary(context: ToolUIContext): Boolean =
+        parseTodoArguments(context.arguments).any { it.second == "in_progress" }
+
+    @Composable
+    override fun Summary(context: ToolUIContext) {
+        val current = remember(context.arguments) { parseTodoArguments(context.arguments) }
+            .firstOrNull { it.second == "in_progress" } ?: return
+        Text(
+            text = current.first,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** 从工具入参里解析 (内容, 状态) 列表；格式异常时返回空列表 */
+private fun parseTodoArguments(arguments: JsonElement): List<Pair<String, String>> = runCatching {
+    val array = arguments.jsonObjectOrNull?.get("todos")?.jsonArray ?: return@runCatching emptyList()
+    array.mapNotNull { element ->
+        val obj = element.jsonObjectOrNull ?: return@mapNotNull null
+        val content = obj["content"]?.jsonPrimitiveOrNull?.contentOrNull ?: return@mapNotNull null
+        val status = obj["status"]?.jsonPrimitiveOrNull?.contentOrNull ?: "pending"
+        content to status
+    }
+}.getOrDefault(emptyList())

@@ -1456,4 +1456,6 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="chat_message_todo_count_hint">%2$d 중 %1$d 완료</string>
   <string name="chat_message_todo_collapse">접기</string>
   <string name="plan_bar_expand">계획 펼치기</string>
+  <string name="chat_message_tool_todo_update">계획 업데이트</string>
+  <string name="chat_message_tool_todo_update_progress">계획 업데이트 · %1$d/%2$d</string>
 </resources>

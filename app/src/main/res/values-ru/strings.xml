@@ -1456,4 +1456,6 @@
   <string name="chat_message_todo_count_hint">Выполнено %1$d из %2$d</string>
   <string name="chat_message_todo_collapse">Свернуть</string>
   <string name="plan_bar_expand">Развернуть план</string>
+  <string name="chat_message_tool_todo_update">Обновление плана</string>
+  <string name="chat_message_tool_todo_update_progress">Обновление плана · %1$d/%2$d</string>
 </resources>

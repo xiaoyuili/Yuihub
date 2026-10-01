@@ -364,13 +364,6 @@ private fun MessagePartsBlock(
                 }
             }
 
-            is MessagePartBlock.TodoBlock -> key(block.index) {
-                TodoPlanCard(
-                    toolInput = block.tool.input,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
             is MessagePartBlock.ContentBlock -> key(block.index) {
                 when (val part = block.part) {
                     is UIMessagePart.Text -> {

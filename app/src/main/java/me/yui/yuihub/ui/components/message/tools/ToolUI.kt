@@ -100,6 +100,7 @@ object ToolUIRegistry {
         GetScreenTimeToolUI,
         CalendarQueryToolUI,
         CalendarCreateToolUI,
+        TodoToolUI,
         UseSkillToolUI,
         SpawnAgentToolUI,
         VisionToolUI,
