@@ -678,6 +678,14 @@
   <string name="setting_model_page_title">Model Settings</string>
   <string name="setting_model_page_title_model">Title Model</string>
   <string name="setting_model_page_title_model_desc">Model used to generate conversation titles. If not set, uses the conversation model</string>
+  <string name="setting_model_page_catalog_title">Model Info Recognition</string>
+  <string name="setting_model_page_catalog_enable">Auto-detect model info</string>
+  <string name="setting_model_page_catalog_enable_desc">Fill in context length, vision and tool support automatically when adding models, using the models.dev database</string>
+  <string name="setting_model_page_catalog_never_synced">Not synced yet</string>
+  <string name="setting_model_page_catalog_last_sync">Last sync: %1$s · %2$d models</string>
+  <string name="setting_model_page_catalog_sync_desc">Model data comes from models.dev and refreshes automatically every 7 days; falls back to downloaded data when offline</string>
+  <string name="setting_model_page_catalog_sync_failed">Sync failed, still using local data</string>
+  <string name="setting_model_page_catalog_sync_now">Sync now</string>
   <string name="setting_model_page_default_chat_model">Default chat model</string>
   <string name="setting_page_about">About</string>
   <string name="setting_page_about_desc">About this app</string>

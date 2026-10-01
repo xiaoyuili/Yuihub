@@ -38,6 +38,7 @@ import me.yui.yuihub.data.network.SettingsSocks5Authenticator
 import me.yui.yuihub.AppScope
 import me.yui.yuihub.data.ai.memory.MemoryConsolidator
 import me.yui.yuihub.data.ai.memory.MemoryExtractor
+import me.yui.yuihub.data.model.ModelCatalogService
 import me.yui.yuihub.data.sync.LocalBackupService
 import me.yui.yuihub.data.sync.RikkaHubImporter
 import me.yui.yuihub.data.update.UpdateChecker
@@ -56,6 +57,10 @@ val dataSourceModule = module {
 
     single {
         UpdateChecker(okHttpClient = get(), json = get())
+    }
+
+    single {
+        ModelCatalogService(context = get(), client = get(), json = get())
     }
 
     single {

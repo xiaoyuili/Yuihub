@@ -11,19 +11,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.launch
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelType
@@ -34,6 +41,7 @@ import me.rerere.hugeicons.stroke.AiEditing
 import me.rerere.hugeicons.stroke.ArrowRight01
 import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.Settings
+import me.yui.yuihub.data.model.ModelCatalogService
 import me.yui.yuihub.ui.components.ai.ModelListSheet
 import me.yui.yuihub.ui.components.ai.ReasoningButton
 import me.yui.yuihub.ui.components.ai.rememberModelListState
@@ -44,7 +52,10 @@ import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
 import me.yui.yuihub.ui.components.ui.CardGroup
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
+import me.yui.yuihub.utils.toLocalDateTime
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
+import java.time.Instant
 import kotlin.uuid.Uuid
 
 @Composable
@@ -121,6 +132,88 @@ private fun ModelSettingsPage(settings: Settings, vm: SettingVM, contentPadding:
                 providers = settings.providers,
                 onSelect = { vm.updateSettings(settings.copy(visionModelId = it.id)) },
             )
+        }
+        item {
+            ModelCatalogSettingItem(settings = settings, vm = vm)
+        }
+    }
+}
+
+/** 模型信息自动识别：models.dev 目录开关与同步状态 */
+@Composable
+private fun ModelCatalogSettingItem(settings: Settings, vm: SettingVM) {
+    val catalog = koinInject<ModelCatalogService>()
+    val lastSyncTime by catalog.lastSyncTime.collectAsStateWithLifecycle()
+    val entryCount by catalog.entryCount.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var syncing by remember { mutableStateOf(false) }
+    var syncFailed by remember { mutableStateOf(false) }
+
+    Column {
+        CardGroup(title = { Text(stringResource(R.string.setting_model_page_catalog_title)) }) {
+            item(
+                trailingContent = {
+                    Switch(
+                        checked = settings.modelCatalogEnabled,
+                        onCheckedChange = { enabled ->
+                            vm.updateSettings(settings.copy(modelCatalogEnabled = enabled))
+                            if (enabled) {
+                                // 启动时关闭的话当时没加载，开启后立即加载一次
+                                scope.launch { catalog.ensureLoaded() }
+                            }
+                        },
+                    )
+                },
+                headlineContent = { Text(stringResource(R.string.setting_model_page_catalog_enable)) },
+                supportingContent = { Text(stringResource(R.string.setting_model_page_catalog_enable_desc)) },
+            )
+
+            if (settings.modelCatalogEnabled) {
+                item(
+                    headlineContent = {
+                        Text(
+                            if (lastSyncTime == 0L) {
+                                stringResource(R.string.setting_model_page_catalog_never_synced)
+                            } else {
+                                stringResource(
+                                    R.string.setting_model_page_catalog_last_sync,
+                                    Instant.ofEpochMilli(lastSyncTime).toLocalDateTime(),
+                                    entryCount,
+                                )
+                            }
+                        )
+                    },
+                    supportingContent = {
+                        Text(
+                            if (syncFailed) {
+                                stringResource(R.string.setting_model_page_catalog_sync_failed)
+                            } else {
+                                stringResource(R.string.setting_model_page_catalog_sync_desc)
+                            }
+                        )
+                    },
+                )
+
+                item(
+                    onClick = {
+                        if (!syncing) {
+                            syncing = true
+                            syncFailed = false
+                            scope.launch {
+                                val ok = catalog.syncNow()
+                                syncing = false
+                                syncFailed = !ok
+                            }
+                        }
+                    },
+                    headlineContent = { Text(stringResource(R.string.setting_model_page_catalog_sync_now)) },
+                    trailingContent = {
+                        if (syncing) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        }
+                    },
+                )
+            }
         }
     }
 }

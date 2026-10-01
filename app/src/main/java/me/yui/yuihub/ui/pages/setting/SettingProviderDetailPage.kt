@@ -114,9 +114,11 @@ import me.rerere.ai.provider.ModelType
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
-import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.UIMessage
 import me.yui.yuihub.R
+import me.yui.yuihub.data.model.ModelCatalogService
+import me.yui.yuihub.data.model.fillModelMetadata
+import me.yui.yuihub.data.model.withRegistryInfo
 import me.yui.yuihub.ui.components.ai.ModelAbilityTag
 import me.yui.yuihub.ui.components.ai.ModelModalityTag
 import me.yui.yuihub.ui.components.ai.ModelSelector
@@ -163,6 +165,11 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     val pager = rememberPagerState { 2 }
     val toaster = LocalToaster.current
     val context = LocalContext.current
+    val catalog = koinInject<ModelCatalogService>()
+    // 填充模型元数据：models.dev 优先，未命中回退内置注册表
+    val fillMetadata: (Model) -> Model = { model ->
+        fillModelMetadata(model, provider, catalog, settings.modelCatalogEnabled)
+    }
 
     val onEdit = { newProvider: ProviderSetting ->
         val newSettings = settings.copy(
@@ -236,7 +243,8 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                 1 -> {
                     SettingProviderModelPage(
                         provider = provider,
-                        onEdit = onEdit
+                        onEdit = onEdit,
+                        fillMetadata = fillMetadata,
                     )
                 }
             }
@@ -377,18 +385,21 @@ private fun SettingProviderConfigPage(
 @Composable
 private fun SettingProviderModelPage(
     provider: ProviderSetting,
-    onEdit: (ProviderSetting) -> Unit
+    onEdit: (ProviderSetting) -> Unit,
+    fillMetadata: (Model) -> Model,
 ) {
     ModelList(
         providerSetting = provider,
-        onUpdateProvider = onEdit
+        onUpdateProvider = onEdit,
+        fillMetadata = fillMetadata,
     )
 }
 
 @Composable
 private fun ModelList(
     providerSetting: ProviderSetting,
-    onUpdateProvider: (ProviderSetting) -> Unit
+    onUpdateProvider: (ProviderSetting) -> Unit,
+    fillMetadata: (Model) -> Model,
 ) {
     val providerManager = koinInject<ProviderManager>()
     val modelList by produceState(emptyList(), providerSetting) {
@@ -492,7 +503,8 @@ private fun ModelList(
                 },
                 expanded = expanded,
                 parentProvider = providerSetting,
-                onUpdateProvider = onUpdateProvider
+                onUpdateProvider = onUpdateProvider,
+                fillMetadata = fillMetadata,
             )
         }
     }
@@ -503,24 +515,15 @@ private fun ModelSettingsForm(
     model: Model,
     onModelChange: (Model) -> Unit,
     isEdit: Boolean,
-    parentProvider: ProviderSetting? = null
+    parentProvider: ProviderSetting? = null,
+    fillMetadata: (Model) -> Model = { it.withRegistryInfo() },
 ) {
     val pagerState = rememberPagerState { 3 }
     val scope = rememberCoroutineScope()
 
     fun setModelId(id: String) {
-        val inputModality = ModelRegistry.MODEL_INPUT_MODALITIES.getData(id)
-        val outputModality = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(id)
-        val abilities = ModelRegistry.MODEL_ABILITIES.getData(id)
-        onModelChange(
-            model.copy(
-                modelId = id,
-                displayName = id,
-                inputModalities = inputModality,
-                outputModalities = outputModality,
-                abilities = abilities
-            )
-        )
+        // 输入模型 ID 时自动填充元数据（models.dev 优先，回退内置注册表）
+        onModelChange(fillMetadata(model.copy(modelId = id, displayName = id)))
     }
 
     Column {
@@ -694,7 +697,8 @@ private fun AddModelButton(
     onAddModel: (Model) -> Unit,
     onRemoveModel: (Model) -> Unit,
     parentProvider: ProviderSetting,
-    onUpdateProvider: (ProviderSetting) -> Unit
+    onUpdateProvider: (ProviderSetting) -> Unit,
+    fillMetadata: (Model) -> Model,
 ) {
     val dialogState = useEditState<Model> { onAddModel(it.copy(displayName = it.displayName.trim())) }
     val scope = rememberCoroutineScope()
@@ -707,18 +711,7 @@ private fun AddModelButton(
             models = models,
             selectedModels = selectedModels,
             onModelSelected = { model ->
-                val inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId)
-                val outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId)
-                val abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId)
-                val contextLength = ModelRegistry.MODEL_CONTEXT_LENGTH.getData(model.modelId)
-                onAddModel(
-                    model.copy(
-                        inputModalities = inputModalities,
-                        outputModalities = outputModalities,
-                        abilities = abilities,
-                        contextLength = contextLength,
-                    )
-                )
+                onAddModel(fillMetadata(model))
             },
             onModelDeselected = { model ->
                 onRemoveModel(model)
@@ -729,11 +722,7 @@ private fun AddModelButton(
                         models = parentProvider.models + it.filter { model ->
                             parentProvider.models.none { existing -> existing.modelId == model.modelId }
                         }.map { model ->
-                            model.copy(
-                                inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(model.modelId),
-                                outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(model.modelId),
-                                abilities = ModelRegistry.MODEL_ABILITIES.getData(model.modelId)
-                            )
+                            fillMetadata(model)
                         }
                     )
                 )
@@ -746,7 +735,8 @@ private fun AddModelButton(
                         }
                     )
                 )
-            }
+            },
+            fillMetadata = fillMetadata,
         )
 
         Button(
@@ -818,7 +808,8 @@ private fun AddModelButton(
                             model = modelState,
                             onModelChange = { dialogState.currentState = it },
                             isEdit = false,
-                            parentProvider = parentProvider
+                            parentProvider = parentProvider,
+                            fillMetadata = fillMetadata,
                         )
                     }
 
@@ -856,7 +847,8 @@ private fun ModelPicker(
     onModelSelected: (Model) -> Unit,
     onModelDeselected: (Model) -> Unit,
     onAllModelSelected: (List<Model>) -> Unit,
-    onAllModelDeselected: (List<Model>) -> Unit
+    onAllModelDeselected: (List<Model>) -> Unit,
+    fillMetadata: (Model) -> Model,
 ) {
     var showModal by remember { mutableStateOf(false) }
     if (showModal) {
@@ -956,12 +948,8 @@ private fun ModelPicker(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
-                                        val modelMeta = remember(it) {
-                                            it.copy(
-                                                inputModalities = ModelRegistry.MODEL_INPUT_MODALITIES.getData(it.modelId),
-                                                outputModalities = ModelRegistry.MODEL_OUTPUT_MODALITIES.getData(it.modelId),
-                                                abilities = ModelRegistry.MODEL_ABILITIES.getData(it.modelId),
-                                            )
+                                        val modelMeta = remember(it, fillMetadata) {
+                                            fillMetadata(it)
                                         }
                                         ModelModalityTag(
                                             model = modelMeta,

@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import me.yui.yuihub.data.files.FileFolders
+import me.yui.yuihub.data.model.ModelCatalogService
 import java.io.File
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -116,6 +117,9 @@ class YuiHubApp : Application() {
         // 重建自动备份调度
         rescheduleAutoBackup()
 
+        // 预热模型目录（models.dev），供添加模型时自动填充元数据
+        preloadModelCatalog()
+
         // Increment launch count
         incrementLaunchCount()
 
@@ -155,6 +159,22 @@ class YuiHubApp : Application() {
                 AutoBackupScheduler.enqueueNext(this@YuiHubApp, get<SettingsStore>())
             }.onFailure {
                 Log.e(TAG, "rescheduleAutoBackup failed", it)
+            }
+        }
+    }
+
+    /**
+     * 预热模型目录：先读本地缓存（若有），再按需联网刷新。
+     * 开关关闭时完全不联网；全程静默，失败（离线/超时）不影响启动。
+     */
+    private fun preloadModelCatalog() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching {
+                if (get<SettingsStore>().settingsFlow.value.modelCatalogEnabled) {
+                    get<ModelCatalogService>().ensureLoaded()
+                }
+            }.onFailure {
+                Log.e(TAG, "preloadModelCatalog failed", it)
             }
         }
     }

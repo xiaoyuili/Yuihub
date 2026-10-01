@@ -768,6 +768,14 @@
   <string name="setting_model_page_title">モデル設定</string>
   <string name="setting_model_page_title_model">タイトル要約モデル</string>
   <string name="setting_model_page_title_model_desc">会話タイトルを要約するモデル。設定されていない場合は高速モデルを使用します</string>
+  <string name="setting_model_page_catalog_title">モデル情報の認識</string>
+  <string name="setting_model_page_catalog_enable">モデル情報を自動認識</string>
+  <string name="setting_model_page_catalog_enable_desc">モデル追加時に models.dev データベースからコンテキスト長・vision・ツール対応などの情報を自動入力します</string>
+  <string name="setting_model_page_catalog_never_synced">未同期</string>
+  <string name="setting_model_page_catalog_last_sync">前回の同期: %1$s · %2$d モデル</string>
+  <string name="setting_model_page_catalog_sync_desc">モデルデータは models.dev から取得し、7日ごとに自動更新されます。オフライン時はダウンロード済みのデータを使用します</string>
+  <string name="setting_model_page_catalog_sync_failed">同期に失敗しました。ローカルデータを使用します</string>
+  <string name="setting_model_page_catalog_sync_now">今すぐ同期</string>
   <string name="setting_model_page_translate_model">翻訳モデル</string>
   <string name="setting_model_page_translate_model_desc">翻訳機能に使用されるモデル</string>
   <string name="setting_model_page_translate_prompt_vars">変数: 原文テキスト: {source_text}, 対象言語: {target_lang}</string>

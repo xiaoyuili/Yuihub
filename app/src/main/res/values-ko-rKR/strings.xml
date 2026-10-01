@@ -768,6 +768,14 @@
   <string name="setting_model_page_title">모델 설정</string>
   <string name="setting_model_page_title_model">제목 요약 모델</string>
   <string name="setting_model_page_title_model_desc">대화 제목을 요약하는 모델. 설정되지 않으면 빠른 모델을 사용합니다</string>
+  <string name="setting_model_page_catalog_title">모델 정보 인식</string>
+  <string name="setting_model_page_catalog_enable">모델 정보 자동 인식</string>
+  <string name="setting_model_page_catalog_enable_desc">모델 추가 시 models.dev 데이터베이스를 기반으로 컨텍스트 길이, 비전, 도구 지원 등을 자동으로 입력합니다</string>
+  <string name="setting_model_page_catalog_never_synced">아직 동기화되지 않음</string>
+  <string name="setting_model_page_catalog_last_sync">마지막 동기화: %1$s · %2$d개 모델</string>
+  <string name="setting_model_page_catalog_sync_desc">모델 데이터는 models.dev에서 제공되며 7일마다 자동 갱신됩니다. 오프라인 시 다운로드된 데이터를 사용합니다</string>
+  <string name="setting_model_page_catalog_sync_failed">동기화 실패, 로컬 데이터를 사용 중</string>
+  <string name="setting_model_page_catalog_sync_now">지금 동기화</string>
   <string name="setting_model_page_translate_model">번역 모델</string>
   <string name="setting_model_page_translate_model_desc">번역 기능에 사용되는 모델</string>
   <string name="setting_model_page_translate_prompt_vars">변수: 원문: {source_text}, 대상 언어: {target_lang}</string>

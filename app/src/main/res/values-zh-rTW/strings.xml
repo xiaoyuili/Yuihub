@@ -768,6 +768,14 @@
   <string name="setting_model_page_title">模型設定</string>
   <string name="setting_model_page_title_model">標題摘要模型</string>
   <string name="setting_model_page_title_model_desc">用於總結對話標題的模型。未設置時使用快速模型</string>
+  <string name="setting_model_page_catalog_title">模型資訊識別</string>
+  <string name="setting_model_page_catalog_enable">自動識別模型資訊</string>
+  <string name="setting_model_page_catalog_enable_desc">新增模型時根據 models.dev 資料庫自動填寫上下文長度、視覺與工具支援等能力</string>
+  <string name="setting_model_page_catalog_never_synced">尚未同步</string>
+  <string name="setting_model_page_catalog_last_sync">上次同步：%1$s · 共 %2$d 個模型</string>
+  <string name="setting_model_page_catalog_sync_desc">模型資料來自 models.dev，每 7 天自動重新整理；離線時使用已下載的資料</string>
+  <string name="setting_model_page_catalog_sync_failed">同步失敗，仍在使用本機資料</string>
+  <string name="setting_model_page_catalog_sync_now">立即同步</string>
   <string name="setting_model_page_translate_model">翻譯模型</string>
   <string name="setting_model_page_translate_model_desc">用於翻譯功能的模型</string>
   <string name="setting_model_page_translate_prompt_vars">變數: 原始文字: {source_text}, 目標語言: {target_lang}</string>

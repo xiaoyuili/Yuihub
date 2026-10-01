@@ -151,6 +151,9 @@ class SettingsStore(
         // 备份提醒
         val BACKUP_REMINDER_CONFIG = stringPreferencesKey("backup_reminder_config")
 
+        // 模型信息自动识别（models.dev）
+        val MODEL_CATALOG_ENABLED = booleanPreferencesKey("model_catalog_enabled")
+
         // 统计
         val LAUNCH_COUNT = intPreferencesKey("launch_count")
     }
@@ -243,6 +246,7 @@ class SettingsStore(
                 backupReminderConfig = preferences[BACKUP_REMINDER_CONFIG]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: BackupReminderConfig(),
+                modelCatalogEnabled = preferences[MODEL_CATALOG_ENABLED] != false,
                 launchCount = preferences[LAUNCH_COUNT] ?: 0,
             )
         }
@@ -373,6 +377,7 @@ class SettingsStore(
             preferences[LOREBOOKS] = JsonInstant.encodeToString(settings.lorebooks)
             preferences[KEEP_AWAKE_ENABLED] = settings.keepAwakeEnabled
             preferences[BACKUP_REMINDER_CONFIG] = JsonInstant.encodeToString(settings.backupReminderConfig)
+            preferences[MODEL_CATALOG_ENABLED] = settings.modelCatalogEnabled
             preferences[LAUNCH_COUNT] = settings.launchCount
         }
     }
@@ -492,6 +497,8 @@ data class Settings(
     val lorebooks: List<Lorebook> = emptyList(),
     val keepAwakeEnabled: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
+    // models.dev 自动识别新添加模型的上下文/模态/能力，默认开启
+    val modelCatalogEnabled: Boolean = true,
     val launchCount: Int = 0,
 ) {
     companion object {

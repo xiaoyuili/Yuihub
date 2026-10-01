@@ -667,6 +667,14 @@
   <string name="setting_model_page_title">模型设置</string>
   <string name="setting_model_page_title_model">标题模型</string>
   <string name="setting_model_page_title_model_desc">用于生成对话标题的模型。未设置时使用对话模型</string>
+  <string name="setting_model_page_catalog_title">模型信息识别</string>
+  <string name="setting_model_page_catalog_enable">自动识别模型信息</string>
+  <string name="setting_model_page_catalog_enable_desc">添加模型时根据 models.dev 数据库自动填写上下文长度、视觉与工具支持等能力</string>
+  <string name="setting_model_page_catalog_never_synced">尚未同步</string>
+  <string name="setting_model_page_catalog_last_sync">上次同步：%1$s · 共 %2$d 个模型</string>
+  <string name="setting_model_page_catalog_sync_desc">模型数据来自 models.dev，每 7 天自动刷新；离线时使用已下载的数据</string>
+  <string name="setting_model_page_catalog_sync_failed">同步失败，仍在用本地数据</string>
+  <string name="setting_model_page_catalog_sync_now">立即同步</string>
   <string name="setting_model_page_default_chat_model">默认对话模型</string>
   <string name="setting_page_about">关于</string>
   <string name="setting_page_about_desc">关于本APP</string>

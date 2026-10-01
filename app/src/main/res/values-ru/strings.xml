@@ -768,6 +768,14 @@
   <string name="setting_model_page_title">Настройки модели</string>
   <string name="setting_model_page_title_model">Модель сводки заголовков</string>
   <string name="setting_model_page_title_model_desc">Модель для генерации заголовков бесед. Если не задана, используется быстрая модель</string>
+  <string name="setting_model_page_catalog_title">Распознавание информации о моделях</string>
+  <string name="setting_model_page_catalog_enable">Автоопределение информации о модели</string>
+  <string name="setting_model_page_catalog_enable_desc">Автоматически заполнять длину контекста, поддержку зрения и инструментов при добавлении моделей на основе базы models.dev</string>
+  <string name="setting_model_page_catalog_never_synced">Ещё не синхронизировано</string>
+  <string name="setting_model_page_catalog_last_sync">Последняя синхронизация: %1$s · %2$d моделей</string>
+  <string name="setting_model_page_catalog_sync_desc">Данные моделей берутся с models.dev и обновляются каждые 7 дней; офлайн используется загруженная копия</string>
+  <string name="setting_model_page_catalog_sync_failed">Синхронизация не удалась, используются локальные данные</string>
+  <string name="setting_model_page_catalog_sync_now">Синхронизировать сейчас</string>
   <string name="setting_model_page_translate_model">Модель перевода</string>
   <string name="setting_model_page_translate_model_desc">Модель, используемая для функций перевода</string>
   <string name="setting_model_page_translate_prompt_vars">Переменные: Исходный текст: {source_text}, Целевой язык: {target_lang}</string>
