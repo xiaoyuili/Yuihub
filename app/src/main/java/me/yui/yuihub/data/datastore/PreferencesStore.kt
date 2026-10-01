@@ -564,6 +564,12 @@ data class BackupReminderConfig(
     val enabled: Boolean = false,
     val intervalDays: Int = 7,
     val lastBackupTime: Long = 0L,
+    // 自动备份：按间隔在后台自动生成备份文件（保留最新一份，旧的自动备份会被删除）
+    val autoBackupEnabled: Boolean = false,
+    val autoBackupIntervalDays: Int = 7,
+    val autoBackupLastTime: Long = 0L,
+    // 最近一次自动备份的文件名，用于下次清理（只删自己的上一份，不动手动备份）
+    val autoBackupLastFileName: String = "",
 )
 
 fun Settings.isNotConfigured() = providers.all { it.models.isEmpty() }

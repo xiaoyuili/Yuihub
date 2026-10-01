@@ -58,7 +58,14 @@ val viewModelModule = module {
             settingsStore = get(),
         )
     }
-    viewModelOf(::BackupVM)
+    viewModel<BackupVM> {
+        BackupVM(
+            appContext = get(),
+            settingsStore = get(),
+            localBackup = get(),
+            rikkaHubImporter = get(),
+        )
+    }
     viewModelOf(::ImgGenVM)
     viewModelOf(::PromptVM)
     viewModelOf(::LorebookVM)

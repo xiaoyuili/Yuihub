@@ -225,16 +225,25 @@ class LocalBackupService(
                     }
                 }
 
-                // 暂存的库：先回放 WAL（老格式备份才带），再校验，通过后才安装。
+                // 暂存的库：先回放 WAL（老格式备份才带），再校验，通过后登记为待安装。
                 // 顺序很重要：只读打开带 WAL 的库读不到 WAL 里的最新页，
                 // 先校验会验到一份过时快照，且可能因缺 -shm 而打不开。
                 if (stagedDatabase != null) {
                     checkpointStagedWal(stagedDatabase)
                     validateStagedDatabase(stagedDatabase)
+                    // 先把暂存库落到**持久目录**并标记：万一安装阶段被杀，
+                    // 下次启动能补完（见 PendingRestoreStore.applyIfPending）。
+                    // 否则用户面对的是半途而废的数据库。
+                    val staged = PendingRestoreStore.stage(context.filesDir, stagedDatabase)
+                    if (!staged) {
+                        throw Exception("Could not stage the restored database")
+                    }
                     installStagedDatabase(stagedDatabase)
+                    // 安装成功，清除待办标记
+                    PendingRestoreStore.clear(context.filesDir)
                 }
             } finally {
-                // 暂存残留一律清理，避免污染下次恢复
+                // cache 里的解包暂存一律清理；持久目录的待办由 applyIfPending 负责
                 listOf(DATABASE_NAME, "$DATABASE_NAME-wal", "$DATABASE_NAME-shm").forEach { name ->
                     File(context.cacheDir, "restore_staged_$name").delete()
                 }

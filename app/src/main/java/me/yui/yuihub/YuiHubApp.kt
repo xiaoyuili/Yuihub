@@ -36,6 +36,8 @@ import me.yui.yuihub.utils.DatabaseUtil
 import me.yui.yuihub.utils.EmojiData
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.data.repository.ScheduledTaskRepository
+import me.yui.yuihub.data.sync.PendingRestoreStore
+import me.yui.yuihub.worker.AutoBackupScheduler
 import me.yui.yuihub.worker.ScheduledTaskScheduler
 import me.rerere.workspace.WorkspaceManager
 import me.yui.yuihub.utils.StartupTracer
@@ -58,6 +60,14 @@ class YuiHubApp : Application() {
     override fun onCreate() {
         super.onCreate()
         StartupTracer.begin()
+
+        // 补完上次被中断的数据库恢复。必须在 startKoin 之前：
+        // 一旦 Koin 建起 AppDatabase，它就会持有旧文件，此时再替换会引发不确定状态。
+        PendingRestoreStore.applyIfPending(
+            filesDir = filesDir,
+            databaseFile = getDatabasePath("rikka_hub"),
+        )
+
         startKoin {
             // Koin 解析日志全量输出会拖慢冷启动; 出问题时改回 androidLogger() 排查
             androidLogger(level = org.koin.core.logger.Level.ERROR)
@@ -103,6 +113,9 @@ class YuiHubApp : Application() {
         // 重建定时任务调度（跨重启/恢复备份后校准）
         rescheduleAutomationTasks()
 
+        // 重建自动备份调度
+        rescheduleAutoBackup()
+
         // Increment launch count
         incrementLaunchCount()
 
@@ -131,6 +144,17 @@ class YuiHubApp : Application() {
                 ScheduledTaskScheduler.rescheduleAll(this@YuiHubApp, repository)
             }.onFailure {
                 Log.e(TAG, "rescheduleAutomationTasks failed", it)
+            }
+        }
+    }
+
+    /** 重建自动备份调度（开关/间隔变更与重启后校准） */
+    private fun rescheduleAutoBackup() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching {
+                AutoBackupScheduler.enqueueNext(this@YuiHubApp, get<SettingsStore>())
+            }.onFailure {
+                Log.e(TAG, "rescheduleAutoBackup failed", it)
             }
         }
     }

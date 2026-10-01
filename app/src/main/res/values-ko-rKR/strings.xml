@@ -1462,4 +1462,13 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="backup_page_rikkahub_import_desc">업스트림 RikkaHub 백업에서 대화, 설정, 파일을 읽어옵니다</string>
   <string name="backup_page_rikkahub_import_confirm">백업의 데이터가 현재 데이터에 병합됩니다. 계속할까요?</string>
   <string name="backup_page_rikkahub_import_success">RikkaHub에서 %1$d개 레코드를 가져왔습니다</string>
+  <string name="backup_page_auto_backup">자동 백업</string>
+  <string name="backup_page_auto_backup_enable">자동 백업 사용</string>
+  <string name="backup_page_auto_backup_desc">선택한 간격으로 백업을 자동 생성합니다.</string>
+  <string name="backup_page_auto_backup_interval">자동 백업 간격</string>
+  <string name="backup_page_auto_backup_never">자동 백업 없음</string>
+  <string name="backup_page_auto_backup_last_time">최근 자동 백업: %1$s</string>
+  <string name="backup_page_auto_backup_retain_note">최신 자동 백업만 보관되며, 새 백업 생성 후 이전 자동 백업은 삭제됩니다. 수동 내보내기는 영향을 받지 않습니다.</string>
+  <string name="backup_page_auto_backup_scope">백업 범위</string>
+  <string name="backup_page_auto_backup_scope_note">대화 기록, 설정, 파일(업로드, 스킬, 글꼴, 도구 출력, 생성 이미지). 워크스페이스(rootfs 및 /workspace)는 백업되지 않으므로 필요하면 별도로 백업하세요.</string>
 </resources>

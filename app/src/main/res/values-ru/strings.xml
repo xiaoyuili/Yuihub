@@ -1462,4 +1462,13 @@
   <string name="backup_page_rikkahub_import_desc">Импорт чатов, настроек и файлов из резервной копии RikkaHub</string>
   <string name="backup_page_rikkahub_import_confirm">Данные из копии будут добавлены к текущим. Продолжить?</string>
   <string name="backup_page_rikkahub_import_success">Импортировано записей: %1$d</string>
+  <string name="backup_page_auto_backup">Автоматическое резервное копирование</string>
+  <string name="backup_page_auto_backup_enable">Включить авторезервное копирование</string>
+  <string name="backup_page_auto_backup_desc">Автоматически создавать резервную копию с выбранной периодичностью.</string>
+  <string name="backup_page_auto_backup_interval">Интервал авторезервного копирования</string>
+  <string name="backup_page_auto_backup_never">Автоматических копий пока нет</string>
+  <string name="backup_page_auto_backup_last_time">Последняя авторезервная копия: %1$s</string>
+  <string name="backup_page_auto_backup_retain_note">Хранится только последняя автокопия: после создания новой предыдущая удаляется. Ручные экспорты не затрагиваются.</string>
+  <string name="backup_page_auto_backup_scope">Что сохраняется</string>
+  <string name="backup_page_auto_backup_scope_note">История чатов, настройки и файлы (загрузки, навыки, шрифты, вывод инструментов, сгенерированные изображения). Рабочая область (rootfs и /workspace) НЕ сохраняется — сделайте отдельную копию.</string>
 </resources>

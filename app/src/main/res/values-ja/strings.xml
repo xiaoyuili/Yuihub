@@ -1462,4 +1462,13 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="backup_page_rikkahub_import_desc">上流 RikkaHub のバックアップからチャット・設定・ファイルを読み込みます</string>
   <string name="backup_page_rikkahub_import_confirm">バックアップのデータは現在のデータにマージされます。続行しますか？</string>
   <string name="backup_page_rikkahub_import_success">RikkaHub から %1$d 件のレコードをインポートしました</string>
+  <string name="backup_page_auto_backup">自動バックアップ</string>
+  <string name="backup_page_auto_backup_enable">自動バックアップを有効化</string>
+  <string name="backup_page_auto_backup_desc">選択した間隔でバックアップを自動生成します。</string>
+  <string name="backup_page_auto_backup_interval">自動バックアップ間隔</string>
+  <string name="backup_page_auto_backup_never">自動バックアップはまだありません</string>
+  <string name="backup_page_auto_backup_last_time">前回の自動バックアップ：%1$s</string>
+  <string name="backup_page_auto_backup_retain_note">最新の自動バックアップのみ保持されます。新しいバックアップ作成後、前回分は自動的に削除されます。手動エクスポートは影響を受けません。</string>
+  <string name="backup_page_auto_backup_scope">バックアップ範囲</string>
+  <string name="backup_page_auto_backup_scope_note">チャット履歴、設定、ファイル（アップロード・スキル・フォント・ツール出力・生成画像）。ワークスペース（rootfs と /workspace）は対象外です。必要なら別途バックアップしてください。</string>
 </resources>

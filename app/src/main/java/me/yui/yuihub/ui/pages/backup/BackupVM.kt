@@ -11,9 +11,12 @@ import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.sync.BackupItem
 import me.yui.yuihub.data.sync.LocalBackupService
 import me.yui.yuihub.data.sync.RikkaHubImporter
+import me.yui.yuihub.worker.AutoBackupScheduler
+import android.content.Context
 import java.io.File
 
 class BackupVM(
+    private val appContext: Context,
     private val settingsStore: SettingsStore,
     private val localBackup: LocalBackupService,
     private val rikkaHubImporter: RikkaHubImporter,
@@ -74,6 +77,13 @@ class BackupVM(
                     lastBackupTime = System.currentTimeMillis()
                 )
             )
+        }
+    }
+
+    /** 自动备份开关/间隔变更后，重排下一次调度 */
+    fun onAutoBackupConfigChanged() {
+        viewModelScope.launch {
+            AutoBackupScheduler.enqueueNext(appContext, settingsStore)
         }
     }
 }

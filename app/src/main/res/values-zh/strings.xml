@@ -1287,4 +1287,13 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="backup_page_rikkahub_import_desc">从上游 RikkaHub 备份读取聊天记录、设置与文件</string>
   <string name="backup_page_rikkahub_import_confirm">备份中的数据将合并进当前数据，是否继续？</string>
   <string name="backup_page_rikkahub_import_success">已从 RikkaHub 导入 %1$d 条记录</string>
+  <string name="backup_page_auto_backup">自动备份</string>
+  <string name="backup_page_auto_backup_enable">启用自动备份</string>
+  <string name="backup_page_auto_backup_desc">按所选间隔在后台自动生成一份备份。</string>
+  <string name="backup_page_auto_backup_interval">自动备份间隔</string>
+  <string name="backup_page_auto_backup_never">尚未自动备份</string>
+  <string name="backup_page_auto_backup_last_time">上次自动备份：%1$s</string>
+  <string name="backup_page_auto_backup_retain_note">仅保留最新一份自动备份：生成新备份后会自动删除上一次自动备份；手动导出的备份不受影响。</string>
+  <string name="backup_page_auto_backup_scope">备份范围</string>
+  <string name="backup_page_auto_backup_scope_note">聊天记录、设置与文件（上传、技能、字体、工具输出、生成图片）。工作区数据（rootfs 与 /workspace 文件）不在备份范围内，如需请另行备份。</string>
 </resources>

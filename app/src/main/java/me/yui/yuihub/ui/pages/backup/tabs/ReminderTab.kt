@@ -92,5 +92,87 @@ fun ReminderTab(vm: BackupVM) {
                 )
             }
         }
+
+        StickyHeader {
+            Text(stringResource(R.string.backup_page_auto_backup))
+        }
+
+        CardGroup(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            item(
+                trailingContent = {
+                    Switch(
+                        checked = config.autoBackupEnabled,
+                        onCheckedChange = { enabled ->
+                            // 关闭时同时取消已排队的任务，避免关掉后还跑一次
+                            updateConfig(
+                                config.copy(
+                                    autoBackupEnabled = enabled,
+                                    // 重新开启时重置计时，从现在算下一个间隔
+                                    autoBackupLastTime = if (enabled) 0L else config.autoBackupLastTime,
+                                )
+                            )
+                            vm.onAutoBackupConfigChanged()
+                        },
+                    )
+                },
+                headlineContent = { Text(stringResource(R.string.backup_page_auto_backup_enable)) },
+                supportingContent = { Text(stringResource(R.string.backup_page_auto_backup_desc)) },
+            )
+
+            if (config.autoBackupEnabled) {
+                item(
+                    headlineContent = { Text(stringResource(R.string.backup_page_auto_backup_interval)) },
+                    supportingContent = {
+                        val intervals = listOf(1, 3, 7)
+                        SingleChoiceSegmentedButtonRow(
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            intervals.forEachIndexed { index, days ->
+                                SegmentedButton(
+                                    shape = SegmentedButtonDefaults.itemShape(
+                                        index = index,
+                                        count = intervals.size,
+                                    ),
+                                    onClick = {
+                                        updateConfig(config.copy(autoBackupIntervalDays = days))
+                                        vm.onAutoBackupConfigChanged()
+                                    },
+                                    selected = config.autoBackupIntervalDays == days,
+                                ) {
+                                    Text(stringResource(R.string.backup_page_reminder_interval_days, days))
+                                }
+                            }
+                        }
+                    },
+                )
+
+                item(
+                    headlineContent = {
+                        Text(
+                            if (config.autoBackupLastTime == 0L) {
+                                stringResource(R.string.backup_page_auto_backup_never)
+                            } else {
+                                stringResource(
+                                    R.string.backup_page_auto_backup_last_time,
+                                    Instant.ofEpochMilli(config.autoBackupLastTime).toLocalDateTime()
+                                )
+                            }
+                        )
+                    },
+                    supportingContent = {
+                        Text(stringResource(R.string.backup_page_auto_backup_retain_note))
+                    },
+                )
+            }
+
+            item(
+                headlineContent = { Text(stringResource(R.string.backup_page_auto_backup_scope)) },
+                supportingContent = {
+                    Text(stringResource(R.string.backup_page_auto_backup_scope_note))
+                },
+            )
+        }
     }
 }

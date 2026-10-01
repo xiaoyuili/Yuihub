@@ -1291,4 +1291,13 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="backup_page_rikkahub_import_desc">Read chats, settings and files from an upstream RikkaHub backup</string>
   <string name="backup_page_rikkahub_import_confirm">Data from the backup will be merged into your current data. Continue?</string>
   <string name="backup_page_rikkahub_import_success">Imported %1$d records from RikkaHub</string>
+  <string name="backup_page_auto_backup">Auto backup</string>
+  <string name="backup_page_auto_backup_enable">Enable auto backup</string>
+  <string name="backup_page_auto_backup_desc">Create a backup automatically at the selected interval.</string>
+  <string name="backup_page_auto_backup_interval">Auto backup interval</string>
+  <string name="backup_page_auto_backup_never">No auto backup yet</string>
+  <string name="backup_page_auto_backup_last_time">Last auto backup: %1$s</string>
+  <string name="backup_page_auto_backup_retain_note">Only the most recent auto backup is kept — the previous one is deleted after each new backup. Manual exports are not affected.</string>
+  <string name="backup_page_auto_backup_scope">What is backed up</string>
+  <string name="backup_page_auto_backup_scope_note">Chat records, settings and files (uploads, skills, fonts, tool outputs, generated images). Workspace data (rootfs and /workspace files) is NOT backed up — back it up separately if you need it.</string>
 </resources>
