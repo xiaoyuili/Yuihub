@@ -2,16 +2,11 @@ package me.yui.yuihub.ui.pages.chat
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,9 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -73,11 +66,9 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
-import me.rerere.hugeicons.stroke.CheckList
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.Menu03
 import me.rerere.hugeicons.stroke.MessageAdd01
-import me.rerere.hugeicons.stroke.TaskDone01
 import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.findProvider
@@ -96,8 +87,7 @@ import me.yui.yuihub.ui.components.ai.SearchMode
 import me.yui.yuihub.ui.components.ai.SearchPickerSheet
 import me.yui.yuihub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.yui.yuihub.ui.components.ai.rememberChatAttachmentPickerActions
-import me.yui.yuihub.ui.components.message.TodoEntry
-import me.yui.yuihub.ui.components.message.TodoPlanContent
+import me.yui.yuihub.ui.components.message.PlanBar
 import me.yui.yuihub.ui.components.message.findActivePlan
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalToaster
@@ -105,8 +95,6 @@ import me.yui.yuihub.ui.context.Navigator
 import me.yui.yuihub.ui.hooks.ChatInputState
 import me.yui.yuihub.ui.hooks.EditStateContent
 import me.yui.yuihub.ui.hooks.useEditState
-import me.yui.yuihub.ui.theme.CustomColors
-import me.yui.yuihub.ui.theme.extendColors
 import me.yui.yuihub.utils.DEFAULT_CONTEXT_LENGTH
 import me.yui.yuihub.utils.base64Decode
 import me.yui.yuihub.utils.effectiveContextLength
@@ -365,14 +353,9 @@ private fun ChatPageContent(
     }
     val workspaceRepository: WorkspaceRepository = koinInject()
     var previewMode by rememberSaveable { mutableStateOf(false) }
-    var showPlan by remember { mutableStateOf(false) }
-    // 当前会话的计划：取最新一次已执行的 todo_write；为空时顶栏不显示入口
+    // 当前会话的计划：取最新一次已执行的 todo_write；为空时输入栏上方不显示计划细条
     val planTodos = remember(conversation.messageNodes, conversation.activeCompression()) {
         findActivePlan(conversation.currentMessages)
-    }
-    // 计划被清空/会话切换时收起面板，避免留下空壳
-    LaunchedEffect(planTodos.isEmpty()) {
-        if (planTodos.isEmpty()) showPlan = false
     }
     val hazeState = rememberHazeState()
     val assistant = setting.getCurrentAssistant()
@@ -421,8 +404,6 @@ private fun ChatPageContent(
                     onUpdateTitle = {
                         vm.updateTitle(it)
                     },
-                    planTodos = planTodos,
-                    onOpenPlan = { showPlan = !showPlan },
                 )
             },
             bottomBar = {
@@ -440,6 +421,7 @@ private fun ChatPageContent(
                         vm.stopGeneration()
                     },
                     messageQueue = messageQueue,
+                    planTodos = planTodos,
                     onRemoveQueuedMessage = vm::removeQueuedMessage,
                     onBeginEditQueuedMessage = vm::beginEditQueuedMessage,
                     onFinishEditQueuedMessage = vm::finishEditQueuedMessage,
@@ -513,103 +495,91 @@ private fun ChatPageContent(
             },
             containerColor = Color.Transparent,
         ) { innerPadding ->
-            Box(modifier = Modifier.fillMaxSize()) {
-                ChatList(
-                    innerPadding = innerPadding,
-                    conversation = conversation,
-                    state = chatListState,
-                    loading = loadingJob != null,
-                    processingStatus = processingStatus,
-                    previewMode = previewMode,
-                    settings = setting,
-                    hazeState = hazeState,
-                    errors = errors,
-                    onDismissError = onDismissError,
-                    onClearAllErrors = onClearAllErrors,
-                    onRegenerate = {
-                        vm.regenerateAtMessage(it)
-                    },
-                    onEdit = {
-                        inputState.editingMessage = it.id
-                        inputState.setContents(it.parts)
-                    },
-                    onForkMessage = {
-                        scope.launch {
-                            val fork = vm.forkMessage(message = it)
-                            navigateToChatPage(navController, chatId = fork.id)
-                        }
-                    },
-                    onDelete = {
-                        if (loadingJob != null) {
-                            vm.showDeleteBlockedWhileGeneratingError()
-                        } else {
-                            vm.deleteMessage(it)
-                        }
-                    },
-                    onUpdateMessage = { newNode ->
-                        vm.updateConversation(
-                            conversation.copy(
-                                messageNodes = conversation.messageNodes.map { node ->
-                                    if (node.id == newNode.id) {
-                                        newNode
-                                    } else {
-                                        node
-                                    }
-                                }
-                            ))
-                        vm.saveConversationAsync()
-                    },
-                    onJumpToMessage = { index ->
-                        previewMode = false
-                        scope.launch {
-                            chatListState.requestScrollToItem(index)
-                        }
-                    },
-                    onToolApproval = { toolCallId, approved, reason ->
-                        vm.handleToolApproval(toolCallId, approved, reason)
-                    },
-                    onToolAnswer = { toolCallId, answer ->
-                        vm.handleToolAnswer(toolCallId, answer)
-                    },
-                    onToggleFavorite = { node ->
-                        vm.toggleMessageFavorite(node)
-                    },
-                    onConversationSystemPromptChange = { newPrompt ->
-                        vm.updateConversation(conversation.copy(customSystemPrompt = newPrompt))
-                        vm.saveConversationAsync()
-                    },
-                )
-
-                // 计划面板（P1）：从顶栏下方（计划图标正下方区域）展开，点空白处收起。
-                // 遮罩同样限定在顶栏以下，顶栏仍可交互（点图标可再次收起）。
-                if (showPlan && planTodos.isNotEmpty()) {
-                    PlanOverlay(
-                        todos = planTodos,
-                        topPadding = innerPadding.calculateTopPadding(),
-                        onDismiss = { showPlan = false },
-                    )
-                }
-            }
-        }
-
-        if (showFilesSheet) {
-            ChatFilesPickerSheet(
-                inputState = inputState,
-                setting = setting,
+            ChatList(
+                innerPadding = innerPadding,
                 conversation = conversation,
-                assistant = assistant,
-                vm = vm,
-                attachmentPickerActions = attachmentPickerActions,
-                onDismiss = { showFilesSheet = false },
-                onOpenSearch = {
-                    // 保留「+」面板不关闭：搜索窗口叠在它上方，
-                    // 底层页面与文件面板均保持原样
-                    showSearchSheet = true
+                state = chatListState,
+                loading = loadingJob != null,
+                processingStatus = processingStatus,
+                previewMode = previewMode,
+                settings = setting,
+                hazeState = hazeState,
+                errors = errors,
+                onDismissError = onDismissError,
+                onClearAllErrors = onClearAllErrors,
+                onRegenerate = {
+                    vm.regenerateAtMessage(it)
                 },
-                enableSearch = enableWebSearch,
-                searchModel = currentChatModel,
+                onEdit = {
+                    inputState.editingMessage = it.id
+                    inputState.setContents(it.parts)
+                },
+                onForkMessage = {
+                    scope.launch {
+                        val fork = vm.forkMessage(message = it)
+                        navigateToChatPage(navController, chatId = fork.id)
+                    }
+                },
+                onDelete = {
+                    if (loadingJob != null) {
+                        vm.showDeleteBlockedWhileGeneratingError()
+                    } else {
+                        vm.deleteMessage(it)
+                    }
+                },
+                onUpdateMessage = { newNode ->
+                    vm.updateConversation(
+                        conversation.copy(
+                            messageNodes = conversation.messageNodes.map { node ->
+                                if (node.id == newNode.id) {
+                                    newNode
+                                } else {
+                                    node
+                                }
+                            }
+                        ))
+                    vm.saveConversationAsync()
+                },
+                onJumpToMessage = { index ->
+                    previewMode = false
+                    scope.launch {
+                        chatListState.requestScrollToItem(index)
+                    }
+                },
+                onToolApproval = { toolCallId, approved, reason ->
+                    vm.handleToolApproval(toolCallId, approved, reason)
+                },
+                onToolAnswer = { toolCallId, answer ->
+                    vm.handleToolAnswer(toolCallId, answer)
+                },
+                onToggleFavorite = { node ->
+                    vm.toggleMessageFavorite(node)
+                },
+                onConversationSystemPromptChange = { newPrompt ->
+                    vm.updateConversation(conversation.copy(customSystemPrompt = newPrompt))
+                    vm.saveConversationAsync()
+                },
             )
         }
+    }
+
+    if (showFilesSheet) {
+        ChatFilesPickerSheet(
+            inputState = inputState,
+            setting = setting,
+            conversation = conversation,
+            assistant = assistant,
+            vm = vm,
+            attachmentPickerActions = attachmentPickerActions,
+            onDismiss = { showFilesSheet = false },
+            onOpenSearch = {
+                // 保留「+」面板不关闭：搜索窗口叠在它上方，
+                // 底层页面与文件面板均保持原样
+                showSearchSheet = true
+            },
+            enableSearch = enableWebSearch,
+            searchModel = currentChatModel,
+        )
 
         if (showSearchSheet) {
             SearchPickerSheet(
@@ -688,94 +658,6 @@ private fun ChatFilesPickerSheet(
 }
 
 @Composable
-private fun PlanOverlay(
-    todos: List<TodoEntry>,
-    topPadding: Dp,
-    onDismiss: () -> Unit,
-) {
-    val completed = todos.count { it.status == "completed" }
-    val allDone = completed == todos.size
-    // 面板淡入 + 纵向展开，符合「下拉」的空间感
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { visible = true }
-
-    // 顶部留出顶栏高度：面板从计划图标下方展开，不遮挡状态栏与标题栏；遮罩也只覆盖顶栏以下
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = topPadding),
-    ) {
-        // 遮罩：拦截点击以收起面板，同时压暗背景让面板更聚焦
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.18f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                )
-        )
-
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(tween(160)) + expandVertically(
-                expandFrom = Alignment.Top,
-                animationSpec = tween(200),
-            ),
-            exit = fadeOut(tween(120)) + shrinkVertically(
-                shrinkTowards = Alignment.Top,
-                animationSpec = tween(160),
-            ),
-            label = "plan_panel",
-            modifier = Modifier.align(Alignment.TopCenter),
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(20.dp),
-                color = CustomColors.cardColorsOnSurfaceContainer.containerColor,
-                shadowElevation = 10.dp,
-            ) {
-                Column {
-                    TodoPlanContent(todos = todos)
-
-                    HorizontalDivider(
-                        modifier = Modifier.padding(horizontal = 14.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(onClick = onDismiss)
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = if (allDone) {
-                                stringResource(R.string.chat_message_todo_all_done)
-                            } else {
-                                stringResource(R.string.chat_message_todo_count_hint, completed, todos.size)
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            text = stringResource(R.string.chat_message_todo_collapse),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun TopBar(
     settings: Settings,
     conversation: Conversation,
@@ -785,9 +667,6 @@ private fun TopBar(
     onClickMenu: () -> Unit,
     onNewChat: () -> Unit,
     onUpdateTitle: (String) -> Unit,
-    // 当前会话的计划（最新一次 todo_write）；非空时顶栏才出现计划入口
-    planTodos: List<TodoEntry> = emptyList(),
-    onOpenPlan: () -> Unit = {},
 ) {
     val toaster = LocalToaster.current
     val titleState = useEditState<String> {
@@ -841,39 +720,6 @@ private fun TopBar(
             }
         },
         actions = {
-            // 计划入口：仅当会话里存在计划时出现，带进度角标；无计划时完全不占位
-            if (planTodos.isNotEmpty()) {
-                val completed = planTodos.count { it.status == "completed" }
-                val badgeText = if (completed == planTodos.size) "✓" else "$completed"
-                val badgeColor = if (completed == planTodos.size) {
-                    MaterialTheme.extendColors.green6
-                } else {
-                    MaterialTheme.colorScheme.primary
-                }
-                Box {
-                    IconButton(onClick = onOpenPlan) {
-                        Icon(
-                            imageVector = if (completed == planTodos.size) HugeIcons.TaskDone01 else HugeIcons.CheckList,
-                            contentDescription = stringResource(R.string.chat_message_todo_title),
-                        )
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = badgeColor,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 2.dp, end = 2.dp),
-                    ) {
-                        Text(
-                            text = badgeText,
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                        )
-                    }
-                }
-            }
-
             IconButton(
                 onClick = {
                     onClickMenu()

@@ -1455,4 +1455,6 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="chat_message_todo_all_done">すべてのステップが完了</string>
   <string name="chat_message_todo_count_hint">%2$d 中 %1$d 完了</string>
   <string name="chat_message_todo_collapse">折りたたむ</string>
+  <string name="plan_bar_progress">%2$d 中 %1$d 完了</string>
+  <string name="plan_bar_expand">プランを展開</string>
 </resources>

@@ -117,6 +117,8 @@ import me.yui.yuihub.ui.components.ai.completion.ChatCompletionContext
 import me.yui.yuihub.ui.components.ai.completion.ChatCompletionItem
 import me.yui.yuihub.ui.components.ai.completion.ChatCompletionList
 import me.yui.yuihub.ui.components.ai.completion.ChatCompletionProvider
+import me.yui.yuihub.ui.components.message.PlanBar
+import me.yui.yuihub.ui.components.message.TodoEntry
 import me.yui.yuihub.ui.components.ui.KeepScreenOn
 import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.context.LocalToaster
@@ -155,6 +157,8 @@ fun ChatInput(
     onLongSendClick: () -> Unit,
     messageQueue: MessageQueueState = MessageQueueState(),
     resizeForIme: Boolean = true,
+    // 当前计划（方案 E：常驻输入栏上方的细条）；为空时不渲染
+    planTodos: List<TodoEntry> = emptyList(),
     onRemoveQueuedMessage: (Uuid) -> Unit = {},
     onBeginEditQueuedMessage: (Uuid) -> QueuedMessage? = { null },
     onFinishEditQueuedMessage: (Uuid, List<UIMessagePart>?) -> Unit = { _, _ -> },
@@ -235,6 +239,9 @@ fun ChatInput(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+
+            // 计划细条：常驻在输入框上方，收起一行高度，点开看完整清单
+            PlanBar(todos = planTodos)
 
             Surface(
                 modifier = Modifier
