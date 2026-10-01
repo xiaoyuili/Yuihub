@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -16,15 +17,20 @@ import kotlinx.coroutines.launch
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.yui.yuihub.AppScope
+import me.yui.yuihub.AUTOMATION_NOTIFICATION_CHANNEL_ID
 import me.yui.yuihub.CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID
 import me.yui.yuihub.CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID
 import me.yui.yuihub.R
 import me.yui.yuihub.RouteActivity
 import me.yui.yuihub.data.datastore.SettingsStore
+import me.yui.yuihub.data.db.entity.ScheduledTaskRunStatus
 import me.yui.yuihub.data.event.AppEvent
 import me.yui.yuihub.data.event.AppEventBus
+import me.yui.yuihub.data.repository.ScheduledTaskRepository
 import me.yui.yuihub.utils.cancelNotification
 import me.yui.yuihub.utils.sendNotification
+import org.koin.core.component.KoinComponent
+import org.koin.core.component.get
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
@@ -32,19 +38,23 @@ import kotlin.uuid.Uuid
 // notify() 是 binder IPC 且系统本身会对高频更新限流，必须在应用侧节流
 private const val LIVE_UPDATE_NOTIFICATION_THROTTLE_MS = 1000L
 
+// 定时任务完成通知固定使用一个通知 id（同一时间只展示最近一次结果，避免堆积）
+private const val AUTOMATION_NOTIFICATION_ID = 3003
+
+private const val TAG = "ChatNotificationManager"
+
 /**
  * 订阅 [AppEventBus] 上的聊天生成事件，负责后台生成相关的系统通知
  * （Live Update 进度通知和生成完成通知）。
  */
 class ChatNotificationManager(
     private val context: Application,
-    appScope: AppScope,
+    private val appScope: AppScope,
     eventBus: AppEventBus,
     private val settingsStore: SettingsStore,
-) {
+) : KoinComponent {
     private val isForeground = MutableStateFlow(false)
     private val liveUpdateLastSentAt = ConcurrentHashMap<Uuid, Long>()
-
     init {
         // ProcessLifecycleOwner 要求在主线程注册观察者
         appScope.launch {
@@ -86,10 +96,71 @@ class ChatNotificationManager(
     private fun handleGenerationEnded(event: AppEvent.ChatGenerationEnded) {
         cancelLiveUpdateNotification(event.conversationId)
 
+        // 定时任务完成：无论应用是否在前台都发悬浮通知（任务的意义就是“跑完告知用户”）
+        event.scheduledTaskName?.let { taskName ->
+            sendAutomationDoneNotification(
+                conversationId = event.conversationId,
+                taskName = taskName,
+                contentPreview = event.contentPreview,
+            )
+            event.scheduledTaskId?.let { taskId ->
+                // Worker 只写了 RUNNING，真实结果（成功/失败）以生成结束为准回写
+                recordAutomationResult(taskId, event.contentPreview != null)
+            }
+            return
+        }
+
         val contentPreview = event.contentPreview ?: return
         if (isForeground.value) return
         if (!settingsStore.settingsFlow.value.displaySetting.enableNotificationOnMessageGeneration) return
         sendGenerationDoneNotification(event.conversationId, event.senderName, contentPreview)
+    }
+
+    /**
+     * 回写定时任务的真实运行结果。Worker 触发时只标记 RUNNING，
+     * 生成真正结束（成功入消息 / 失败无内容）后由这里落定，避免“刚发起就显示已完成”。
+     */
+    private fun recordAutomationResult(taskId: String, succeeded: Boolean) {
+        appScope.launch {
+            runCatching {
+                val repository = get<ScheduledTaskRepository>()
+                val task = repository.getById(taskId) ?: return@runCatching
+                repository.updateRunState(
+                    id = taskId,
+                    runAt = task.lastRunAt,
+                    status = if (succeeded) {
+                        ScheduledTaskRunStatus.SUCCESS.name
+                    } else {
+                        ScheduledTaskRunStatus.FAILED.name
+                    },
+                    conversationId = task.lastConversationId,
+                )
+            }.onFailure { Log.e(TAG, "recordAutomationResult failed", it) }
+        }
+    }
+
+    /**
+     * 定时任务完成通知：高重要性渠道 + 默认提示音/震动，系统会以悬浮横幅（heads-up）弹出。
+     * 点击直接进入该任务的会话，便于立刻查看结果。
+     */
+    private fun sendAutomationDoneNotification(
+        conversationId: Uuid,
+        taskName: String,
+        contentPreview: String?,
+    ) {
+        context.sendNotification(
+            channelId = AUTOMATION_NOTIFICATION_CHANNEL_ID,
+            notificationId = AUTOMATION_NOTIFICATION_ID,
+        ) {
+            title = context.getString(R.string.notification_automation_done_title, taskName)
+            content = contentPreview?.takeIf { it.isNotBlank() }
+                ?: context.getString(R.string.notification_automation_done_empty)
+            autoCancel = true
+            useDefaults = true
+            category = NotificationCompat.CATEGORY_MESSAGE
+            useBigTextStyle = true
+            contentIntent = getPendingIntent(context, conversationId)
+        }
     }
 
     private fun sendGenerationDoneNotification(

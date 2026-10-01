@@ -34,6 +34,10 @@ interface ScheduledTaskDAO {
     )
     suspend fun updateRunState(id: String, runAt: Long, status: String, conversationId: String)
 
+    /** 根据会话 id 反查定时任务（生成结束时用于判定是否为定时任务的会话） */
+    @Query("SELECT * FROM scheduled_task WHERE last_conversation_id = :conversationId LIMIT 1")
+    suspend fun getByLastConversationId(conversationId: String): ScheduledTaskEntity?
+
     @Query("UPDATE scheduled_task SET enabled = :enabled, updated_at = :updatedAt WHERE id = :id")
     suspend fun setEnabled(id: String, enabled: Boolean, updatedAt: Long)
 }

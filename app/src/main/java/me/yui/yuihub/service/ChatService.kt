@@ -248,6 +248,11 @@ class ChatService(
     private val sessions = ConcurrentHashMap<Uuid, ConversationSession>()
     private val _sessionsVersion = MutableStateFlow(0L)
 
+    // 定时任务会话标记：会话 id → (任务 id, 任务名)。生成结束时据此发悬浮通知并回写运行结果。
+    // 仅进程内存即可：定时任务由 WorkManager 拉起，通知发生在同一次进程存续期内。
+    private data class ScheduledRef(val taskId: String, val taskName: String)
+    private val scheduledConversations = ConcurrentHashMap<Uuid, ScheduledRef>()
+
     // 错误状态
     private val _errors = MutableStateFlow<List<ChatError>>(emptyList())
     val errors: StateFlow<List<ChatError>> = _errors.asStateFlow()
@@ -442,6 +447,7 @@ class ChatService(
      */
     suspend fun startScheduledConversation(
         assistantId: Uuid,
+        taskId: String,
         title: String,
         prompt: String,
     ): Uuid {
@@ -449,6 +455,8 @@ class ChatService(
         val settings = settingsStore.settingsFlowRaw.first()
         val assistant = settings.getAssistantById(assistantId) ?: settings.getCurrentAssistant()
         val session = getOrCreateSession(conversationId)
+        // 标记为定时任务会话：生成完成后发悬浮通知并回写任务运行结果
+        scheduledConversations[conversationId] = ScheduledRef(taskId, title)
         session.mutationLock.withLock {
             val newConversation = Conversation.ofId(
                 id = conversationId,
@@ -856,6 +864,8 @@ class ChatService(
                         senderName = senderName,
                         contentPreview = updatedConversation.currentMessages.lastOrNull()
                             ?.toText()?.take(50)?.trim() ?: "",
+                        scheduledTaskId = scheduledConversations[conversationId]?.taskId,
+                        scheduledTaskName = scheduledConversations.remove(conversationId)?.taskName,
                     )
                 )
             }.collect { chunk ->
@@ -880,8 +890,18 @@ class ChatService(
                 }
             }
         }.onFailure {
-            // 兜底取消 Live Update 通知（生成开始前失败时 onCompletion 不会执行）
-            appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
+            // 兜底取消 Live Update 通知（生成开始前失败时 onCompletion 不会执行）；
+            // 定时任务会话在这里发一条失败提醒，并回写任务状态
+            val scheduledRef = scheduledConversations.remove(conversationId)
+            appEventBus.tryEmit(
+                AppEvent.ChatGenerationEnded(
+                    conversationId = conversationId,
+                    senderName = senderName,
+                    contentPreview = null,
+                    scheduledTaskId = scheduledRef?.taskId,
+                    scheduledTaskName = scheduledRef?.taskName,
+                )
+            )
 
             it.printStackTrace()
             addError(it, conversationId, title = context.getString(R.string.error_title_generation))

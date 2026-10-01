@@ -1446,4 +1446,8 @@
   <string name="subagent_page_tools_selected">已選 %1$d / %2$d</string>
   <string name="subagent_page_tools_select_all">全選</string>
   <string name="subagent_page_tools_clear">清空</string>
+  <string name="notification_channel_automation">定時任務</string>
+  <string name="notification_channel_automation_desc">定時任務執行完成時提醒</string>
+  <string name="notification_automation_done_title">%1$s · 已完成</string>
+  <string name="notification_automation_done_empty">任務已執行，點按查看結果</string>
 </resources>

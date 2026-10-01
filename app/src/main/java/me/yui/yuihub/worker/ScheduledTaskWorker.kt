@@ -51,14 +51,18 @@ class ScheduledTaskWorker(
             val assistantId = Uuid.parse(task.assistantId)
             val conversationId = chatService.startScheduledConversation(
                 assistantId = assistantId,
+                taskId = taskId,
                 title = task.name,
                 prompt = task.prompt,
             )
             Log.i(TAG, "doWork: task $taskId started conversation $conversationId")
+            // 记录会话归属：生成结束后通知管理器据此回写状态，用户也可从列表跳回会话。
+            // 状态保持 RUNNING：真实结果（成功/失败）由 ChatNotificationManager 在生成结束时回写，
+            // 否则列表会在模型刚开始回复时就显示「已完成」。
             repository.updateRunState(
                 taskId,
                 startedAt,
-                ScheduledTaskRunStatus.SUCCESS.name,
+                ScheduledTaskRunStatus.RUNNING.name,
                 conversationId.toString(),
             )
             Result.success()

@@ -15,11 +15,15 @@ sealed class AppEvent {
 
     /**
      * 聊天生成结束（完成、失败或取消）。
-     * [contentPreview] 为 null 时仅取消 Live Update 通知，不发送完成通知。
+     * [contentPreview] 为 null 时仅取消 Live Update 通知，不发送完成通知（定时任务除外）。
+     * [scheduledTaskId]/[scheduledTaskName] 非空表示该会话由定时任务发起：
+     * 完成时走悬浮通知，并回写任务的实际运行结果。
      */
     data class ChatGenerationEnded(
         val conversationId: Uuid,
         val senderName: String,
         val contentPreview: String?,
+        val scheduledTaskId: String? = null,
+        val scheduledTaskName: String? = null,
     ) : AppEvent()
 }

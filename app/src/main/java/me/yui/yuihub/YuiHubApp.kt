@@ -51,6 +51,9 @@ const val CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID = "chat_completed"
 const val CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID = "chat_live_update"
 const val KEEP_AWAKE_NOTIFICATION_CHANNEL_ID = "keep_awake"
 
+/** 定时任务完成通知（悬浮提醒，类似聊天软件收到好友消息） */
+const val AUTOMATION_NOTIFICATION_CHANNEL_ID = "automation_completed"
+
 class YuiHubApp : Application() {
     override fun onCreate() {
         super.onCreate()
@@ -204,6 +207,19 @@ class YuiHubApp : Application() {
             .setVibrationEnabled(true)
             .build()
         notificationManager.createNotificationChannel(chatCompletedChannel)
+
+        // 定时任务完成通知：重要性拉满 + 震动，保证以悬浮横幅弹出（类似收到聊天消息）
+        val automationChannel = NotificationChannelCompat
+            .Builder(
+                AUTOMATION_NOTIFICATION_CHANNEL_ID,
+                NotificationManagerCompat.IMPORTANCE_HIGH
+            )
+            .setName(getString(R.string.notification_channel_automation))
+            .setDescription(getString(R.string.notification_channel_automation_desc))
+            .setVibrationEnabled(true)
+            .setShowBadge(true)
+            .build()
+        notificationManager.createNotificationChannel(automationChannel)
 
         val chatLiveUpdateChannel = NotificationChannelCompat
             .Builder(
