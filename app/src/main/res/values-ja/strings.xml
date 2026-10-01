@@ -1452,4 +1452,7 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="notification_channel_automation_desc">定期タスクの完了時に通知</string>
   <string name="notification_automation_done_title">%1$s · 完了</string>
   <string name="notification_automation_done_empty">タスクが完了しました。タップして結果を表示</string>
+  <string name="chat_message_todo_all_done">すべてのステップが完了</string>
+  <string name="chat_message_todo_count_hint">%2$d 中 %1$d 完了</string>
+  <string name="chat_message_todo_collapse">折りたたむ</string>
 </resources>

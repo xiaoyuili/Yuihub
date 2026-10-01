@@ -1450,4 +1450,7 @@
   <string name="notification_channel_automation_desc">定時任務執行完成時提醒</string>
   <string name="notification_automation_done_title">%1$s · 已完成</string>
   <string name="notification_automation_done_empty">任務已執行，點按查看結果</string>
+  <string name="chat_message_todo_all_done">全部步驟已完成</string>
+  <string name="chat_message_todo_count_hint">已完成 %1$d / %2$d</string>
+  <string name="chat_message_todo_collapse">收合</string>
 </resources>

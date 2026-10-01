@@ -2,12 +2,26 @@ package me.yui.yuihub.ui.pages.chat
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -35,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -57,9 +72,11 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
+import me.rerere.hugeicons.stroke.CheckList
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.Menu03
 import me.rerere.hugeicons.stroke.MessageAdd01
+import me.rerere.hugeicons.stroke.TaskDone01
 import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.findProvider
@@ -78,12 +95,17 @@ import me.yui.yuihub.ui.components.ai.SearchMode
 import me.yui.yuihub.ui.components.ai.SearchPickerSheet
 import me.yui.yuihub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.yui.yuihub.ui.components.ai.rememberChatAttachmentPickerActions
+import me.yui.yuihub.ui.components.message.TodoEntry
+import me.yui.yuihub.ui.components.message.TodoPlanContent
+import me.yui.yuihub.ui.components.message.findActivePlan
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.context.Navigator
 import me.yui.yuihub.ui.hooks.ChatInputState
 import me.yui.yuihub.ui.hooks.EditStateContent
 import me.yui.yuihub.ui.hooks.useEditState
+import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.ui.theme.extendColors
 import me.yui.yuihub.utils.DEFAULT_CONTEXT_LENGTH
 import me.yui.yuihub.utils.base64Decode
 import me.yui.yuihub.utils.effectiveContextLength
@@ -342,6 +364,15 @@ private fun ChatPageContent(
     }
     val workspaceRepository: WorkspaceRepository = koinInject()
     var previewMode by rememberSaveable { mutableStateOf(false) }
+    var showPlan by remember { mutableStateOf(false) }
+    // 当前会话的计划：取最新一次已执行的 todo_write；为空时顶栏不显示入口
+    val planTodos = remember(conversation.messageNodes, conversation.activeCompression()) {
+        findActivePlan(conversation.currentMessages)
+    }
+    // 计划被清空/会话切换时收起面板，避免留下空壳
+    LaunchedEffect(planTodos.isEmpty()) {
+        if (planTodos.isEmpty()) showPlan = false
+    }
     val hazeState = rememberHazeState()
     val assistant = setting.getCurrentAssistant()
     var showFilesSheet by remember { mutableStateOf(false) }
@@ -388,7 +419,9 @@ private fun ChatPageContent(
                     },
                     onUpdateTitle = {
                         vm.updateTitle(it)
-                    }
+                    },
+                    planTodos = planTodos,
+                    onOpenPlan = { showPlan = !showPlan },
                 )
             },
             bottomBar = {
@@ -546,6 +579,15 @@ private fun ChatPageContent(
             )
         }
 
+        // 计划面板（P1）：点顶栏图标在顶栏下方展开，点空白处收起。
+        // 与消息区同一层级、位于其上方，不挤压内容高度。
+        if (showPlan && planTodos.isNotEmpty()) {
+            PlanOverlay(
+                todos = planTodos,
+                onDismiss = { showPlan = false },
+            )
+        }
+
         if (showFilesSheet) {
             ChatFilesPickerSheet(
                 inputState = inputState,
@@ -642,6 +684,88 @@ private fun ChatFilesPickerSheet(
 }
 
 @Composable
+private fun PlanOverlay(
+    todos: List<TodoEntry>,
+    onDismiss: () -> Unit,
+) {
+    val completed = todos.count { it.status == "completed" }
+    val allDone = completed == todos.size
+    // 随面板一起淡入：纵向轻微展开 + 淡入，收起反向，符合「下拉」的空间感
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { visible = true }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 遮罩：拦截点击以收起面板，同时压暗背景让面板更聚焦
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.18f * if (visible) 1f else 0f))
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss,
+                )
+        )
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(160)) + expandVertically(
+                expandFrom = Alignment.Top,
+                animationSpec = tween(200),
+            ),
+            exit = fadeOut(tween(120)) + shrinkVertically(
+                shrinkTowards = Alignment.Top,
+                animationSpec = tween(160),
+            ),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = CustomColors.cardColorsOnSurfaceContainer.containerColor,
+                shadowElevation = 10.dp,
+            ) {
+                Column {
+                    TodoPlanContent(todos = todos)
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 14.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    )
+
+                    // 全部完成时给一行收束提示，避免用户困惑“要不要手动关掉”
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onDismiss)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (allDone) {
+                                stringResource(R.string.chat_message_todo_all_done)
+                            } else {
+                                stringResource(R.string.chat_message_todo_count_hint, completed, todos.size)
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = stringResource(R.string.chat_message_todo_collapse),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun TopBar(
     settings: Settings,
     conversation: Conversation,
@@ -650,7 +774,10 @@ private fun TopBar(
     previewMode: Boolean,
     onClickMenu: () -> Unit,
     onNewChat: () -> Unit,
-    onUpdateTitle: (String) -> Unit
+    onUpdateTitle: (String) -> Unit,
+    // 当前会话的计划（最新一次 todo_write）；非空时顶栏才出现计划入口
+    planTodos: List<TodoEntry> = emptyList(),
+    onOpenPlan: () -> Unit = {},
 ) {
     val toaster = LocalToaster.current
     val titleState = useEditState<String> {
@@ -681,11 +808,10 @@ private fun TopBar(
                 color = Color.Transparent,
             ) {
                 Column {
-                    val assistant = settings.getCurrentAssistant()
                     val model = settings.getCurrentChatModel()
                     val provider = model?.findProvider(providers = settings.providers, checkOverwrite = false)
                     Text(
-                        text = "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) }}",
+                        text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
                         maxLines = 1,
                         style = MaterialTheme.typography.bodyMedium,
                         overflow = TextOverflow.Ellipsis,
@@ -705,6 +831,39 @@ private fun TopBar(
             }
         },
         actions = {
+            // 计划入口：仅当会话里存在计划时出现，带进度角标；无计划时完全不占位
+            if (planTodos.isNotEmpty()) {
+                val completed = planTodos.count { it.status == "completed" }
+                val badgeText = if (completed == planTodos.size) "✓" else "$completed"
+                val badgeColor = if (completed == planTodos.size) {
+                    MaterialTheme.extendColors.green6
+                } else {
+                    MaterialTheme.colorScheme.primary
+                }
+                Box {
+                    IconButton(onClick = onOpenPlan) {
+                        Icon(
+                            imageVector = if (completed == planTodos.size) HugeIcons.TaskDone01 else HugeIcons.CheckList,
+                            contentDescription = stringResource(R.string.chat_message_todo_title),
+                        )
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = badgeColor,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 2.dp, end = 2.dp),
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
+            }
+
             IconButton(
                 onClick = {
                     onClickMenu()

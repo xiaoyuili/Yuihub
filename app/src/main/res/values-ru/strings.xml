@@ -1452,4 +1452,7 @@
   <string name="notification_channel_automation_desc">Уведомление о завершении задачи по расписанию</string>
   <string name="notification_automation_done_title">%1$s · готово</string>
   <string name="notification_automation_done_empty">Задача выполнена — нажмите, чтобы посмотреть результат</string>
+  <string name="chat_message_todo_all_done">Все шаги выполнены</string>
+  <string name="chat_message_todo_count_hint">Выполнено %1$d из %2$d</string>
+  <string name="chat_message_todo_collapse">Свернуть</string>
 </resources>

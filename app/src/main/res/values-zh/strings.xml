@@ -1277,4 +1277,7 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="notification_channel_automation_desc">定时任务执行完成时提醒</string>
   <string name="notification_automation_done_title">%1$s · 已完成</string>
   <string name="notification_automation_done_empty">任务已执行，点按查看结果</string>
+  <string name="chat_message_todo_all_done">全部步骤已完成</string>
+  <string name="chat_message_todo_count_hint">已完成 %1$d / %2$d</string>
+  <string name="chat_message_todo_collapse">收起</string>
 </resources>
