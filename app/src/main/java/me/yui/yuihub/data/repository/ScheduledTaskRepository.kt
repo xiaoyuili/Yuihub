@@ -24,6 +24,10 @@ class ScheduledTaskRepository(
 
     suspend fun getAllEnabled(): List<ScheduledTaskEntity> = dao.getAllEnabled()
 
+    /** 某助手名下的全部任务（AI 工具按助手限定的读入口） */
+    suspend fun getTasksForAssistant(assistantId: String): List<ScheduledTaskEntity> =
+        dao.getByAssistant(assistantId)
+
     suspend fun upsert(task: ScheduledTaskEntity) {
         dao.upsert(task)
         ScheduledTaskScheduler.rescheduleAll(context, this)

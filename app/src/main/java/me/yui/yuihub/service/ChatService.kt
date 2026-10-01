@@ -72,6 +72,8 @@ import me.yui.yuihub.data.ai.tools.createSearchTools
 import me.yui.yuihub.data.ai.tools.createMcpManageTools
 import me.yui.yuihub.data.ai.tools.createSkillManageTools
 import me.yui.yuihub.data.ai.tools.createTodoTool
+import me.yui.yuihub.data.ai.tools.SCHEDULED_TASK_TOOL_NAME
+import me.yui.yuihub.data.ai.tools.createScheduledTaskTools
 import me.yui.yuihub.data.ai.tools.createSkillTools
 import me.yui.yuihub.data.ai.tools.createWorkspaceTools
 import me.yui.yuihub.data.ai.tools.SPAWN_AGENT_TOOL_NAME
@@ -118,6 +120,7 @@ import me.yui.yuihub.data.model.toMessageNode
 import me.yui.yuihub.data.repository.ConversationRepository
 import me.yui.yuihub.data.repository.FolderRepository
 import me.yui.yuihub.data.repository.MemoryRepository
+import me.yui.yuihub.data.repository.ScheduledTaskRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.utils.AUTO_COMPRESS_RETAIN_RATIO
 import me.yui.yuihub.utils.AUTO_COMPRESS_TARGET_TOKENS
@@ -240,6 +243,7 @@ class ChatService(
     private val workspaceRepository: WorkspaceRepository,
     private val folderRepository: FolderRepository,
     private val subagentManager: SubagentManager,
+    private val scheduledTaskRepository: ScheduledTaskRepository,
 ) {
     // workspace 系统提示注入 (依赖 workspaceRepository, 故在类内构造)
     private val workspaceReminderTransformer = WorkspaceReminderTransformer(workspaceRepository)
@@ -951,6 +955,13 @@ class ChatService(
         addAll(createSkillManageTools(skillManager))
         addAll(createMcpManageTools(mcpManager, settingsStore))
         add(createTodoTool())
+        addAll(
+            createScheduledTaskTools(
+                repository = scheduledTaskRepository,
+                assistantId = assistant.id,
+                onRunNow = { task -> scheduledTaskRepository.runNow(task) },
+            )
+        )
         mcpManager.getAllAvailableTools().forEach { (serverId, serverName, tool) ->
             add(
                 Tool(
@@ -1609,6 +1620,24 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                                 error(
                                     "REJECTED: child agents cannot modify the skill library (action=$action). " +
                                         "Report the desired skill change to the main agent so it can apply it."
+                                )
+                            }
+                            tool.execute(args)
+                        }
+                    )
+
+                    // 定时任务写操作仅限主代理：子代理往往无人监督批量运行，
+                    // 静默创建/删除用户可见的自动化任务（尤其 run_now 会再起一轮生成）风险太大，
+                    // 只允许 list 查询，其余操作转交主代理
+                    tool.name == SCHEDULED_TASK_TOOL_NAME && conversation.parentConversationId != null -> tool.copy(
+                        execute = { args ->
+                            val action = runCatching {
+                                args.jsonObject["action"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                            }.getOrDefault("")
+                            if (action != "list") {
+                                error(
+                                    "REJECTED: child agents cannot modify scheduled tasks (action=$action). " +
+                                        "Report the desired change to the main agent so it can apply it."
                                 )
                             }
                             tool.execute(args)

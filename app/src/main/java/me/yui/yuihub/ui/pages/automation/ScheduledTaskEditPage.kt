@@ -184,8 +184,11 @@ fun ScheduledTaskEditPage(
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // 只有设置中新建可以选助手：
+                    // 助手页进入时已限定归属，编辑已有任务也不允许转移归属
+                    val canChooseAssistant = taskId == null && defaultAssistantId == null
                     Surface(
-                        onClick = { showAssistantPicker = !showAssistantPicker },
+                        onClick = { if (canChooseAssistant) showAssistantPicker = !showAssistantPicker },
                         shape = RoundedCornerShape(16.dp),
                         color = CustomColors.cardColorsOnSurfaceContainer.containerColor,
                         modifier = Modifier.fillMaxWidth(),
@@ -213,14 +216,16 @@ fun ScheduledTaskEditPage(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f),
                             )
-                            Icon(
-                                imageVector = HugeIcons.ArrowDown01,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            if (canChooseAssistant) {
+                                Icon(
+                                    imageVector = HugeIcons.ArrowDown01,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
-                    if (showAssistantPicker) {
+                    if (canChooseAssistant && showAssistantPicker) {
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             settings.assistants.forEach { assistant ->
                                 val selected = assistant.id == assistantId

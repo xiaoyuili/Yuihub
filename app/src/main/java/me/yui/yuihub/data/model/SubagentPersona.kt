@@ -42,6 +42,7 @@ object SubagentToolCatalog {
         "use_skill" to "调用技能",
         "manage_skill" to "管理技能库",
         "manage_mcp_server" to "管理 MCP 服务",
+        "scheduled_task" to "管理定时任务",
         "eval_javascript" to "执行 JavaScript",
         "get_time_info" to "获取当前时间",
         "clipboard_tool" to "读写剪贴板",

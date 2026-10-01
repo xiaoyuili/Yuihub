@@ -81,6 +81,7 @@ val appModule = module {
             workspaceRepository = get(),
             folderRepository = get(),
             subagentManager = get(),
+            scheduledTaskRepository = get(),
         )
     }
 }
