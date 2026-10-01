@@ -84,11 +84,15 @@ fun TodoPlanCard(
 
 /**
  * 计划卡片内容（列表 + 进度头）。顶栏面板与正文卡片共用，保证两处观感一致。
+ *
+ * @param showHeader 是否渲染顶部的「计划 + 进度」标题行。
+ *   嵌入在输入栏细条内时为 false（状态与进度已在细条上体现，再重复会很啰嗦）。
  */
 @Composable
 fun TodoPlanContent(
     todos: List<TodoEntry>,
     modifier: Modifier = Modifier,
+    showHeader: Boolean = true,
 ) {
     if (todos.isEmpty()) return
     val completedCount = todos.count { it.status == "completed" }
@@ -99,30 +103,32 @@ fun TodoPlanContent(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                imageVector = if (allDone) HugeIcons.TaskDone01 else HugeIcons.CheckList,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = if (allDone) MaterialTheme.extendColors.green6 else MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = stringResource(R.string.chat_message_todo_title),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Box(modifier = Modifier.weight(1f))
-            Text(
-                text = "$completedCount/$total",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (allDone) MaterialTheme.extendColors.green6 else MaterialTheme.colorScheme.primary,
-            )
+        if (showHeader) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = if (allDone) HugeIcons.TaskDone01 else HugeIcons.CheckList,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = if (allDone) MaterialTheme.extendColors.green6 else MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    text = stringResource(R.string.chat_message_todo_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Box(modifier = Modifier.weight(1f))
+                Text(
+                    text = "$completedCount/$total",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (allDone) MaterialTheme.extendColors.green6 else MaterialTheme.colorScheme.primary,
+                )
+            }
         }
 
         todos.forEach { item ->

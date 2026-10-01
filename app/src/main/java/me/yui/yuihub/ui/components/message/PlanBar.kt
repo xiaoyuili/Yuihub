@@ -7,16 +7,15 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -44,25 +43,25 @@ import me.yui.yuihub.ui.theme.extendColors
 /**
  * 计划细条（方案 E）：常驻在输入栏正上方，收起时一行高度。
  *
- * 收起态显示「当前进行中的步骤 + 进度」，点击展开完整清单；再点收起。
- * 没有计划时不渲染任何内容（由调用方根据 todos 是否为空决定）。
+ * 收起态一行显示「进行中的步骤 + 进度」，点击展开完整清单；再点收起。
+ * 滚动消息列表时随输入栏一起淡化（[alpha] 与输入栏共用同一条动画）。
  */
 @Composable
 fun PlanBar(
     todos: List<TodoEntry>,
     modifier: Modifier = Modifier,
+    alpha: Float = 1f,
 ) {
     if (todos.isEmpty()) return
 
     val completed = todos.count { it.status == "completed" }
     val total = todos.size
     val allDone = completed == total
-    // 当前进行中的那一步；全部完成时退化为完成状态
+    // 当前进行中的那一步；没有进行中的则取最后一个未完成的
     val current = todos.firstOrNull { it.status == "in_progress" }
         ?: todos.lastOrNull { it.status != "completed" }
-    var expanded by remember { mutableStateOf(false) }
 
-    // 箭头随展开状态旋转，与「下拉」的方向语义一致
+    var expanded by remember { mutableStateOf(false) }
     val arrowRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(200),
@@ -70,23 +69,22 @@ fun PlanBar(
     )
 
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            // 与输入栏同步：拖动消息列表时一起进入半透明
+            .graphicsLayer { this.alpha = alpha },
+        shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // ---- 收起态：一行摘要（点击整行切换展开） ----
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { expanded = !expanded }
-                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Icon(
                     imageVector = if (allDone) HugeIcons.TaskDone01 else HugeIcons.CheckList,
@@ -95,26 +93,18 @@ fun PlanBar(
                     tint = if (allDone) MaterialTheme.extendColors.green6 else MaterialTheme.colorScheme.primary,
                 )
 
-                Column(
+                // 单行摘要：进度已在右侧计数与下方进度条中体现，不再重复副标题
+                Text(
+                    text = if (allDone) {
+                        stringResource(R.string.chat_message_todo_all_done)
+                    } else {
+                        current?.content ?: stringResource(R.string.chat_message_todo_title)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(1.dp),
-                ) {
-                    Text(
-                        text = if (allDone) {
-                            stringResource(R.string.chat_message_todo_all_done)
-                        } else {
-                            current?.content ?: stringResource(R.string.chat_message_todo_title)
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = stringResource(R.string.plan_bar_progress, completed, total),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                )
 
                 Text(
                     text = "$completed/$total",
@@ -134,7 +124,7 @@ fun PlanBar(
                 )
             }
 
-            // 进度条：极细一条，贴在细条下沿
+            // 2dp 细线贴在下沿；展开时同时充当与清单的分隔
             LinearProgressIndicator(
                 progress = { completed.toFloat() / total },
                 modifier = Modifier
@@ -146,20 +136,13 @@ fun PlanBar(
                 gapSize = 0.dp,
             )
 
-            // ---- 展开态：完整清单 ----
             AnimatedVisibility(
                 visible = expanded,
                 enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(tween(160)),
                 exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(tween(120)),
             ) {
-                Column {
-                    Spacer(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                    )
-                    TodoPlanContent(todos = todos)
-                }
+                // 只渲染条目本身：状态与进度已在上方行里，不再重复渲染标题行
+                TodoPlanContent(todos = todos, showHeader = false)
             }
         }
     }

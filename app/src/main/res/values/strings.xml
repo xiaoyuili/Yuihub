@@ -1284,6 +1284,5 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="chat_message_todo_all_done">All steps completed</string>
   <string name="chat_message_todo_count_hint">%1$d of %2$d completed</string>
   <string name="chat_message_todo_collapse">Collapse</string>
-  <string name="plan_bar_progress">%1$d of %2$d completed</string>
   <string name="plan_bar_expand">Expand plan</string>
 </resources>

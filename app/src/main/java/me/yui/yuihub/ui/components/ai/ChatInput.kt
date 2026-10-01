@@ -240,8 +240,9 @@ fun ChatInput(
                 )
             }
 
-            // 计划细条：常驻在输入框上方，收起一行高度，点开看完整清单
-            PlanBar(todos = planTodos)
+            // 计划细条：常驻在输入框上方，收起一行高度，点开看完整清单；
+            // 与输入栏共用同一条淡化动画，滚动列表时一起半透明
+            PlanBar(todos = planTodos, alpha = inputAlpha)
 
             Surface(
                 modifier = Modifier
