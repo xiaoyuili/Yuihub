@@ -51,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
@@ -512,80 +513,83 @@ private fun ChatPageContent(
             },
             containerColor = Color.Transparent,
         ) { innerPadding ->
-            ChatList(
-                innerPadding = innerPadding,
-                conversation = conversation,
-                state = chatListState,
-                loading = loadingJob != null,
-                processingStatus = processingStatus,
-                previewMode = previewMode,
-                settings = setting,
-                hazeState = hazeState,
-                errors = errors,
-                onDismissError = onDismissError,
-                onClearAllErrors = onClearAllErrors,
-                onRegenerate = {
-                    vm.regenerateAtMessage(it)
-                },
-                onEdit = {
-                    inputState.editingMessage = it.id
-                    inputState.setContents(it.parts)
-                },
-                onForkMessage = {
-                    scope.launch {
-                        val fork = vm.forkMessage(message = it)
-                        navigateToChatPage(navController, chatId = fork.id)
-                    }
-                },
-                onDelete = {
-                    if (loadingJob != null) {
-                        vm.showDeleteBlockedWhileGeneratingError()
-                    } else {
-                        vm.deleteMessage(it)
-                    }
-                },
-                onUpdateMessage = { newNode ->
-                    vm.updateConversation(
-                        conversation.copy(
-                            messageNodes = conversation.messageNodes.map { node ->
-                                if (node.id == newNode.id) {
-                                    newNode
-                                } else {
-                                    node
+            Box(modifier = Modifier.fillMaxSize()) {
+                ChatList(
+                    innerPadding = innerPadding,
+                    conversation = conversation,
+                    state = chatListState,
+                    loading = loadingJob != null,
+                    processingStatus = processingStatus,
+                    previewMode = previewMode,
+                    settings = setting,
+                    hazeState = hazeState,
+                    errors = errors,
+                    onDismissError = onDismissError,
+                    onClearAllErrors = onClearAllErrors,
+                    onRegenerate = {
+                        vm.regenerateAtMessage(it)
+                    },
+                    onEdit = {
+                        inputState.editingMessage = it.id
+                        inputState.setContents(it.parts)
+                    },
+                    onForkMessage = {
+                        scope.launch {
+                            val fork = vm.forkMessage(message = it)
+                            navigateToChatPage(navController, chatId = fork.id)
+                        }
+                    },
+                    onDelete = {
+                        if (loadingJob != null) {
+                            vm.showDeleteBlockedWhileGeneratingError()
+                        } else {
+                            vm.deleteMessage(it)
+                        }
+                    },
+                    onUpdateMessage = { newNode ->
+                        vm.updateConversation(
+                            conversation.copy(
+                                messageNodes = conversation.messageNodes.map { node ->
+                                    if (node.id == newNode.id) {
+                                        newNode
+                                    } else {
+                                        node
+                                    }
                                 }
-                            }
-                        ))
-                    vm.saveConversationAsync()
-                },
-                onJumpToMessage = { index ->
-                    previewMode = false
-                    scope.launch {
-                        chatListState.requestScrollToItem(index)
-                    }
-                },
-                onToolApproval = { toolCallId, approved, reason ->
-                    vm.handleToolApproval(toolCallId, approved, reason)
-                },
-                onToolAnswer = { toolCallId, answer ->
-                    vm.handleToolAnswer(toolCallId, answer)
-                },
-                onToggleFavorite = { node ->
-                    vm.toggleMessageFavorite(node)
-                },
-                onConversationSystemPromptChange = { newPrompt ->
-                    vm.updateConversation(conversation.copy(customSystemPrompt = newPrompt))
-                    vm.saveConversationAsync()
-                },
-            )
-        }
+                            ))
+                        vm.saveConversationAsync()
+                    },
+                    onJumpToMessage = { index ->
+                        previewMode = false
+                        scope.launch {
+                            chatListState.requestScrollToItem(index)
+                        }
+                    },
+                    onToolApproval = { toolCallId, approved, reason ->
+                        vm.handleToolApproval(toolCallId, approved, reason)
+                    },
+                    onToolAnswer = { toolCallId, answer ->
+                        vm.handleToolAnswer(toolCallId, answer)
+                    },
+                    onToggleFavorite = { node ->
+                        vm.toggleMessageFavorite(node)
+                    },
+                    onConversationSystemPromptChange = { newPrompt ->
+                        vm.updateConversation(conversation.copy(customSystemPrompt = newPrompt))
+                        vm.saveConversationAsync()
+                    },
+                )
 
-        // 计划面板（P1）：点顶栏图标在顶栏下方展开，点空白处收起。
-        // 与消息区同一层级、位于其上方，不挤压内容高度。
-        if (showPlan && planTodos.isNotEmpty()) {
-            PlanOverlay(
-                todos = planTodos,
-                onDismiss = { showPlan = false },
-            )
+                // 计划面板（P1）：从顶栏下方（计划图标正下方区域）展开，点空白处收起。
+                // 遮罩同样限定在顶栏以下，顶栏仍可交互（点图标可再次收起）。
+                if (showPlan && planTodos.isNotEmpty()) {
+                    PlanOverlay(
+                        todos = planTodos,
+                        topPadding = innerPadding.calculateTopPadding(),
+                        onDismiss = { showPlan = false },
+                    )
+                }
+            }
         }
 
         if (showFilesSheet) {
@@ -686,20 +690,26 @@ private fun ChatFilesPickerSheet(
 @Composable
 private fun PlanOverlay(
     todos: List<TodoEntry>,
+    topPadding: Dp,
     onDismiss: () -> Unit,
 ) {
     val completed = todos.count { it.status == "completed" }
     val allDone = completed == todos.size
-    // 随面板一起淡入：纵向轻微展开 + 淡入，收起反向，符合「下拉」的空间感
+    // 面板淡入 + 纵向展开，符合「下拉」的空间感
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    // 顶部留出顶栏高度：面板从计划图标下方展开，不遮挡状态栏与标题栏；遮罩也只覆盖顶栏以下
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = topPadding),
+    ) {
         // 遮罩：拦截点击以收起面板，同时压暗背景让面板更聚焦
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.18f * if (visible) 1f else 0f))
+                .background(Color.Black.copy(alpha = 0.18f))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -717,6 +727,7 @@ private fun PlanOverlay(
                 shrinkTowards = Alignment.Top,
                 animationSpec = tween(160),
             ),
+            label = "plan_panel",
             modifier = Modifier.align(Alignment.TopCenter),
         ) {
             Surface(
@@ -735,7 +746,6 @@ private fun PlanOverlay(
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                     )
 
-                    // 全部完成时给一行收束提示，避免用户困惑“要不要手动关掉”
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
