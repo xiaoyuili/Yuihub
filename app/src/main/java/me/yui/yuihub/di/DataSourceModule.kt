@@ -30,6 +30,7 @@ import me.yui.yuihub.data.db.migrations.Migration_11_12
 import me.yui.yuihub.data.db.migrations.Migration_13_14
 import me.yui.yuihub.data.db.migrations.Migration_14_15
 import me.yui.yuihub.data.db.migrations.Migration_15_16
+import me.yui.yuihub.data.db.migrations.Migration_30_31
 import me.yui.yuihub.data.db.migrations.Migration_32_33
 import me.yui.yuihub.data.ai.mcp.McpManager
 import me.yui.yuihub.data.network.SettingsProxySelector
@@ -67,7 +68,7 @@ val dataSourceModule = module {
         val context: Context = get()
         Room.databaseBuilder(context, AppDatabase::class.java, "rikka_hub")
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-            .addMigrations(Migration_6_7, Migration_11_12, Migration_13_14, Migration_14_15, Migration_15_16, Migration_32_33)
+            .addMigrations(Migration_6_7, Migration_11_12, Migration_13_14, Migration_14_15, Migration_15_16, Migration_30_31, Migration_32_33)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
                     // jieba 词典 ~11MB, 同步加载在 onOpen 会拖慢首次 DB 查询链路

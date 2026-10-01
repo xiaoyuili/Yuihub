@@ -32,6 +32,7 @@ import me.yui.yuihub.data.db.migrations.Migration_26_27
 import me.yui.yuihub.data.db.migrations.Migration_27_28
 import me.yui.yuihub.data.db.migrations.Migration_28_29
 import me.yui.yuihub.data.db.migrations.Migration_29_30
+import me.yui.yuihub.data.db.migrations.Migration_30_31
 import me.yui.yuihub.data.db.migrations.Migration_8_9
 import me.yui.yuihub.utils.JsonInstant
 import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
@@ -75,7 +76,8 @@ import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
         AutoMigration(from = 27, to = 28, spec = Migration_27_28::class),
         AutoMigration(from = 28, to = 29, spec = Migration_28_29::class),
         AutoMigration(from = 29, to = 30, spec = Migration_29_30::class),
-        AutoMigration(from = 30, to = 31),
+        // 30→31：workspaces 加 shell_compatibility_mode（改手写迁移，兼容上游库已有同名列；
+        // 见 Migration_30_31 的注释），因此不再用 AutoMigration
         AutoMigration(from = 31, to = 32),
         // 33→34：补查询索引（assistant_id / folder_id / is_pinned+update_at、记忆表 assistant_id）
         AutoMigration(from = 33, to = 34),

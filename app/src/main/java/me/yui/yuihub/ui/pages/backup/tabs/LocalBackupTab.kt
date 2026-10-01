@@ -38,6 +38,7 @@ import me.yui.yuihub.ui.components.ui.CardGroup
 import me.yui.yuihub.ui.components.ui.StickyHeader
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.pages.backup.BackupVM
+import me.yui.yuihub.ui.pages.backup.RestoreOutcome
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -107,15 +108,30 @@ fun LocalBackupTab(
                         }
                     }
 
-                    vm.restoreFromLocalFile(tempFile)
+                    when (val outcome = vm.restoreFromLocalFile(tempFile)) {
+                        is RestoreOutcome.LocalRestored -> {
+                            toaster.show(
+                                context.getString(R.string.backup_page_restore_success),
+                                type = ToastType.Success
+                            )
+                            onShowRestartDialog()
+                        }
+
+                        // 选到的是 RikkaHub 备份：已自动改走「按列名交集」导入，
+                        // 不替换数据库文件，因此不会触发上游库与迁移链不兼容的问题
+                        is RestoreOutcome.RikkaHubImported -> {
+                            toaster.show(
+                                context.getString(
+                                    R.string.backup_page_rikkahub_import_success,
+                                    outcome.result.totalRows,
+                                ),
+                                type = ToastType.Success
+                            )
+                            if (outcome.result.totalRows > 0) onShowRestartDialog()
+                        }
+                    }
 
                     tempFile.delete()
-
-                    toaster.show(
-                        context.getString(R.string.backup_page_restore_success),
-                        type = ToastType.Success
-                    )
-                    onShowRestartDialog()
                 }.onFailure { e ->
                     e.printStackTrace()
                     toaster.show(

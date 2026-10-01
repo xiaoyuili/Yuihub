@@ -45,8 +45,15 @@ class BackupVM(
         return file
     }
 
-    suspend fun restoreFromLocalFile(file: File) {
+    suspend fun restoreFromLocalFile(file: File): RestoreOutcome {
+        // 上游 RikkaHub 的库是 user_version≤25，缺本 fork 的表，直接文件级替换后下次启动
+        // 迁移链会在 30→31 重复添加 workspaces.shell_compatibility_mode 列而失败（表现为
+        // 数据库打不开、工作区无法创建）。检测到上游备份就改走按列名交集的专用导入。
+        if (isRikkaHubBackup(file)) {
+            return RestoreOutcome.RikkaHubImported(importRikkaHubBackup(file))
+        }
         localBackup.restoreFromLocalFile(file, localBackupItems.value)
+        return RestoreOutcome.LocalRestored
     }
 
     /**
@@ -86,4 +93,13 @@ class BackupVM(
             AutoBackupScheduler.enqueueNext(appContext, settingsStore)
         }
     }
+}
+
+/** 本地恢复的结果：常规备份走文件级替换；检测到 RikkaHub 备份则改走专用导入 */
+sealed interface RestoreOutcome {
+    /** 常规本地恢复完成（需要重启应用） */
+    data object LocalRestored : RestoreOutcome
+
+    /** 检测到 RikkaHub 备份，已改走按列名交集导入 */
+    data class RikkaHubImported(val result: RikkaHubImporter.ImportResult) : RestoreOutcome
 }
