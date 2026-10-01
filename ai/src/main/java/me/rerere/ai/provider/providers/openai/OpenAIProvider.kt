@@ -31,9 +31,11 @@ import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.parseContextLength
 import me.rerere.ai.util.json
 import me.rerere.ai.util.mergeCustomBody
+import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.toHeaders
 import me.rerere.common.http.await
 import me.rerere.common.http.getByKey
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MultipartBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -174,7 +176,7 @@ class OpenAIProvider(
 
         val request = Request.Builder()
             .url("${providerSetting.baseUrl}/embeddings")
-            .headers(params.customHeaders.toHeaders())
+            .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
             .addHeader("Authorization", "Bearer $key")
             .addHeader("Content-Type", "application/json")
             .post(requestBody.toRequestBody("application/json".toMediaType()))
@@ -218,10 +220,12 @@ class OpenAIProvider(
                 put("prompt", params.prompt)
                 put("n", params.numOfImages)
                 
-                val isGrok = providerSetting.baseUrl.contains("x.ai", ignoreCase = true) || 
+                // 只匹配 x.ai 本身及其子域名，避免 "xxx-max.ai" 之类的中转域名被误判
+                val host = providerSetting.baseUrl.toHttpUrlOrNull()?.host?.lowercase()
+                val isGrok = host == "x.ai" || host?.endsWith(".x.ai") == true ||
                     params.model.modelId.contains("grok", ignoreCase = true)
-                
-                if (params.size.isNotBlank() && !isGrok) {
+
+                if (params.size.isNotBlank() && !params.size.equals("auto", ignoreCase = true) && !isGrok) {
                     put("size", params.size)
                 }
             }
@@ -232,7 +236,7 @@ class OpenAIProvider(
 
         val request = Request.Builder()
             .url("${providerSetting.baseUrl}/images/generations")
-            .headers(params.customHeaders.toHeaders())
+            .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
             .addHeader("Authorization", "Bearer $key")
             .addHeader("Content-Type", "application/json")
             .post(requestBody.toRequestBody("application/json".toMediaType()))
@@ -297,7 +301,7 @@ class OpenAIProvider(
 
         val request = Request.Builder()
             .url("${providerSetting.baseUrl}/images/edits")
-            .headers(params.customHeaders.toHeaders())
+            .headers(providerSetting.mergeCustomHeaders(params.customHeaders))
             .addHeader("Authorization", "Bearer $key")
             .post(bodyBuilder.build())
             .configureReferHeaders(providerSetting.baseUrl)

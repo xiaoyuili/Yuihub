@@ -75,6 +75,7 @@
   <string name="assistant_page_chat_background">Chat Background</string>
   <string name="assistant_page_chat_background_desc">Set background image for assistant chat page</string>
   <string name="assistant_page_clone">Clone</string>
+  <string name="assistant_page_clone_with_memories">Also copy memories</string>
   <string name="assistant_page_confirm">Confirm</string>
   <string name="assistant_page_current_assistant">Current Assistant</string>
   <string name="assistant_page_custom_bodies">Custom Body</string>
@@ -261,6 +262,8 @@
   <string name="citations_count">%1$d Citations</string>
   <string name="code_block_collapse">Collapse</string>
   <string name="code_block_copy">Copy Code</string>
+  <string name="code_block_copy_too_large">Code is too large to copy to the clipboard</string>
+  <string name="code_block_copy_failed">Copy failed</string>
   <string name="code_block_expand">Expand</string>
   <string name="code_block_preview">Preview</string>
   <string name="confirm">Confirm</string>
@@ -278,6 +281,8 @@
   <string name="emoji_picker_search_placeholder">Search emojis...</string>
   <string name="emoji_picker_select_skin_tone">Select Skin Tone</string>
   <string name="error_title_generate_title">Auto title generation failed</string>
+  <string name="error_title_model_not_found">Title model not found. Please select one in settings.</string>
+  <string name="error_title_model_provider_not_found">Provider of the title model not found</string>
   <string name="error_title_generation">Message generation failed</string>
   <string name="error_title_compress_context">Context compression failed</string>
   <string name="error_title_reply_empty">The model returned thinking but no answer</string>
@@ -871,6 +876,7 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="setting_provider_page_title">Providers</string>
   <string name="setting_provider_page_tool">Tool</string>
   <string name="setting_provider_page_use_service_account">Use Service Account</string>
+  <string name="setting_provider_page_interactions_api">Interactions API (Beta)</string>
   <string name="setting_provider_page_vertex_ai">Vertex AI</string>
   <string name="settings">Settings</string>
   <string name="share">Share</string>

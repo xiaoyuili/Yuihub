@@ -85,6 +85,7 @@
   <string name="assistant_page_chat_model">聊天模型</string>
   <string name="assistant_page_chat_model_desc">設定助手的預設聊天模型，如果不設定，則使用全域預設聊天模型</string>
   <string name="assistant_page_clone">複製</string>
+  <string name="assistant_page_clone_with_memories">同時複製記憶</string>
   <string name="assistant_page_confirm">確定</string>
   <string name="assistant_page_creative">創造</string>
   <string name="assistant_page_current_assistant">當前助手</string>
@@ -328,6 +329,8 @@
   <string name="citations_count">%1$d 條引用</string>
   <string name="code_block_collapse">摺疊</string>
   <string name="code_block_copy">複製代碼</string>
+  <string name="code_block_copy_too_large">程式碼過長，無法複製到剪貼簿</string>
+  <string name="code_block_copy_failed">複製失敗</string>
   <string name="code_block_expand">展開</string>
   <string name="code_block_preview">預覽</string>
   <string name="collapse_translation">收合翻譯</string>
@@ -352,6 +355,8 @@
   <string name="emoji_picker_select_skin_tone">選擇膚色</string>
   <string name="error_title_compress_conversation">對話壓縮失敗</string>
   <string name="error_title_generate_title">自動產生標題失敗</string>
+  <string name="error_title_model_not_found">找不到標題模型。請在設定中選擇一個。</string>
+  <string name="error_title_model_provider_not_found">找不到標題模型的供應商</string>
   <string name="error_title_generation">訊息產生失敗</string>
   <string name="error_title_operation">操作失敗</string>
   <string name="error_title_regenerate_message">訊息重新產生失敗</string>
@@ -961,6 +966,7 @@
   <string name="setting_provider_page_title">提供商</string>
   <string name="setting_provider_page_tool">工具</string>
   <string name="setting_provider_page_use_service_account">使用服務帳號</string>
+  <string name="setting_provider_page_interactions_api">Interactions API（Beta）</string>
   <string name="setting_provider_page_vertex_ai">Vertex AI</string>
   <string name="setting_tts_page_add">新增</string>
   <string name="setting_tts_page_add_provider">新增TTS提供商</string>

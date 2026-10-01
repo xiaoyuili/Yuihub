@@ -85,6 +85,7 @@
   <string name="assistant_page_chat_model">チャットモデル</string>
   <string name="assistant_page_chat_model_desc">アシスタントのデフォルトチャットモデルを設定します。設定しない場合は、グローバルデフォルトチャットモデルが使用されます</string>
   <string name="assistant_page_clone">複製</string>
+  <string name="assistant_page_clone_with_memories">記憶もコピー</string>
   <string name="assistant_page_confirm">確認</string>
   <string name="assistant_page_creative">創造的</string>
   <string name="assistant_page_current_assistant">現在のアシスタント</string>
@@ -328,6 +329,8 @@
   <string name="citations_count">%1$d 件の引用</string>
   <string name="code_block_collapse">折りたたむ</string>
   <string name="code_block_copy">コードをコピー</string>
+  <string name="code_block_copy_too_large">コードが長すぎてクリップボードにコピーできません</string>
+  <string name="code_block_copy_failed">コピーに失敗しました</string>
   <string name="code_block_expand">展開</string>
   <string name="code_block_preview">プレビュー</string>
   <string name="collapse_translation">翻訳を折りたたむ</string>
@@ -352,6 +355,8 @@
   <string name="emoji_picker_select_skin_tone">肌の色を選択</string>
   <string name="error_title_compress_conversation">会話の圧縮に失敗しました</string>
   <string name="error_title_generate_title">自動タイトル生成に失敗しました</string>
+  <string name="error_title_model_not_found">タイトルモデルが見つかりません。設定で選択してください。</string>
+  <string name="error_title_model_provider_not_found">タイトルモデルのプロバイダーが見つかりません</string>
   <string name="error_title_generation">メッセージ生成に失敗しました</string>
   <string name="error_title_operation">操作に失敗しました</string>
   <string name="error_title_regenerate_message">メッセージの再生成に失敗しました</string>
@@ -963,6 +968,7 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="setting_provider_page_title">プロバイダー</string>
   <string name="setting_provider_page_tool">ツール</string>
   <string name="setting_provider_page_use_service_account">サービスアカウントを使用</string>
+  <string name="setting_provider_page_interactions_api">Interactions API（ベータ）</string>
   <string name="setting_provider_page_vertex_ai">Vertex AI</string>
   <string name="setting_tts_page_add">追加</string>
   <string name="setting_tts_page_add_provider">TTSプロバイダーを追加</string>

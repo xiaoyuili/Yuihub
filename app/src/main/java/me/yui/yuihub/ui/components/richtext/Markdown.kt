@@ -2,6 +2,7 @@ package me.yui.yuihub.ui.components.richtext
 
 import android.content.ClipData
 import android.content.Intent
+import com.dokar.sonner.ToastType
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -98,11 +99,15 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Copy01
 import me.rerere.hugeicons.stroke.Download04
 import me.rerere.hugeicons.stroke.Tick01
+import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.ui.components.table.DataTable
 import me.yui.yuihub.ui.context.LocalSettings
+import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.modifier.onClick
 import me.yui.yuihub.ui.theme.JetbrainsMono
+import me.yui.yuihub.utils.SafeCopyResult
+import me.yui.yuihub.utils.setClipEntrySafely
 import me.yui.yuihub.utils.toDp
 import org.intellij.markdown.IElementType
 import org.intellij.markdown.MarkdownElementTypes
@@ -900,6 +905,7 @@ private fun TableNode(node: ASTNode, content: String, modifier: Modifier = Modif
     val clipboardManager = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val toaster = LocalToaster.current
 
     // 表格原始markdown文本（用于复制）和CSV内容（用于下载）
     val tableMarkdown = remember(node, content) { node.getTextInNode(content).trim() }
@@ -959,7 +965,23 @@ private fun TableNode(node: ASTNode, content: String, modifier: Modifier = Modif
                         .clip(RoundedCornerShape(4.dp))
                         .onClick {
                             scope.launch {
-                                clipboardManager.setClipEntry(ClipEntry(ClipData.newPlainText("table", tableMarkdown)))
+                                // 表格长度由用户数据决定，超长时直接写剪贴板会因 Binder 事务过大闪退
+                                when (clipboardManager.setClipEntrySafely("table", tableMarkdown)) {
+                                    SafeCopyResult.COPIED -> toaster.show(
+                                        context.getString(R.string.copied),
+                                        type = ToastType.Success,
+                                    )
+
+                                    SafeCopyResult.TOO_LARGE -> toaster.show(
+                                        context.getString(R.string.code_block_copy_too_large),
+                                        type = ToastType.Error,
+                                    )
+
+                                    SafeCopyResult.FAILED -> toaster.show(
+                                        context.getString(R.string.code_block_copy_failed),
+                                        type = ToastType.Error,
+                                    )
+                                }
                             }
                         }
                         .padding(4.dp)

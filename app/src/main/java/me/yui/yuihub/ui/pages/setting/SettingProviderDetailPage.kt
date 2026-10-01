@@ -115,6 +115,7 @@ import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
+import me.rerere.hugeicons.stroke.Settings03
 import me.yui.yuihub.R
 import me.yui.yuihub.data.model.ModelCatalogService
 import me.yui.yuihub.data.model.fillModelMetadata
@@ -162,7 +163,7 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val provider = settings.providers.find { it.id == id } ?: return
-    val pager = rememberPagerState { 2 }
+    val pager = rememberPagerState { 3 }
     val toaster = LocalToaster.current
     val context = LocalContext.current
     val catalog = koinInject<ModelCatalogService>()
@@ -247,6 +248,13 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                         fillMetadata = fillMetadata,
                     )
                 }
+
+                2 -> {
+                    SettingProviderAdvancedPage(
+                        provider = provider,
+                        onEdit = onEdit,
+                    )
+                }
             }
             }
             FloatingBottomBar(
@@ -259,6 +267,10 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                     FloatingBottomBarTab(
                         icon = HugeIcons.Package01,
                         label = stringResource(R.string.setting_provider_page_models),
+                    ),
+                    FloatingBottomBarTab(
+                        icon = HugeIcons.Settings03,
+                        label = stringResource(R.string.setting_provider_page_advanced_settings),
                     ),
                 ),
                 modifier = Modifier
@@ -393,6 +405,36 @@ private fun SettingProviderModelPage(
         onUpdateProvider = onEdit,
         fillMetadata = fillMetadata,
     )
+}
+
+/**
+ * 提供商高级设置：自定义请求头（provider 级，优先级低于助手/模型级同名头）。
+ */
+@Composable
+private fun SettingProviderAdvancedPage(
+    provider: ProviderSetting,
+    onEdit: (ProviderSetting) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding()
+            .verticalScroll(rememberScrollState())
+            .padding(
+                start = 16.dp,
+                top = 16.dp,
+                end = 16.dp,
+                bottom = 16.dp + FloatingBottomBarDefaults.ContentBottom,
+            ),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        CustomHeaders(
+            headers = provider.customHeaders,
+            onUpdate = { headers ->
+                onEdit(provider.copyProvider(customHeaders = headers))
+            },
+        )
+    }
 }
 
 @Composable

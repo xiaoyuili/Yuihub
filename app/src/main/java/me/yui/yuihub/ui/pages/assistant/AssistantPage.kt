@@ -19,10 +19,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -64,6 +67,7 @@ import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantMemory
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.FormItem
+import me.yui.yuihub.ui.components.ui.RikkaConfirmDialog
 import me.yui.yuihub.ui.components.ui.Tag
 import me.yui.yuihub.ui.components.ui.TagType
 import me.yui.yuihub.ui.components.ui.UIAvatar
@@ -95,6 +99,9 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
     var selectedTagIds by remember { mutableStateOf(emptySet<Uuid>()) }
     // 操作菜单状态
     var actionSheetAssistant by remember { mutableStateOf<Assistant?>(null) }
+    // 克隆确认弹窗状态（带「同时复制记忆」选项）
+    var cloneTarget by remember { mutableStateOf<Assistant?>(null) }
+    var cloneWithMemories by remember { mutableStateOf(false) }
 
     // 根据搜索关键词和选中的标签过滤助手
     val filteredAssistants = remember(settings.assistants, selectedTagIds, searchQuery) {
@@ -240,7 +247,8 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
             assistant = assistant,
             onDismiss = { actionSheetAssistant = null },
             onCopy = {
-                vm.copyAssistant(assistant)
+                cloneWithMemories = false
+                cloneTarget = assistant
                 actionSheetAssistant = null
             },
             onDelete = {
@@ -248,6 +256,34 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
                 actionSheetAssistant = null
             }
         )
+    }
+
+    // 克隆确认：可选择是否连同记忆一起复制
+    RikkaConfirmDialog(
+        show = cloneTarget != null,
+        title = stringResource(R.string.assistant_page_clone),
+        confirmText = stringResource(R.string.confirm),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = {
+            cloneTarget?.let { vm.copyAssistant(it, copyMemories = cloneWithMemories) }
+            cloneTarget = null
+        },
+        onDismiss = { cloneTarget = null },
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(
+                    value = cloneWithMemories,
+                    role = Role.Checkbox,
+                    onValueChange = { cloneWithMemories = it },
+                ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(checked = cloneWithMemories, onCheckedChange = null)
+            Text(stringResource(R.string.assistant_page_clone_with_memories))
+        }
     }
 }
 
@@ -513,7 +549,7 @@ private fun AssistantActionSheet(
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // 克隆选项
+            // 克隆选项（点击后弹确认框，可勾选是否复制记忆）
             ListItem(
                 headlineContent = { Text(stringResource(R.string.assistant_page_clone)) },
                 leadingContent = {

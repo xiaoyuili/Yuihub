@@ -36,6 +36,20 @@ class MemoryRepository(
         memoryDAO.deleteMemoriesOfAssistant(assistantId)
     }
 
+    /**
+     * 把某助手的记忆复制到另一助手（复制助手时可选）。
+     * 只搬运内容，时间戳/重要度/分类保留，后续由整理管道自然收敛。
+     */
+    suspend fun copyMemories(fromAssistantId: String, toAssistantId: String) {
+        val memories = memoryDAO.getMemoriesOfAssistant(fromAssistantId)
+        if (memories.isEmpty()) return
+        memoryDAO.insertMemories(
+            memories.map { memory ->
+                memory.copy(id = 0, assistantId = toAssistantId)
+            }
+        )
+    }
+
     suspend fun updateMemory(
         id: Int,
         content: String,

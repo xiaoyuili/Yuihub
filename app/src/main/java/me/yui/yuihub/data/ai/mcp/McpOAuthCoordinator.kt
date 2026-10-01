@@ -22,6 +22,9 @@ import kotlin.uuid.Uuid
 private const val TAG = "McpOAuthCoordinator"
 private const val TOKEN_REFRESH_LEEWAY_MS = 60_000L
 internal const val MCP_OAUTH_CALLBACK_PATH = "/oauth/callback"
+// 托管在 GitHub Pages 上的 Client ID Metadata Document，其 redirect_uris 必须与回调地址一致
+// （本地没有官方托管页，沿用上游地址；如需自定义可换成自建页面）
+internal const val MCP_OAUTH_CLIENT_METADATA_URL = "https://rikkahub.github.io/oauth/client.json"
 // 回调端口由系统随机分配（port=0），redirect_uri 以会话启动后实际解析出的地址为准
 private val OAUTH_CALLBACK_TIMEOUT = 5.minutes
 
@@ -119,10 +122,12 @@ internal class McpOAuthCoordinator(
     }
 
     suspend fun needsAuthorization(config: McpServerConfig, error: Throwable): Boolean {
-        if (looksUnauthorized(error) && config.commonOptions.oauth?.enabled == true) return true
         if (config.commonOptions.headers.any { it.first.equals("Authorization", ignoreCase = true) }) {
             return false
         }
+        // 首次 401 即触发 OAuth：不再要求用户预先手动开启 oauth.enabled，
+        // 否则新配置的 MCP 服务器第一次连上受保护资源时无法自动引导授权
+        if (looksUnauthorized(error)) return true
         return runCatching { discoveryClient.discoverProtectedResource(config.serverUrl) }
             .onFailure {
                 Log.i(TAG, "OAuth probe failed for ${config.commonOptions.name}: ${it.message}")
@@ -134,16 +139,20 @@ internal class McpOAuthCoordinator(
         val serverUrl = config.serverUrl
         require(serverUrl.isNotBlank()) { "Server URL 为空，无法授权" }
 
-        val protectedResource = discoveryClient.discoverProtectedResource(serverUrl)
-        val issuer = protectedResource.authorizationServers.firstOrNull()
-            ?: error("受保护资源未声明授权服务器")
+        // 部分服务器（如 Zomato）不提供 RFC 9728 元数据，按旧版规范退回到服务器 origin 作为授权服务器
+        val protectedResource = runCatching { discoveryClient.discoverProtectedResource(serverUrl) }
+            .onFailure { Log.i(TAG, "Protected resource discovery failed, fallback to server origin: ${it.message}") }
+            .getOrNull()
+        val issuer = protectedResource?.authorizationServers?.firstOrNull()
+            ?: McpOAuthDiscoveryClient.serverOrigin(serverUrl)
+            ?: error("无法确定授权服务器")
         val metadata = discoveryClient.discoverAuthorizationServer(issuer)
         val authorizationEndpoint = metadata.authorizationEndpoint
             ?: error("授权服务器缺少 authorization_endpoint")
         val tokenEndpoint = metadata.tokenEndpoint
             ?: error("授权服务器缺少 token_endpoint")
         val scope = config.commonOptions.oauth?.scope
-            ?: protectedResource.scopesSupported?.joinToString(" ")
+            ?: protectedResource?.scopesSupported?.joinToString(" ")
             ?: metadata.scopesSupported?.joinToString(" ")
 
         val pkce = oauthClient.generatePkce()
@@ -152,13 +161,20 @@ internal class McpOAuthCoordinator(
         val callbackSession = callbackServer.openSession(context, state)
         try {
             val redirectUri = callbackSession.redirectUri
-            check(redirectUri.startsWith("http://127.0.0.1:") && redirectUri.endsWith(MCP_OAUTH_CALLBACK_PATH)) {
+            check(redirectUri.startsWith("http://localhost:") && redirectUri.endsWith(MCP_OAUTH_CALLBACK_PATH)) {
                 "OAuth 回调服务器地址不一致: $redirectUri"
             }
             val existing = config.commonOptions.oauth
             val canReuseClient = existing?.redirectUri == redirectUri && !existing.clientId.isNullOrBlank()
             var clientId = existing?.clientId.takeIf { canReuseClient }
             var clientSecret = existing?.clientSecret.takeIf { canReuseClient }
+            if (clientId.isNullOrBlank() && metadata.registrationEndpoint == null &&
+                metadata.clientIdMetadataDocumentSupported
+            ) {
+                // 无动态注册端点时，使用 Client ID Metadata Document（URL 即 client_id）
+                clientId = MCP_OAUTH_CLIENT_METADATA_URL
+                clientSecret = null
+            }
             if (clientId.isNullOrBlank()) {
                 val registrationEndpoint = metadata.registrationEndpoint
                     ?: error("授权服务器不支持动态注册，且未预配置 client_id")

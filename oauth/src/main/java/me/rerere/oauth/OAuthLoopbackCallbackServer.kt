@@ -126,7 +126,7 @@ class OAuthLoopbackCallbackServer(
         try {
             newServer.startSuspend(wait = false)
             val resolvedPort = newServer.engine.resolvedConnectors().single().port
-            return "http://$LOOPBACK_HOST:$resolvedPort$callbackPath".also {
+            return "http://$REDIRECT_HOST:$resolvedPort$callbackPath".also {
                 server = newServer
                 redirectUri = it
             }
@@ -225,6 +225,10 @@ class OAuthLoopbackCallbackServer(
 
     private companion object {
         const val LOOPBACK_HOST = "127.0.0.1"
+
+        // redirect URI 用 localhost 而非 127.0.0.1：部分授权服务器前置的 WAF 会拦截
+        // 请求体中带 IPv4 主机的 URL，导致动态客户端注册直接 403
+        const val REDIRECT_HOST = "localhost"
     }
 
     private fun successHtml() = callbackPage(

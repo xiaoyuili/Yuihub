@@ -75,6 +75,7 @@
   <string name="assistant_page_chat_background">聊天背景</string>
   <string name="assistant_page_chat_background_desc">设置助手聊天页面的背景图片</string>
   <string name="assistant_page_clone">复制</string>
+  <string name="assistant_page_clone_with_memories">同时复制记忆</string>
   <string name="assistant_page_confirm">确定</string>
   <string name="assistant_page_current_assistant">当前助手</string>
   <string name="assistant_page_custom_bodies">自定义 Body</string>
@@ -256,6 +257,8 @@
   <string name="citations_count">%1$d 条引用</string>
   <string name="code_block_collapse">折叠</string>
   <string name="code_block_copy">复制代码</string>
+  <string name="code_block_copy_too_large">代码过长，无法复制到剪贴板</string>
+  <string name="code_block_copy_failed">复制失败</string>
   <string name="code_block_expand">展开</string>
   <string name="code_block_preview">预览</string>
   <string name="confirm">确认</string>
@@ -273,6 +276,8 @@
   <string name="emoji_picker_search_placeholder">搜索表情符号...</string>
   <string name="emoji_picker_select_skin_tone">选择肤色</string>
   <string name="error_title_generate_title">自动生成标题失败</string>
+  <string name="error_title_model_not_found">未找到标题模型。请在设置中选择一个。</string>
+  <string name="error_title_model_provider_not_found">未找到标题模型的提供商</string>
   <string name="error_title_generation">消息生成失败</string>
   <string name="error_title_compress_context">上下文自动压缩失败</string>
   <string name="error_title_reply_empty">模型只输出了思考内容，没有正文回复</string>
@@ -822,6 +827,7 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="setting_provider_page_title">供应商</string>
   <string name="setting_provider_page_tool">工具</string>
   <string name="setting_provider_page_use_service_account">使用服务账号</string>
+  <string name="setting_provider_page_interactions_api">Interactions API（Beta）</string>
   <string name="setting_provider_page_vertex_ai">Vertex AI</string>
   <string name="settings">设置</string>
   <string name="share">分享</string>

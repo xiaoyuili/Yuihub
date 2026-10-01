@@ -2,6 +2,7 @@ package me.yui.yuihub.ui.components.richtext
 
 import android.content.ClipData
 import android.net.Uri
+import com.dokar.sonner.ToastType
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -74,12 +75,15 @@ import me.yui.yuihub.ui.components.webview.WebViewContentCache
 import me.yui.yuihub.ui.components.webview.rememberWebViewState
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalSettings
+import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.context.Navigator
 import me.yui.yuihub.ui.modifier.onClick
 import me.yui.yuihub.ui.theme.AtomOneDarkPalette
 import me.yui.yuihub.ui.theme.AtomOneLightPalette
 import me.yui.yuihub.ui.theme.JetbrainsMono
 import me.yui.yuihub.ui.theme.LocalDarkMode
+import me.yui.yuihub.utils.SafeCopyResult
+import me.yui.yuihub.utils.setClipEntrySafely
 import me.yui.yuihub.utils.toDp
 import kotlin.time.Clock
 
@@ -369,6 +373,7 @@ private fun HighlightCodeActions(
     onTogglePreviewMode: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val toaster = LocalToaster.current
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -433,7 +438,24 @@ private fun HighlightCodeActions(
                     .clip(RoundedCornerShape(4.dp))
                     .onClick {
                         scope.launch {
-                            clipboardManager.setClipEntry(ClipEntry(ClipData.newPlainText("code", code)))
+                            // 代码长度由用户数据决定，超长时直接写剪贴板会因 Binder
+                            // 事务过大闪退；按结果给出提示而不抛异常
+                            when (clipboardManager.setClipEntrySafely("code", code)) {
+                                SafeCopyResult.COPIED -> toaster.show(
+                                    context.getString(R.string.copied),
+                                    type = ToastType.Success,
+                                )
+
+                                SafeCopyResult.TOO_LARGE -> toaster.show(
+                                    context.getString(R.string.code_block_copy_too_large),
+                                    type = ToastType.Error,
+                                )
+
+                                SafeCopyResult.FAILED -> toaster.show(
+                                    context.getString(R.string.code_block_copy_failed),
+                                    type = ToastType.Error,
+                                )
+                            }
                         }
                     }
                     .padding(4.dp)

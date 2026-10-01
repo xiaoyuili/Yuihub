@@ -1863,8 +1863,10 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
 
         runCatching {
             val settings = settingsStore.settingsFlow.first()
-            val model = settings.getTitleModelOrDefault() ?: return@runCatching
-            val provider = model.findProvider(settings.providers) ?: return@runCatching
+            val model = settings.getTitleModelOrDefault()
+                ?: throw IllegalStateException(context.getString(R.string.error_title_model_not_found))
+            val provider = model.findProvider(settings.providers)
+                ?: throw IllegalStateException(context.getString(R.string.error_title_model_provider_not_found))
 
             val providerHandler = providerManager.getProviderByType(provider)
             val result = providerHandler.generateText(

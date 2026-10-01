@@ -85,6 +85,7 @@
   <string name="assistant_page_chat_model">채팅 모델</string>
   <string name="assistant_page_chat_model_desc">어시스턴트의 기본 채팅 모델 설정. 미설정 시 전역 기본 채팅 모델 사용</string>
   <string name="assistant_page_clone">복제</string>
+  <string name="assistant_page_clone_with_memories">기억도 함께 복사</string>
   <string name="assistant_page_confirm">확인</string>
   <string name="assistant_page_creative">창의적</string>
   <string name="assistant_page_current_assistant">현재 어시스턴트</string>
@@ -328,6 +329,8 @@
   <string name="citations_count">%1$d 출처</string>
   <string name="code_block_collapse">접기</string>
   <string name="code_block_copy">코드 복사</string>
+  <string name="code_block_copy_too_large">코드가 너무 길어 클립보드에 복사할 수 없습니다</string>
+  <string name="code_block_copy_failed">복사 실패</string>
   <string name="code_block_expand">펼치기</string>
   <string name="code_block_preview">미리보기</string>
   <string name="collapse_translation">번역 접기</string>
@@ -352,6 +355,8 @@
   <string name="emoji_picker_select_skin_tone">스킨 톤 선택</string>
   <string name="error_title_compress_conversation">대화 압축 실패</string>
   <string name="error_title_generate_title">자동 제목 생성 실패</string>
+  <string name="error_title_model_not_found">제목 모델을 찾을 수 없습니다. 설정에서 하나를 선택해 주세요.</string>
+  <string name="error_title_model_provider_not_found">제목 모델의 제공자를 찾을 수 없습니다</string>
   <string name="error_title_generation">메시지 생성 실패</string>
   <string name="error_title_operation">작업 실패</string>
   <string name="error_title_regenerate_message">메시지 재생성 실패</string>
@@ -963,6 +968,7 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="setting_provider_page_title">제공업체</string>
   <string name="setting_provider_page_tool">도구</string>
   <string name="setting_provider_page_use_service_account">서비스 계정 사용</string>
+  <string name="setting_provider_page_interactions_api">Interactions API (베타)</string>
   <string name="setting_provider_page_vertex_ai">Vertex AI</string>
   <string name="setting_tts_page_add">추가</string>
   <string name="setting_tts_page_add_provider">TTS 제공업체 추가</string>

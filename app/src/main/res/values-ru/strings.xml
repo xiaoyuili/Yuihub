@@ -85,6 +85,7 @@
   <string name="assistant_page_chat_model">Модель чата</string>
   <string name="assistant_page_chat_model_desc">Установить модель чата по умолчанию для ассистента. Если не задано, будет использована глобальная модель чата по умолчанию</string>
   <string name="assistant_page_clone">Клонировать</string>
+  <string name="assistant_page_clone_with_memories">Также копировать память</string>
   <string name="assistant_page_confirm">Подтвердить</string>
   <string name="assistant_page_creative">Творческий</string>
   <string name="assistant_page_current_assistant">Текущий ассистент</string>
@@ -328,6 +329,8 @@
   <string name="citations_count">%1$d цитирований</string>
   <string name="code_block_collapse">Свернуть</string>
   <string name="code_block_copy">Копировать код</string>
+  <string name="code_block_copy_too_large">Код слишком длинный для копирования в буфер обмена</string>
+  <string name="code_block_copy_failed">Не удалось скопировать</string>
   <string name="code_block_expand">Развернуть</string>
   <string name="code_block_preview">Предпросмотр</string>
   <string name="collapse_translation">Свернуть перевод</string>
@@ -352,6 +355,8 @@
   <string name="emoji_picker_select_skin_tone">Выберите тон кожи</string>
   <string name="error_title_compress_conversation">Сжатие переписки не удалось</string>
   <string name="error_title_generate_title">Не удалось автоматически сгенерировать заголовок</string>
+  <string name="error_title_model_not_found">Модель заголовка не найдена. Пожалуйста, выберите её в настройках.</string>
+  <string name="error_title_model_provider_not_found">Провайдер модели заголовка не найден</string>
   <string name="error_title_generation">Ошибка генерации сообщения</string>
   <string name="error_title_operation">Операция не выполнена</string>
   <string name="error_title_regenerate_message">Не удалось повторно сгенерировать сообщение</string>
@@ -963,6 +968,7 @@
   <string name="setting_provider_page_title">Провайдеры</string>
   <string name="setting_provider_page_tool">Инструмент</string>
   <string name="setting_provider_page_use_service_account">Использовать сервисный аккаунт</string>
+  <string name="setting_provider_page_interactions_api">Interactions API (бета)</string>
   <string name="setting_provider_page_vertex_ai">Vertex AI</string>
   <string name="setting_tts_page_add">Добавить</string>
   <string name="setting_tts_page_add_provider">Добавить поставщика TTS</string>
