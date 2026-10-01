@@ -24,6 +24,7 @@
   <string name="assistant_detail_memory_desc">管理助手记忆和最近的聊天引用</string>
   <string name="assistant_detail_prompt_desc">设置系统提示、消息模板和正则规则</string>
   <string name="assistant_detail_request_desc">配置自定义请求头和正文参数</string>
+  <string name="assistant_detail_scheduled_tasks_desc">管理该助手的定时任务</string>
   <string name="assistant_extensions_page_empty_lorebooks">没有可用的世界书</string>
   <string name="assistant_extensions_page_empty_mode_injections">没有可用的模式注入</string>
   <string name="assistant_extensions_page_empty_skills">没有可用的 Skill，前往扩展管理安装</string>
@@ -118,6 +119,7 @@
   <string name="assistant_page_tab_memory">记忆</string>
   <string name="assistant_page_tab_prompt">提示词</string>
   <string name="assistant_page_tab_request">自定义请求</string>
+  <string name="assistant_page_tab_scheduled_tasks">定时任务</string>
   <string name="assistant_page_temperature">温度</string>
   <string name="assistant_page_temperature_warning">通常为 1。对于推理模型不建议修改。</string>
   <string name="assistant_page_template_preview">预览:</string>

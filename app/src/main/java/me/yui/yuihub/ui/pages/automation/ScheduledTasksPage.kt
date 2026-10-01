@@ -54,6 +54,7 @@ import me.rerere.hugeicons.stroke.Repeat
 import me.rerere.hugeicons.stroke.Task01
 import me.yui.yuihub.R
 import me.yui.yuihub.Screen
+import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.entity.ScheduleType
 import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
 import me.yui.yuihub.data.db.entity.ScheduledTaskRunStatus
@@ -64,29 +65,67 @@ import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.ui.theme.extendColors
 import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
+import org.koin.core.parameter.parametersOf
 
 /**
  * 定时任务（自动化）列表页。
  *
  * 卡片展示任务名、调度描述、最近运行状态；开关控制启用；卡片菜单可编辑/删除/立即试跑。
+ * [assistantId] 非空时为「某助手的任务」视图：只列出该助手的任务，新建时默认选中它。
  */
 @Composable
-fun ScheduledTasksPage(vm: ScheduledTasksVM = koinViewModel()) {
+fun ScheduledTasksPage(
+    assistantId: String? = null,
+    vm: ScheduledTasksVM = koinViewModel(parameters = { parametersOf(assistantId) }),
+) {
     val navController = LocalNavController.current
     val tasks by vm.tasks.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<ScheduledTaskEntity?>(null) }
 
+    // 助手视图下，标题用助手名，新建任务时把助手作为默认值带进编辑页
+    val settingsStore: SettingsStore = koinInject()
+    val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
+    val filterAssistant = assistantId?.let { id ->
+        settings.assistants.find { it.id.toString() == id }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.automation_page_title)) },
+                title = {
+                    if (assistantId != null) {
+                        // 助手视图用两行标题，避免与助手详情页标题混淆
+                        Column {
+                            Text(
+                                text = stringResource(R.string.automation_page_title),
+                                maxLines = 1,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = filterAssistant?.name?.ifBlank {
+                                    stringResource(R.string.assistant_page_default_assistant)
+                                } ?: "",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        Text(stringResource(R.string.automation_page_title))
+                    }
+                },
                 navigationIcon = { BackButton() },
                 colors = CustomColors.topBarColors,
             )
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { navController.navigate(Screen.ScheduledTaskEdit(null)) },
+                onClick = {
+                    // 助手视图下，新建任务默认归属该助手
+                    navController.navigate(Screen.ScheduledTaskEdit(null, assistantId))
+                },
             ) {
                 Icon(HugeIcons.Add01, contentDescription = stringResource(R.string.automation_page_add))
             }
@@ -129,7 +168,7 @@ fun ScheduledTasksPage(vm: ScheduledTasksVM = koinViewModel()) {
                 )
                 Spacer(modifier = Modifier.height(18.dp))
                 Button(
-                    onClick = { navController.navigate(Screen.ScheduledTaskEdit(null)) },
+                    onClick = { navController.navigate(Screen.ScheduledTaskEdit(null, assistantId)) },
                 ) {
                     Text(stringResource(R.string.automation_page_add))
                 }

@@ -29,6 +29,7 @@
   <string name="assistant_detail_memory_desc">Управляйте памятью ассистента и ссылками на недавние чаты</string>
   <string name="assistant_detail_prompt_desc">Задайте системные подсказки, шаблоны сообщений и правила regex</string>
   <string name="assistant_detail_request_desc">Настройте пользовательские заголовки и параметры тела запроса</string>
+  <string name="assistant_detail_scheduled_tasks_desc">Управление запланированными задачами этого ассистента</string>
   <string name="assistant_extensions_page_empty_lorebooks">Нет доступных lorebooks, создайте один в Prompts</string>
   <string name="assistant_extensions_page_empty_mode_injections">Нет доступных внедрений режима, создайте их в Prompts</string>
   <string name="assistant_extensions_page_empty_quick_messages">Нет доступных быстрых сообщений, создайте одно в Расширениях</string>
@@ -145,6 +146,7 @@
   <string name="assistant_page_tab_memory">Память</string>
   <string name="assistant_page_tab_prompt">Подсказки</string>
   <string name="assistant_page_tab_request">Пользовательский запрос</string>
+  <string name="assistant_page_tab_scheduled_tasks">Запланированные задачи</string>
   <string name="assistant_page_tags">Теги</string>
   <string name="assistant_page_temperature">Температура</string>
   <string name="assistant_page_temperature_warning">Обычно 1. Для моделей рассуждения изменение не рекомендуется.</string>

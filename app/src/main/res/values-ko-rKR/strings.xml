@@ -29,6 +29,7 @@
   <string name="assistant_detail_memory_desc">어시스턴트 메모리 및 최근 채팅 참조 관리</string>
   <string name="assistant_detail_prompt_desc">시스템 프롬프트, 메시지 템플릿 및 정규식 규칙 설정</string>
   <string name="assistant_detail_request_desc">사용자 지정 요청 헤더 및 본문 매개변수 구성</string>
+  <string name="assistant_detail_scheduled_tasks_desc">이 어시스턴트의 예약 작업 관리</string>
   <string name="assistant_extensions_page_empty_lorebooks">사용 가능한 롤북이 없습니다. 프롬프트에서 생성하세요</string>
   <string name="assistant_extensions_page_empty_mode_injections">사용 가능한 모드 삽입이 없습니다. 프롬프트에서 생성하세요.</string>
   <string name="assistant_extensions_page_empty_quick_messages">빠른 메시지가 없습니다. 확장 기능에서 만들어 주세요.</string>
@@ -145,6 +146,7 @@
   <string name="assistant_page_tab_memory">기억 기능</string>
   <string name="assistant_page_tab_prompt">프롬프트</string>
   <string name="assistant_page_tab_request">사용자 요청</string>
+  <string name="assistant_page_tab_scheduled_tasks">예약 작업</string>
   <string name="assistant_page_tags">태그</string>
   <string name="assistant_page_temperature">온도</string>
   <string name="assistant_page_temperature_warning">일반적으로 1입니다. 추론 모델에서는 변경을 권장하지 않습니다.</string>

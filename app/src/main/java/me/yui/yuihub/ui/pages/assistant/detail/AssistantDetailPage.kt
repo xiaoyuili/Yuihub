@@ -3,6 +3,7 @@ package me.yui.yuihub.ui.pages.assistant.detail
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.BookOpen01
 import me.rerere.hugeicons.stroke.Brain02
+import me.rerere.hugeicons.stroke.Clock01
 import me.rerere.hugeicons.stroke.Code
 import me.rerere.hugeicons.stroke.Message02
 import me.rerere.hugeicons.stroke.Settings03
@@ -60,6 +61,7 @@ private val ExtensionsAccent = Color(0xFFD98A0C)
 private val MemoryAccent = Color(0xFF0E9E85)
 private val RequestAccent = Color(0xFFE0455F)
 private val LocalToolsAccent = Color(0xFF5560D8)
+private val ScheduledTasksAccent = Color(0xFF0E8CD9)
 
 @Composable
 fun AssistantDetailPage(id: String) {
@@ -172,6 +174,15 @@ fun AssistantDetailPage(id: String) {
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                         )
                     }
+
+                    AssistantFeatureCard(
+                        title = stringResource(R.string.assistant_page_tab_scheduled_tasks),
+                        description = stringResource(R.string.assistant_detail_scheduled_tasks_desc),
+                        icon = HugeIcons.Clock01,
+                        accent = ScheduledTasksAccent,
+                        onClick = { navController.navigate(Screen.AssistantScheduledTasks(id)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }

@@ -24,6 +24,7 @@
   <string name="assistant_detail_memory_desc">Manage assistant memory and recent chat references</string>
   <string name="assistant_detail_prompt_desc">Set system prompts, message templates, and regex rules</string>
   <string name="assistant_detail_request_desc">Configure custom request headers and body parameters</string>
+  <string name="assistant_detail_scheduled_tasks_desc">Manage this assistant\'s scheduled tasks</string>
   <string name="assistant_extensions_page_empty_lorebooks">No lorebooks available</string>
   <string name="assistant_extensions_page_empty_mode_injections">No mode injections available</string>
   <string name="assistant_extensions_page_empty_skills">No skills available, install one in Extensions</string>
@@ -118,6 +119,7 @@
   <string name="assistant_page_tab_memory">Memory</string>
   <string name="assistant_page_tab_prompt">Prompts</string>
   <string name="assistant_page_tab_request">Custom Request</string>
+  <string name="assistant_page_tab_scheduled_tasks">Scheduled Tasks</string>
   <string name="assistant_page_temperature">Temperature</string>
   <string name="assistant_page_temperature_warning">Usually 1. Not recommended to change for reasoning models.</string>
   <string name="assistant_page_template_preview">Preview:</string>

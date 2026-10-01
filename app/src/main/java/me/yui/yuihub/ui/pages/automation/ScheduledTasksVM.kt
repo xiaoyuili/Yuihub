@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.yui.yuihub.data.db.entity.ScheduleType
@@ -16,12 +17,17 @@ import kotlin.uuid.Uuid
  * 定时任务页 ViewModel。
  *
  * 列表来自 Room Flow（实时）；写操作全部经 Repository（内部同步刷新 WorkManager 调度）。
+ * [assistantFilter] 非空时只展示该助手的任务（从助手页进入的场景）。
  */
 class ScheduledTasksVM(
     private val repository: ScheduledTaskRepository,
+    private val assistantFilter: String? = null,
 ) : ViewModel() {
 
     val tasks: StateFlow<List<ScheduledTaskEntity>> = repository.tasksFlow
+        .map { tasks ->
+            assistantFilter?.let { id -> tasks.filter { it.assistantId == id } } ?: tasks
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // 幂等保护：连点保存时只允许一次写入落地（UI 禁用可能因重组时机而漏网）

@@ -29,6 +29,7 @@
   <string name="assistant_detail_memory_desc">アシスタントメモリと最近のチャット参照を管理</string>
   <string name="assistant_detail_prompt_desc">システムプロンプト、メッセージテンプレート、正規表現ルールを設定</string>
   <string name="assistant_detail_request_desc">カスタムリクエストヘッダーとボディパラメータを設定</string>
+  <string name="assistant_detail_scheduled_tasks_desc">このアシスタントの定期タスクを管理</string>
   <string name="assistant_extensions_page_empty_lorebooks">利用可能なロアブックがありません。プロンプトで作成してください</string>
   <string name="assistant_extensions_page_empty_mode_injections">利用可能なモードインジェクションがありません。プロンプトで作成してください</string>
   <string name="assistant_extensions_page_empty_quick_messages">クイックメッセージがありません。拡張機能から作成してください</string>
@@ -145,6 +146,7 @@
   <string name="assistant_page_tab_memory">記憶</string>
   <string name="assistant_page_tab_prompt">プロンプト</string>
   <string name="assistant_page_tab_request">カスタムリクエスト</string>
+  <string name="assistant_page_tab_scheduled_tasks">定期タスク</string>
   <string name="assistant_page_tags">タグ</string>
   <string name="assistant_page_temperature">温度</string>
   <string name="assistant_page_temperature_warning">通常は 1 です。推論モデルでは変更を推奨しません。</string>

@@ -383,6 +383,10 @@ class RouteActivity : ComponentActivity() {
                                 AssistantExtensionsPage(key.id)
                             }
 
+                            entry<Screen.AssistantScheduledTasks> { key ->
+                                ScheduledTasksPage(assistantId = key.id)
+                            }
+
                             entry<Screen.Setting> {
                                 SettingPage()
                             }
@@ -499,7 +503,10 @@ class RouteActivity : ComponentActivity() {
                             }
 
                             entry<Screen.ScheduledTaskEdit> { key ->
-                                ScheduledTaskEditPage(taskId = key.id)
+                                ScheduledTaskEditPage(
+                                    taskId = key.id,
+                                    defaultAssistantId = key.defaultAssistantId,
+                                )
                             }
 
                             entry<Screen.SubagentPersonas> {
@@ -626,6 +633,10 @@ sealed interface Screen : NavKey {
     @Serializable
     data class AssistantInjections(val id: String) : Screen
 
+    /** 某助手名下的定时任务列表（新建时默认选中该助手） */
+    @Serializable
+    data class AssistantScheduledTasks(val id: String) : Screen
+
     @Serializable
     data object Setting : Screen
 
@@ -711,7 +722,11 @@ sealed interface Screen : NavKey {
     data object ScheduledTasks : Screen
 
     @Serializable
-    data class ScheduledTaskEdit(val id: String? = null) : Screen
+    data class ScheduledTaskEdit(
+        val id: String? = null,
+        /** 新建任务时的默认助手（从助手页进入的场景） */
+        val defaultAssistantId: String? = null,
+    ) : Screen
 
     @Serializable
     data object SubagentPersonas : Screen

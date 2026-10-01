@@ -37,7 +37,12 @@ val viewModelModule = module {
         )
     }
     viewModelOf(::ChatDrawerVM)
-    viewModelOf(::ScheduledTasksVM)
+    viewModel<ScheduledTasksVM> {
+        ScheduledTasksVM(
+            repository = get(),
+            assistantFilter = it.getOrNull(),
+        )
+    }
     viewModelOf(::SettingVM)
     viewModelOf(::DebugVM)
     viewModelOf(::AssistantVM)

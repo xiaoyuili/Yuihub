@@ -29,6 +29,7 @@
   <string name="assistant_detail_memory_desc">管理助理記憶體與近期聊天參考</string>
   <string name="assistant_detail_prompt_desc">設定系統提示、訊息範本與正規表示式規則</string>
   <string name="assistant_detail_request_desc">設定自訂請求標頭與主體參數</string>
+  <string name="assistant_detail_scheduled_tasks_desc">管理該助手的定時任務</string>
   <string name="assistant_extensions_page_empty_lorebooks">尚無可用的 lorebook，請在 Prompts 中建立</string>
   <string name="assistant_extensions_page_empty_mode_injections">尚無可用的模式注入，請在 Prompts 中建立一個</string>
   <string name="assistant_extensions_page_empty_quick_messages">目前沒有可用的快速訊息，請在擴充功能中建立</string>
@@ -145,6 +146,7 @@
   <string name="assistant_page_tab_memory">記憶</string>
   <string name="assistant_page_tab_prompt">提示詞</string>
   <string name="assistant_page_tab_request">自定義請求</string>
+  <string name="assistant_page_tab_scheduled_tasks">定時任務</string>
   <string name="assistant_page_tags">標籤</string>
   <string name="assistant_page_temperature">溫度</string>
   <string name="assistant_page_temperature_warning">通常為 1。對於推理模型不建議修改。</string>

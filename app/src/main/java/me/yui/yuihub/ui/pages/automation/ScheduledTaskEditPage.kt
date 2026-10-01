@@ -79,6 +79,7 @@ import kotlin.uuid.Uuid
 @Composable
 fun ScheduledTaskEditPage(
     taskId: String?,
+    defaultAssistantId: String? = null,
     vm: ScheduledTasksVM = koinViewModel(),
 ) {
     val settingsStore: SettingsStore = koinInject()
@@ -96,6 +97,7 @@ fun ScheduledTaskEditPage(
     var assistantId by remember(existing?.id) {
         mutableStateOf(
             existing?.assistantId?.let { runCatching { Uuid.parse(it) }.getOrNull() }
+                ?: defaultAssistantId?.let { runCatching { Uuid.parse(it) }.getOrNull() }
                 ?: settings.assistantId
         )
     }
