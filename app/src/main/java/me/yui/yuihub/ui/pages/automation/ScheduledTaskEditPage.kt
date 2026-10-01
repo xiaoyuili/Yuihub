@@ -61,6 +61,7 @@ import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.FormItem
 import me.yui.yuihub.ui.components.ui.UIAvatar
+import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
@@ -83,6 +84,7 @@ fun ScheduledTaskEditPage(
     val settingsStore: SettingsStore = koinInject()
     val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
     val allTasks by vm.tasks.collectAsStateWithLifecycle()
+    val navController = LocalNavController.current
 
     val existing = remember(taskId, allTasks) {
         taskId?.let { id -> allTasks.find { it.id == id } }
@@ -116,6 +118,7 @@ fun ScheduledTaskEditPage(
     var showTimePicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showAssistantPicker by remember { mutableStateOf(false) }
+    var saving by remember { mutableStateOf(false) }
 
     val selectedAssistant: Assistant = settings.assistants.find { it.id == assistantId }
         ?: settings.getCurrentAssistant()
@@ -432,6 +435,9 @@ fun ScheduledTaskEditPage(
             item {
                 Button(
                     onClick = {
+                        // 防重复提交：保存期间按钮禁用，避免连点创建多条任务
+                        if (saving) return@Button
+                        saving = true
                         if (existing == null) {
                             vm.create(
                                 name = name.trim(),
@@ -441,6 +447,10 @@ fun ScheduledTaskEditPage(
                                 triggerAt = triggerAt,
                                 intervalMinutes = intervalMinutes,
                                 timeOfDayMinutes = timeOfDayMinutes,
+                                onDone = {
+                                    // 保存成功后回到任务列表，而不是停留在编辑页
+                                    navController.popBackStack()
+                                },
                             )
                         } else {
                             vm.update(
@@ -452,11 +462,14 @@ fun ScheduledTaskEditPage(
                                     triggerAt = triggerAt,
                                     intervalMinutes = intervalMinutes,
                                     timeOfDayMinutes = timeOfDayMinutes,
-                                )
+                                ),
+                                onDone = {
+                                    navController.popBackStack()
+                                },
                             )
                         }
                     },
-                    enabled = name.isNotBlank() && prompt.isNotBlank(),
+                    enabled = !saving && name.isNotBlank() && prompt.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(stringResource(R.string.automation_edit_save))

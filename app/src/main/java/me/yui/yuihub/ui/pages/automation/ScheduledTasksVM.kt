@@ -24,6 +24,10 @@ class ScheduledTasksVM(
     val tasks: StateFlow<List<ScheduledTaskEntity>> = repository.tasksFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // 幂等保护：连点保存时只允许一次写入落地（UI 禁用可能因重组时机而漏网）
+    @Volatile
+    private var creating = false
+
     fun create(
         name: String,
         prompt: String,
@@ -34,24 +38,30 @@ class ScheduledTasksVM(
         timeOfDayMinutes: Int,
         onDone: () -> Unit = {},
     ) {
+        if (creating) return
+        creating = true
         viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            repository.upsert(
-                ScheduledTaskEntity(
-                    id = Uuid.random().toString(),
-                    name = name.trim(),
-                    prompt = prompt.trim(),
-                    assistantId = assistantId.toString(),
-                    scheduleType = scheduleType.name,
-                    triggerAt = triggerAt,
-                    intervalMinutes = intervalMinutes,
-                    timeOfDayMinutes = timeOfDayMinutes,
-                    enabled = true,
-                    createdAt = now,
-                    updatedAt = now,
+            try {
+                val now = System.currentTimeMillis()
+                repository.upsert(
+                    ScheduledTaskEntity(
+                        id = Uuid.random().toString(),
+                        name = name.trim(),
+                        prompt = prompt.trim(),
+                        assistantId = assistantId.toString(),
+                        scheduleType = scheduleType.name,
+                        triggerAt = triggerAt,
+                        intervalMinutes = intervalMinutes,
+                        timeOfDayMinutes = timeOfDayMinutes,
+                        enabled = true,
+                        createdAt = now,
+                        updatedAt = now,
+                    )
                 )
-            )
-            onDone()
+                onDone()
+            } finally {
+                creating = false
+            }
         }
     }
 
