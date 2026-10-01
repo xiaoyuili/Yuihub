@@ -34,6 +34,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,11 +57,11 @@ import me.yui.yuihub.R
 import me.yui.yuihub.Screen
 import me.yui.yuihub.data.update.AppUpdateInfo
 import me.yui.yuihub.data.update.UpdateChecker
+import me.yui.yuihub.data.update.UpdateDownloader
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.easteregg.EmojiBurstHost
 import me.yui.yuihub.ui.components.ui.CardGroup
 import me.yui.yuihub.ui.components.update.UpdateDialog
-import me.yui.yuihub.ui.components.update.rememberUpdateDownloader
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalToaster
 import com.dokar.sonner.ToastType
@@ -82,7 +83,7 @@ fun SettingAboutPage() {
     var latestVersion by remember { mutableStateOf<String?>(null) }
     var latestVersionCode by remember { mutableStateOf<String?>(null) }
     var pendingUpdate by remember { mutableStateOf<AppUpdateInfo?>(null) }
-    val startDownload = rememberUpdateDownloader()
+    val downloader = koinInject<UpdateDownloader>()
     val hasUpdate = latestVersion != null
 
     fun checkUpdate() {
@@ -287,13 +288,36 @@ fun SettingAboutPage() {
     }
 
     pendingUpdate?.let { update ->
+        val downloadState by downloader.state.collectAsStateWithLifecycle()
+
         UpdateDialog(
             update = update,
-            onDismiss = { pendingUpdate = null },
-            onIgnore = { pendingUpdate = null },
-            onUpdate = { info ->
+            downloadState = downloadState,
+            onDismiss = {
+                // 下载中关闭 = 取消下载；已完成/失败时只是关窗，不能取消，
+                // 否则会把已下载好的安装包从系统下载记录里删掉
+                if (downloadState is UpdateDownloader.State.TestingRoutes ||
+                    downloadState is UpdateDownloader.State.Downloading
+                ) {
+                    downloader.cancel()
+                }
                 pendingUpdate = null
-                startDownload(info)
+            },
+            onIgnore = { pendingUpdate = null },
+            onUpdate = { info -> downloader.start(info) },
+            onRetry = { downloader.retry() },
+            onInstall = {
+                when (downloader.install(context)) {
+                    UpdateDownloader.InstallOutcome.LAUNCHED -> pendingUpdate = null
+                    UpdateDownloader.InstallOutcome.NEED_PERMISSION -> toaster.show(
+                        context.getString(R.string.update_dialog_install_permission_needed),
+                        type = ToastType.Warning,
+                    )
+                    UpdateDownloader.InstallOutcome.UNAVAILABLE -> toaster.show(
+                        context.getString(R.string.update_dialog_install_unavailable),
+                        type = ToastType.Error,
+                    )
+                }
             },
         )
     }

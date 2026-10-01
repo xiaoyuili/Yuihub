@@ -43,6 +43,7 @@ import me.yui.yuihub.data.model.ModelCatalogService
 import me.yui.yuihub.data.sync.LocalBackupService
 import me.yui.yuihub.data.sync.RikkaHubImporter
 import me.yui.yuihub.data.update.UpdateChecker
+import me.yui.yuihub.data.update.UpdateDownloader
 import me.rerere.search.SearchService
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -58,6 +59,10 @@ val dataSourceModule = module {
 
     single {
         UpdateChecker(okHttpClient = get(), json = get())
+    }
+
+    single {
+        UpdateDownloader(context = get(), checker = get(), appScope = get())
     }
 
     single {
