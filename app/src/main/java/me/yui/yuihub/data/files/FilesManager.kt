@@ -252,7 +252,7 @@ class FilesManager(
     }
 
     fun getImagesDir(): File {
-        val dir = context.filesDir.resolve("images")
+        val dir = context.filesDir.resolve(FileFolders.IMAGES)
         if (!dir.exists()) {
             dir.mkdirs()
         }
@@ -515,6 +515,9 @@ object FileFolders {
     const val SKILLS = "skills"
     const val FONTS = "fonts"
     const val TOOL_OUTPUTS = "tool_outputs"
+
+    /** 生成的图片（生成/编辑结果）。DB 里只存相对路径，文件本体在这里。 */
+    const val IMAGES = "images"
 }
 
 suspend fun FilesManager.saveUploadFromUri(
