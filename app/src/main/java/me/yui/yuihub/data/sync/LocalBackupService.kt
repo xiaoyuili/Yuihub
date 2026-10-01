@@ -61,19 +61,38 @@ class LocalBackupService(
             }
 
             if (items.contains(BackupItem.DATABASE)) {
-                // 先 checkpoint: WAL 里的未合并页写回主库, 否则热拷出的快照缺最新数据,
-                // 恢复后会丢最后一次会话的内容
-                runCatching {
-                    database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)")
-                        .use { it.moveToFirst() }
-                }
-                val dbFile = context.getDatabasePath(DATABASE_NAME)
-                if (dbFile.exists()) {
-                    addFileToZip(zipOut, dbFile, DATABASE_NAME)
+                // VACUUM INTO 在单个读事务里导出，得到包含已提交 WAL 内容的一致快照；
+                // 比「checkpoint + 拷贝文件」更稳（拷贝期间写入不会被看到，且不会拷到半页）。
+                val snapshot = File(context.cacheDir, "backup_snapshot_${timestamp}.db")
+                if (snapshot.exists()) snapshot.delete()
+                try {
+                    runCatching {
+                        database.openHelper.writableDatabase.execSQL(
+                            "VACUUM main INTO ?",
+                            arrayOf(snapshot.absolutePath),
+                        )
+                    }.onFailure {
+                        Log.w(TAG, "prepareBackupFile: VACUUM INTO failed, falling back to file copy", it)
+                    }
+
+                    if (snapshot.exists() && snapshot.length() > 0) {
+                        addFileToZip(zipOut, snapshot, DATABASE_NAME)
+                    } else {
+                        // 回退路径：老设备/异常情况下仍保底可备份
+                        runCatching {
+                            database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)")
+                                .use { it.moveToFirst() }
+                        }
+                        val dbFile = context.getDatabasePath(DATABASE_NAME)
+                        if (dbFile.exists()) {
+                            addFileToZip(zipOut, dbFile, DATABASE_NAME)
+                        }
+                    }
+                } finally {
+                    snapshot.delete()
                 }
 
-                // 只保留主库：checkpoint(TRUNCATE) 后 WAL 已清空，把空的 sidecar 也打进去
-                // 会让恢复端多写一个零字节 WAL 文件，无意义且干扰「是否携带 WAL」的判断。
+                // 只保留主库：快照是自包含的（WAL 内容已合并），无需再带 sidecar
             }
 
             if (items.contains(BackupItem.FILES)) {
@@ -314,41 +333,11 @@ class LocalBackupService(
      * 所有分支都做 canonicalPath 边界检查，拒绝 zip 条目里的路径穿越。
      */
     private fun restoreFileEntry(zipIn: ZipInputStream, entryName: String) {
-        when {
-            entryName.startsWith("${FileFolders.UPLOAD}/") ->
-                restoreFlatEntry(zipIn, entryName, FileFolders.UPLOAD)
-
-            entryName.startsWith("${FileFolders.SKILLS}/") ->
-                restoreSkillEntry(zipIn, entryName)
-
-            entryName.startsWith("${FileFolders.FONTS}/") ->
-                restoreFlatEntry(zipIn, entryName, FileFolders.FONTS)
-
-            entryName.startsWith("${FileFolders.TOOL_OUTPUTS}/") ->
-                restorePrefixedDirectoryEntry(zipIn, entryName, FileFolders.TOOL_OUTPUTS)
-
-            entryName.startsWith("${FileFolders.IMAGES}/") ->
-                restoreFlatEntry(zipIn, entryName, FileFolders.IMAGES)
-
-            else -> Log.i(TAG, "restoreFileEntry: Skipping entry $entryName")
+        runCatching {
+            writeFileEntry(entryName, zipIn.readBytes())
+        }.onFailure {
+            Log.e(TAG, "restoreFileEntry: failed for $entryName", it)
         }
-    }
-
-    /** 平铺目录（upload/fonts/images）：只接受一级文件名，不接受子路径 */
-    private fun restoreFlatEntry(zipIn: ZipInputStream, entryName: String, folderName: String) {
-        val fileName = entryName.substringAfter("$folderName/")
-        if (fileName.isBlank() || fileName.contains('/')) {
-            Log.w(TAG, "restoreFlatEntry: Rejected nested or empty name $entryName")
-            return
-        }
-        val folder = File(context.filesDir, folderName).apply { mkdirs() }
-        val targetFile = File(folder, fileName)
-        if (!isInside(folder, targetFile)) {
-            Log.w(TAG, "restoreFlatEntry: Rejected path escape $entryName")
-            return
-        }
-        FileOutputStream(targetFile).use { outputStream -> zipIn.copyTo(outputStream) }
-        Log.i(TAG, "restoreFlatEntry: Restored $entryName (${targetFile.length()} bytes)")
     }
 
     private fun addFileToZip(zipOut: ZipOutputStream, file: File, entryName: String) {
@@ -385,65 +374,94 @@ class LocalBackupService(
         }
     }
 
-    private fun restoreSkillEntry(zipIn: ZipInputStream, entryName: String) {
-        val relativePath = entryName.substringAfter("${FileFolders.SKILLS}/")
-        val skillName = relativePath.substringBefore('/', missingDelimiterValue = "")
-        val skillRelativePath = relativePath.substringAfter('/', missingDelimiterValue = "")
-
-        if (skillName.isBlank() || skillRelativePath.isBlank()) {
-            Log.w(TAG, "restoreSkillEntry: Invalid skill entry $entryName")
-            return
-        }
-
-        val skillsRoot = File(context.filesDir, FileFolders.SKILLS).apply { mkdirs() }
-        val skillDir = SkillPaths.resolveSkillDir(skillsRoot, skillName)
-            ?: throw Exception("Invalid skill directory: $entryName")
-        val targetFile = SkillPaths.resolveSkillFile(skillDir, skillRelativePath)
-            ?: throw Exception("Invalid skill file path: $entryName")
-
-        skillDir.mkdirs()
-        targetFile.parentFile?.mkdirs()
-
-        try {
-            FileOutputStream(targetFile).use { outputStream ->
-                zipIn.copyTo(outputStream)
-            }
-            Log.i(TAG, "restoreSkillEntry: Restored $entryName (${targetFile.length()} bytes)")
-        } catch (e: Exception) {
-            Log.e(TAG, "restoreSkillEntry: Failed to restore skill file $entryName", e)
-            throw Exception("Failed to restore skill file $entryName: ${e.message}")
-        }
-    }
-
-    private fun restorePrefixedDirectoryEntry(
-        zipIn: ZipInputStream,
-        entryName: String,
-        folderName: String,
-    ) {
-        val relativePath = entryName.substringAfter("$folderName/")
-        if (relativePath.isBlank()) {
-            Log.w(TAG, "restorePrefixedDirectoryEntry: Invalid entry $entryName")
-            return
-        }
-        val root = File(context.filesDir, folderName).apply { mkdirs() }
-        val targetFile = File(root, relativePath)
-        // 用 canonicalPath 判定而不是字符串 contains("..")：`a/../../b` 这类能被前者拦住
-        if (!isInside(root, targetFile)) {
-            Log.w(TAG, "restorePrefixedDirectoryEntry: Rejected path escape $entryName")
-            return
-        }
-        targetFile.parentFile?.mkdirs()
-        FileOutputStream(targetFile).use { outputStream ->
-            zipIn.copyTo(outputStream)
-        }
-        Log.i(TAG, "restorePrefixedDirectoryEntry: Restored $entryName (${targetFile.length()} bytes)")
-    }
-
     /** target 的规范化路径是否落在 root 目录内（root 自身不算） */
     private fun isInside(root: File, target: File): Boolean {
         val rootPath = root.canonicalPath
         val targetPath = target.canonicalPath
         return targetPath != rootPath && targetPath.startsWith(rootPath + File.separator)
+    }
+
+    /**
+     * 把单个文件条目写进 filesDir 下对应目录（供 RikkaHub 导入复用）。
+     *
+     * 与恢复流程共用同一套前缀分派与路径校验，不重复实现。
+     * 路径非法/前缀未知时静默跳过（记日志）。
+     */
+    fun writeFileEntry(entryName: String, bytes: ByteArray) {
+        runCatching {
+            when {
+                entryName.startsWith("${FileFolders.UPLOAD}/") ->
+                    writeFlatBytes(entryName, bytes, FileFolders.UPLOAD)
+
+                entryName.startsWith("${FileFolders.SKILLS}/") ->
+                    writeSkillBytes(entryName, bytes)
+
+                entryName.startsWith("${FileFolders.FONTS}/") ->
+                    writeFlatBytes(entryName, bytes, FileFolders.FONTS)
+
+                entryName.startsWith("${FileFolders.TOOL_OUTPUTS}/") ->
+                    writeNestedBytes(entryName, bytes, FileFolders.TOOL_OUTPUTS)
+
+                entryName.startsWith("${FileFolders.IMAGES}/") ->
+                    writeFlatBytes(entryName, bytes, FileFolders.IMAGES)
+
+                else -> Log.i(TAG, "writeFileEntry: Skipping entry $entryName")
+            }
+        }.onFailure {
+            Log.e(TAG, "writeFileEntry: failed for $entryName", it)
+        }
+    }
+
+    private fun writeFlatBytes(entryName: String, bytes: ByteArray, folderName: String) {
+        val fileName = entryName.substringAfter("$folderName/")
+        if (fileName.isBlank() || fileName.contains('/')) {
+            Log.w(TAG, "writeFlatBytes: Rejected nested or empty name $entryName")
+            return
+        }
+        val folder = File(context.filesDir, folderName).apply { mkdirs() }
+        val targetFile = File(folder, fileName)
+        if (!isInside(folder, targetFile)) {
+            Log.w(TAG, "writeFlatBytes: Rejected path escape $entryName")
+            return
+        }
+        targetFile.outputStream().use { it.write(bytes) }
+        Log.i(TAG, "writeFlatBytes: wrote $entryName (${bytes.size} bytes)")
+    }
+
+    private fun writeNestedBytes(entryName: String, bytes: ByteArray, folderName: String) {
+        val relativePath = entryName.substringAfter("$folderName/")
+        if (relativePath.isBlank()) {
+            Log.w(TAG, "writeNestedBytes: Invalid entry $entryName")
+            return
+        }
+        val root = File(context.filesDir, folderName).apply { mkdirs() }
+        val targetFile = File(root, relativePath)
+        if (!isInside(root, targetFile)) {
+            Log.w(TAG, "writeNestedBytes: Rejected path escape $entryName")
+            return
+        }
+        targetFile.parentFile?.mkdirs()
+        targetFile.outputStream().use { it.write(bytes) }
+        Log.i(TAG, "writeNestedBytes: wrote $entryName (${bytes.size} bytes)")
+    }
+
+    private fun writeSkillBytes(entryName: String, bytes: ByteArray) {
+        val relativePath = entryName.substringAfter("${FileFolders.SKILLS}/")
+        val skillName = relativePath.substringBefore('/', missingDelimiterValue = "")
+        val skillRelativePath = relativePath.substringAfter('/', missingDelimiterValue = "")
+        if (skillName.isBlank() || skillRelativePath.isBlank()) {
+            Log.w(TAG, "writeSkillBytes: Invalid skill entry $entryName")
+            return
+        }
+        val skillsRoot = File(context.filesDir, FileFolders.SKILLS).apply { mkdirs() }
+        val skillDir = SkillPaths.resolveSkillDir(skillsRoot, skillName)
+            ?: error("Invalid skill directory: $entryName")
+        val targetFile = SkillPaths.resolveSkillFile(skillDir, skillRelativePath)
+            ?: error("Invalid skill file path: $entryName")
+        skillDir.mkdirs()
+        targetFile.parentFile?.mkdirs()
+        targetFile.outputStream().use { it.write(bytes) }
+        Log.i(TAG, "writeSkillBytes: wrote $entryName (${bytes.size} bytes)")
     }
 
     private fun addVirtualFileToZip(zipOut: ZipOutputStream, name: String, content: String) {

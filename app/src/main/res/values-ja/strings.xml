@@ -1458,4 +1458,8 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="plan_bar_expand">プランを展開</string>
   <string name="chat_message_tool_todo_update">プランを更新</string>
   <string name="chat_message_tool_todo_update_progress">プランを更新 · %1$d/%2$d</string>
+  <string name="backup_page_rikkahub_import">RikkaHub からインポート</string>
+  <string name="backup_page_rikkahub_import_desc">上流 RikkaHub のバックアップからチャット・設定・ファイルを読み込みます</string>
+  <string name="backup_page_rikkahub_import_confirm">バックアップのデータは現在のデータにマージされます。続行しますか？</string>
+  <string name="backup_page_rikkahub_import_success">RikkaHub から %1$d 件のレコードをインポートしました</string>
 </resources>

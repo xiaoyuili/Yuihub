@@ -1283,4 +1283,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="plan_bar_expand">展开计划</string>
   <string name="chat_message_tool_todo_update">更新计划</string>
   <string name="chat_message_tool_todo_update_progress">更新计划 · %1$d/%2$d</string>
+  <string name="backup_page_rikkahub_import">导入 RikkaHub 备份</string>
+  <string name="backup_page_rikkahub_import_desc">从上游 RikkaHub 备份读取聊天记录、设置与文件</string>
+  <string name="backup_page_rikkahub_import_confirm">备份中的数据将合并进当前数据，是否继续？</string>
+  <string name="backup_page_rikkahub_import_success">已从 RikkaHub 导入 %1$d 条记录</string>
 </resources>

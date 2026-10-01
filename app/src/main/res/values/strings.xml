@@ -1287,4 +1287,8 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="plan_bar_expand">Expand plan</string>
   <string name="chat_message_tool_todo_update">Update plan</string>
   <string name="chat_message_tool_todo_update_progress">Update plan · %1$d/%2$d</string>
+  <string name="backup_page_rikkahub_import">Import from RikkaHub</string>
+  <string name="backup_page_rikkahub_import_desc">Read chats, settings and files from an upstream RikkaHub backup</string>
+  <string name="backup_page_rikkahub_import_confirm">Data from the backup will be merged into your current data. Continue?</string>
+  <string name="backup_page_rikkahub_import_success">Imported %1$d records from RikkaHub</string>
 </resources>

@@ -56,6 +56,7 @@ fun LocalBackupTab(
     var isExporting by remember { mutableStateOf(false) }
     var isRestoring by remember { mutableStateOf(false) }
     var showImportConfirmDialog by remember { mutableStateOf(false) }
+    var showRikkaHubImportDialog by remember { mutableStateOf(false) }
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
@@ -115,6 +116,46 @@ fun LocalBackupTab(
                         type = ToastType.Success
                     )
                     onShowRestartDialog()
+                }.onFailure { e ->
+                    e.printStackTrace()
+                    toaster.show(
+                        context.getString(R.string.backup_page_restore_failed, e.message ?: ""),
+                        type = ToastType.Error
+                    )
+                }
+                isRestoring = false
+            }
+        }
+    }
+
+    // RikkaHub（上游）备份：格式同源但表结构不同，需走「按列名交集」的专用导入
+    val rikkaHubImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { sourceUri ->
+            scope.launch {
+                isRestoring = true
+                runCatching {
+                    val tempFile =
+                        File(context.cacheDir, "temp_rikkahub_${System.currentTimeMillis()}.zip")
+
+                    context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
+                        FileOutputStream(tempFile).use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    }
+
+                    val result = vm.importRikkaHubBackup(tempFile)
+                    tempFile.delete()
+
+                    toaster.show(
+                        context.getString(
+                            R.string.backup_page_rikkahub_import_success,
+                            result.totalRows,
+                        ),
+                        type = ToastType.Success
+                    )
+                    if (result.totalRows > 0) onShowRestartDialog()
                 }.onFailure { e ->
                     e.printStackTrace()
                     toaster.show(
@@ -231,7 +272,44 @@ fun LocalBackupTab(
                     }
                 },
             )
+
+            // 上游 RikkaHub 备份：格式同源但表结构不同，走专用导入
+            item(
+                onClick = if (!isRestoring) {
+                    {
+                        showRikkaHubImportDialog = true
+                    }
+                } else null,
+                headlineContent = { Text(stringResource(R.string.backup_page_rikkahub_import)) },
+                supportingContent = { Text(stringResource(R.string.backup_page_rikkahub_import_desc)) },
+                leadingContent = {
+                    Icon(HugeIcons.FileImport, null)
+                },
+            )
         }
+    }
+
+    if (showRikkaHubImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showRikkaHubImportDialog = false },
+            title = { Text(stringResource(R.string.backup_page_rikkahub_import)) },
+            text = { Text(stringResource(R.string.backup_page_rikkahub_import_confirm)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showRikkaHubImportDialog = false
+                        rikkaHubImportLauncher.launch(arrayOf("application/zip"))
+                    }
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRikkaHubImportDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 
     if (showImportConfirmDialog) {

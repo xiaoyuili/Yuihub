@@ -39,6 +39,7 @@ import me.yui.yuihub.AppScope
 import me.yui.yuihub.data.ai.memory.MemoryConsolidator
 import me.yui.yuihub.data.ai.memory.MemoryExtractor
 import me.yui.yuihub.data.sync.LocalBackupService
+import me.yui.yuihub.data.sync.RikkaHubImporter
 import me.yui.yuihub.data.update.UpdateChecker
 import me.rerere.search.SearchService
 import okhttp3.OkHttpClient
@@ -281,6 +282,16 @@ val dataSourceModule = module {
             json = get(),
             context = get(),
             database = get()
+        )
+    }
+
+    single {
+        RikkaHubImporter(
+            context = get(),
+            json = get(),
+            database = get(),
+            settingsStore = get(),
+            writeFileEntry = { entryName, bytes -> get<LocalBackupService>().writeFileEntry(entryName, bytes) },
         )
     }
 

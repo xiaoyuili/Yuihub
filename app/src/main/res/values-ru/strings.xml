@@ -1458,4 +1458,8 @@
   <string name="plan_bar_expand">Развернуть план</string>
   <string name="chat_message_tool_todo_update">Обновление плана</string>
   <string name="chat_message_tool_todo_update_progress">Обновление плана · %1$d/%2$d</string>
+  <string name="backup_page_rikkahub_import">Импорт из RikkaHub</string>
+  <string name="backup_page_rikkahub_import_desc">Импорт чатов, настроек и файлов из резервной копии RikkaHub</string>
+  <string name="backup_page_rikkahub_import_confirm">Данные из копии будут добавлены к текущим. Продолжить?</string>
+  <string name="backup_page_rikkahub_import_success">Импортировано записей: %1$d</string>
 </resources>
