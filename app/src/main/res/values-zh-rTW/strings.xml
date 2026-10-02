@@ -1496,4 +1496,12 @@
   <string name="backup_page_auto_backup_retain_note">僅保留最新一份自動備份：產生新備份後會自動刪除上一次自動備份；手動匯出的備份不受影響。</string>
   <string name="backup_page_auto_backup_scope">備份範圍</string>
   <string name="backup_page_auto_backup_scope_note">聊天記錄、設定與檔案（上傳、技能、字型、工具輸出、生成圖片）。工作區資料（rootfs 與 /workspace 檔案）不在備份範圍內，如需請另行備份。</string>
+  <string name="assistant_page_local_tools_chart_display_title">圖表顯示</string>
+  <string name="assistant_page_local_tools_chart_display_desc">讓 AI 顯示折線圖、長條圖和散佈圖</string>
+  <string name="chat_message_tool_chart_display">顯示圖表</string>
+  <string name="chat_message_tool_chart_display_with_title">顯示圖表：%1$s</string>
+  <string name="chart_mode_chart">圖表</string>
+  <string name="chart_mode_table">表格</string>
+  <string name="chart_series">數列</string>
+  <string name="chart_series_name">數列 %1$d</string>
 </resources>

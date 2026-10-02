@@ -1327,4 +1327,12 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="backup_page_auto_backup_retain_note">Only the most recent auto backup is kept — the previous one is deleted after each new backup. Manual exports are not affected.</string>
   <string name="backup_page_auto_backup_scope">What is backed up</string>
   <string name="backup_page_auto_backup_scope_note">Chat records, settings and files (uploads, skills, fonts, tool outputs, generated images). Workspace data (rootfs and /workspace files) is NOT backed up — back it up separately if you need it.</string>
+  <string name="assistant_page_local_tools_chart_display_title">Chart Display</string>
+  <string name="assistant_page_local_tools_chart_display_desc">Let the AI display line, bar, and scatter charts</string>
+  <string name="chat_message_tool_chart_display">Display chart</string>
+  <string name="chat_message_tool_chart_display_with_title">Display chart: %1$s</string>
+  <string name="chart_mode_chart">Chart</string>
+  <string name="chart_mode_table">Table</string>
+  <string name="chart_series">Series</string>
+  <string name="chart_series_name">Series %1$d</string>
 </resources>

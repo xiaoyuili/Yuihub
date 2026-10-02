@@ -1498,4 +1498,12 @@
   <string name="backup_page_auto_backup_retain_note">Хранится только последняя автокопия: после создания новой предыдущая удаляется. Ручные экспорты не затрагиваются.</string>
   <string name="backup_page_auto_backup_scope">Что сохраняется</string>
   <string name="backup_page_auto_backup_scope_note">История чатов, настройки и файлы (загрузки, навыки, шрифты, вывод инструментов, сгенерированные изображения). Рабочая область (rootfs и /workspace) НЕ сохраняется — сделайте отдельную копию.</string>
+  <string name="assistant_page_local_tools_chart_display_title">Отображение диаграмм</string>
+  <string name="assistant_page_local_tools_chart_display_desc">Разрешить ИИ отображать линейные, столбчатые и точечные диаграммы</string>
+  <string name="chat_message_tool_chart_display">Показать диаграмму</string>
+  <string name="chat_message_tool_chart_display_with_title">Показать диаграмму: %1$s</string>
+  <string name="chart_mode_chart">Диаграмма</string>
+  <string name="chart_mode_table">Таблица</string>
+  <string name="chart_series">Ряд</string>
+  <string name="chart_series_name">Ряд %1$d</string>
 </resources>

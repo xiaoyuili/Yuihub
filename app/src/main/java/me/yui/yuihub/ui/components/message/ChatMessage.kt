@@ -85,6 +85,8 @@ import me.yui.yuihub.ui.components.richtext.ZoomableAsyncImage
 import me.yui.yuihub.ui.components.richtext.buildMarkdownPreviewHtml
 import me.yui.yuihub.ui.components.webview.WebViewContentCache
 import me.yui.yuihub.ui.components.ui.ChainOfThought
+import me.yui.yuihub.ui.components.charts.ChartCard
+import me.yui.yuihub.ui.components.charts.ChartSpec
 import me.yui.yuihub.ui.components.ui.Favicon
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.modifier.shimmer
@@ -362,6 +364,11 @@ private fun MessagePartsBlock(
                         }
                     }
                 }
+            }
+
+            is MessagePartBlock.ChartBlock -> key(block.index) {
+                val spec = remember(block.tool.input) { ChartSpec.fromJson(block.tool.inputAsJson()) }
+                spec?.let { ChartCard(spec = it) }
             }
 
             is MessagePartBlock.ContentBlock -> key(block.index) {

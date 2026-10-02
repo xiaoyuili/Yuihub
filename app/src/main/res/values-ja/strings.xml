@@ -1498,4 +1498,12 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="backup_page_auto_backup_retain_note">最新の自動バックアップのみ保持されます。新しいバックアップ作成後、前回分は自動的に削除されます。手動エクスポートは影響を受けません。</string>
   <string name="backup_page_auto_backup_scope">バックアップ範囲</string>
   <string name="backup_page_auto_backup_scope_note">チャット履歴、設定、ファイル（アップロード・スキル・フォント・ツール出力・生成画像）。ワークスペース（rootfs と /workspace）は対象外です。必要なら別途バックアップしてください。</string>
+  <string name="assistant_page_local_tools_chart_display_title">チャート表示</string>
+  <string name="assistant_page_local_tools_chart_display_desc">AIに折れ線グラフ、棒グラフ、散布図を表示させる</string>
+  <string name="chat_message_tool_chart_display">グラフを表示</string>
+  <string name="chat_message_tool_chart_display_with_title">グラフを表示: %1$s</string>
+  <string name="chart_mode_chart">チャート</string>
+  <string name="chart_mode_table">表</string>
+  <string name="chart_series">系列</string>
+  <string name="chart_series_name">系列 %1$d</string>
 </resources>

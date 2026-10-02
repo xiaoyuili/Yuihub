@@ -90,6 +90,8 @@ import me.yui.yuihub.ui.components.richtext.MarkdownBlock
 import me.yui.yuihub.ui.components.ui.AutoAIIcon
 import me.yui.yuihub.ui.components.ui.BitmapComposer
 import me.yui.yuihub.ui.components.ui.ChainOfThought
+import me.yui.yuihub.ui.components.charts.ChartCard
+import me.yui.yuihub.ui.components.charts.ChartSpec
 import me.yui.yuihub.ui.components.ui.ChainOfThoughtScope
 import me.yui.yuihub.ui.components.ui.FlowRowSeparator
 import me.yui.yuihub.ui.components.ui.flowRowMetaColor
@@ -591,6 +593,11 @@ private fun ExportedChatMessage(
                                 }
                             }
                         }
+                    }
+
+                    is MessagePartBlock.ChartBlock -> {
+                        val spec = remember(block.tool.input) { ChartSpec.fromJson(block.tool.inputAsJson()) }
+                        spec?.let { ChartCard(spec = it) }
                     }
 
                     is MessagePartBlock.ContentBlock -> {

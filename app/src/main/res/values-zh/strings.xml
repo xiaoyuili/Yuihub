@@ -1323,4 +1323,12 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="backup_page_auto_backup_retain_note">仅保留最新一份自动备份：生成新备份后会自动删除上一次自动备份；手动导出的备份不受影响。</string>
   <string name="backup_page_auto_backup_scope">备份范围</string>
   <string name="backup_page_auto_backup_scope_note">聊天记录、设置与文件（上传、技能、字体、工具输出、生成图片）。工作区数据（rootfs 与 /workspace 文件）不在备份范围内，如需请另行备份。</string>
+  <string name="assistant_page_local_tools_chart_display_title">图表显示</string>
+  <string name="assistant_page_local_tools_chart_display_desc">让 AI 显示折线图、柱状图和散点图</string>
+  <string name="chat_message_tool_chart_display">显示图表</string>
+  <string name="chat_message_tool_chart_display_with_title">显示图表：%1$s</string>
+  <string name="chart_mode_chart">图表</string>
+  <string name="chart_mode_table">表格</string>
+  <string name="chart_series">系列</string>
+  <string name="chart_series_name">系列 %1$d</string>
 </resources>
