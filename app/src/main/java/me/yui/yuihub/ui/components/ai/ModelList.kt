@@ -91,6 +91,8 @@ import me.yui.yuihub.ui.components.ui.icons.HeartIcon
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.hooks.rememberSharedPreferenceString
 import me.yui.yuihub.ui.theme.extendColors
+import me.yui.yuihub.utils.effectiveContextLength
+import me.yui.yuihub.utils.formatContextLength
 import me.yui.yuihub.utils.toDp
 import org.koin.compose.koinInject
 import sh.calvin.reorderable.ReorderableItem
@@ -791,7 +793,15 @@ private fun ModelItem(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        ModelTypeTag(model = model)
+                        // CHAT 模型用上下文大小替代类型标签（类型已是弹窗的默认语境，
+                        // 上下文才是选模型时需要对比的信息）；其它类型（图像/嵌入）保留类型标签
+                        if (model.type == ModelType.CHAT) {
+                            Tag(type = TagType.INFO) {
+                                Text(formatContextLength(model.effectiveContextLength()))
+                            }
+                        } else {
+                            ModelTypeTag(model = model)
+                        }
 
                         ModelModalityTag(model = model)
 

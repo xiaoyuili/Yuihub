@@ -350,9 +350,11 @@ object ShellToolUI : ToolUIRenderer {
         val cwd = context.arguments.getStringContent("cwd")
         val stdout = content.getStringContent("stdout").orEmpty()
         val stderr = content.getStringContent("stderr").orEmpty()
-        // 输出被截断时 GenerationHandler 会写入非 JSON 的说明文本, content 解析为空对象,
-        // 回退展示 rawText 避免详情空白
-        val truncatedFallback = stdout.isBlank() && stderr.isBlank() && !context.rawText.isNullOrBlank()
+        // 输出被截断时 GenerationHandler 会写入非 JSON 的说明文本, content 解析失败退化为空对象
+        // （不含 exitCode 键）；正常结果即使 stdout/stderr 为空串（命令无输出）也不算截断——
+        // 之前按 blank 判断，会把无输出的正常结果误报成「超出内联上限」
+        val isTruncationNotice = !context.rawText.isNullOrBlank() &&
+            content.jsonObjectOrNull?.containsKey("exitCode") != true
         Column(
             modifier = Modifier
                 .fillMaxHeight(0.8f)
@@ -377,7 +379,7 @@ object ShellToolUI : ToolUIRenderer {
                 language = "bash",
                 modifier = Modifier.fillMaxWidth(),
             )
-            if (truncatedFallback) {
+            if (isTruncationNotice) {
                 Text(
                     text = stringResource(R.string.tool_ui_shell_truncated_notice),
                     style = MaterialTheme.typography.labelSmall,

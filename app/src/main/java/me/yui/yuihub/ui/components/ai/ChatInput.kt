@@ -225,11 +225,16 @@ fun ChatInput(
                 .padding(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 推理强度面板：内嵌在输入框上方，宽度与输入框一致
+            // 计划细条：常驻在输入框上方，收起一行高度，点开看完整清单；
+            // 与输入栏共用同一条淡化动画，滚动列表时一起半透明
+            PlanBar(todos = planTodos, alpha = inputAlpha)
+
+            // 推理强度面板：位于计划条下方、输入框上方；
+            // 打开时自下而上推出（底部对齐向上展开），关闭时向下收回
             AnimatedVisibility(
                 visible = showReasoningPanel,
-                enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
-                exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
+                enter = expandVertically(expandFrom = Alignment.Bottom) + fadeIn(),
+                exit = shrinkVertically(shrinkTowards = Alignment.Bottom) + fadeOut(),
             ) {
                 ReasoningLevelPanel(
                     reasoningLevel = assistant.reasoningLevel,
@@ -237,12 +242,9 @@ fun ChatInput(
                         onUpdateAssistant(assistant.copy(reasoningLevel = it))
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    alpha = inputAlpha,
                 )
             }
-
-            // 计划细条：常驻在输入框上方，收起一行高度，点开看完整清单；
-            // 与输入栏共用同一条淡化动画，滚动列表时一起半透明
-            PlanBar(todos = planTodos, alpha = inputAlpha)
 
             Surface(
                 modifier = Modifier
