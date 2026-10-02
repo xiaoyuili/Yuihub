@@ -111,18 +111,17 @@ object PendingRestoreStore {
             .getOrDefault(false)
     }
 
-    private fun integrityOk(dbFile: File): Boolean = runCatching {
-        SQLiteDatabase.openDatabase(
+    private fun integrityOk(dbFile: File): Boolean {
+        // 裸连接没有 libsimple tokenizer，须走逐表校验（跳过 FTS 虚拟表）
+        val error = SQLiteDatabase.openDatabase(
             dbFile.absolutePath,
             null,
             SQLiteDatabase.OPEN_READONLY,
         ).use { db ->
-            db.query("PRAGMA integrity_check").use { cursor ->
-                cursor.moveToFirst() && cursor.getString(0) == "ok"
-            }
+            DbIntegrityChecker.check(db)
         }
-    }.onFailure { Log.e(TAG, "integrityOk failed", it) }
-        .getOrDefault(false)
+        return error == null
+    }
 
     /** 供 LocalBackupService 复用同一套校验实现 */
     internal fun integrityCheck(db: SupportSQLiteDatabase): Boolean = runCatching {

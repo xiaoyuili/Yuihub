@@ -287,21 +287,17 @@ class LocalBackupService(
         // 用只读方式打开做完整性检查：这里只验证，不修改暂存文件。
         // 与全库打开时同用 requery 实现：混用 framework / requery 两套 SQLite
         // 在 WAL 模式下可能对同一文件产生不兼容的 sidecar 状态。
-        val result = runCatching {
-            SQLiteDatabase.openDatabase(
-                staged.absolutePath,
-                null,
-                SQLiteDatabase.OPEN_READONLY,
-            ).use { db ->
-                db.query("PRAGMA integrity_check").use { cursor ->
-                    cursor.moveToFirst() && cursor.getString(0) == "ok" && !cursor.moveToNext()
-                }
-            }
-        }.getOrElse {
-            throw Exception("Backup database could not be validated: ${it.message}")
+        // 注意：裸连接没有注册 libsimple tokenizer，全库 integrity_check 会在
+        // message_fts 上抛错，必须走逐表校验（跳过 FTS 虚拟表）。
+        val error = SQLiteDatabase.openDatabase(
+            staged.absolutePath,
+            null,
+            SQLiteDatabase.OPEN_READONLY,
+        ).use { db ->
+            DbIntegrityChecker.check(db)
         }
-        if (!result) {
-            throw Exception("Backup database failed its integrity check")
+        if (error != null) {
+            throw Exception("Backup database could not be validated: $error")
         }
         Log.i(TAG, "validateStagedDatabase: integrity check passed")
     }

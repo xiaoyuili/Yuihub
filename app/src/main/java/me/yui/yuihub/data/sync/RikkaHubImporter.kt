@@ -82,7 +82,10 @@ class RikkaHubImporter(
                     val name = entry.name
                     if (!entry.isDirectory) {
                         when {
-                            name == DATABASE_NAME || name.endsWith("/$DATABASE_NAME") -> {
+                            // 上游 DatabaseBackup.ARCHIVE_DATABASE = "rikka_hub.db"（带 .db 后缀），
+                            // 本 fork 自身备份条目名为 "rikka_hub"；两种都要接住。
+                            // 用文件名前缀判断而不是全等，避免路径前缀与后缀变体漏配。
+                            isMainDatabaseEntry(name) -> {
                                 upstreamDb = File(staging, "upstream.db").also { writeEntry(zipIn, it) }
                             }
 
@@ -188,7 +191,7 @@ class RikkaHubImporter(
                 var entry: ZipEntry? = zipIn.nextEntry
                 while (entry != null) {
                     val name = entry.name
-                    if (!entry.isDirectory && (name == DATABASE_NAME || name.endsWith("/$DATABASE_NAME"))) {
+                    if (!entry.isDirectory && isMainDatabaseEntry(name)) {
                         writeEntry(zipIn, staging)
                         found = true
                     }
@@ -234,19 +237,17 @@ class RikkaHubImporter(
         }.onFailure { Log.w(TAG, "replayUpstreamWal: failed", it) }
     }
 
-    private fun isReadableDatabase(dbFile: File): Boolean = runCatching {
-        SQLiteDatabase.openDatabase(
+    private fun isReadableDatabase(dbFile: File): Boolean {
+        // 裸连接没有 libsimple tokenizer，须走逐表校验（跳过 FTS 虚拟表）
+        val error = SQLiteDatabase.openDatabase(
             dbFile.absolutePath,
             null,
             SQLiteDatabase.OPEN_READONLY,
         ).use { db ->
-            val cursor = db.query("PRAGMA integrity_check")
-            cursor.use {
-                it.moveToFirst() && it.getString(0) == "ok"
-            }
+            DbIntegrityChecker.check(db)
         }
-    }.onFailure { Log.e(TAG, "isReadableDatabase: failed", it) }
-        .getOrDefault(false)
+        return error == null
+    }
 
     /** 逐表按列名交集搬运数据；返回各表写入行数 */
     private fun importDatabaseTables(upstreamDbFile: File): Map<String, Int> {
@@ -369,6 +370,20 @@ class RikkaHubImporter(
     companion object {
         /** 数据库文件名（与 Room databaseBuilder 一致） */
         const val DATABASE_NAME = "rikka_hub"
+
+        /**
+         * zip 条目名是否为主数据库文件。
+         *
+         * 上游 DatabaseBackup.ARCHIVE_DATABASE = "rikka_hub.db"（带 .db 后缀），
+         * 本 fork 自身备份条目名为 "rikka_hub"；此前只匹配后者，导致上游备份的
+         * 数据库被整体跳过（导入 0 条记录）。匹配文件名部分（忽略目录前缀），
+         * 允许可选的 .db 后缀，同时排除 -wal / -shm sidecar。
+         */
+        internal fun isMainDatabaseEntry(entryName: String): Boolean {
+            val fileName = entryName.substringAfterLast('/')
+            if (fileName.endsWith("-wal") || fileName.endsWith("-shm")) return false
+            return fileName == DATABASE_NAME || fileName == "$DATABASE_NAME.db"
+        }
 
         /** fork 专属表：它们的存在与否即上游/本 fork 的判别依据 */
         private const val UPSTREAM_MARKER_TABLE = "scheduled_task"
