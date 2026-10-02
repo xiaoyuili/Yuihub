@@ -72,7 +72,9 @@ import me.yui.yuihub.data.ai.tools.createSearchTools
 import me.yui.yuihub.data.ai.tools.createMcpManageTools
 import me.yui.yuihub.data.ai.tools.createSkillManageTools
 import me.yui.yuihub.data.ai.tools.createTodoTool
+import me.yui.yuihub.data.ai.tools.MCP_MANAGE_TOOL_NAME
 import me.yui.yuihub.data.ai.tools.SCHEDULED_TASK_TOOL_NAME
+import me.yui.yuihub.data.ai.tools.TODO_TOOL_NAME
 import me.yui.yuihub.data.ai.tools.createScheduledTaskTools
 import me.yui.yuihub.data.ai.tools.createSkillTools
 import me.yui.yuihub.data.ai.tools.createWorkspaceTools
@@ -137,11 +139,23 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.selects.select
 
 private const val TAG = "ChatService"
 
 // 子代理工具循环步数上限: 严于主代理默认值, 防止失控子任务无限制消耗 token
 private const val CHILD_AGENT_MAX_STEPS = 32
+
+/**
+ * ISSUE-04: 仅限主代理的管理类工具。子代理无人监督批量运行，改共享配置
+ * （MCP 注册表、技能库）或覆盖主会话待办/定时任务属于越权面，直接从子代理工具集剔除。
+ */
+private val PARENT_ONLY_TOOL_NAMES = setOf(
+    "manage_skill",
+    MCP_MANAGE_TOOL_NAME,
+    SCHEDULED_TASK_TOOL_NAME,
+    TODO_TOOL_NAME,
+)
 
 // 子代理平台限制声明 (P1-2): 经工具 systemPrompt 注入子代理系统提示,
 // 把「工具不存在」的隐式限制变成平台明确声明, 避免子代理把缺工具理解成环境缺失而自行排查。
@@ -151,11 +165,11 @@ private const val CHILD_AGENT_PLATFORM_DECLARATION =
     "<child_agent_constraints>\n" +
         "You are a CHILD agent spawned by a parent agent. Platform restrictions:\n" +
         "- You CANNOT spawn further child agents (spawn_agent) or follow up on other agents (followup_agent). These tools do not exist in your environment by design — do not search for them or work around them.\n" +
-        "- You CANNOT modify the skill library (manage_skill save/delete are rejected). Report desired skill changes to the parent agent.\n" +
+        "- You have NO management tools: manage_skill, manage_mcp_server, scheduled_task and todo_write exist only for the parent agent. Report any desired change to them (including skill library edits) to the parent agent.\n" +
         "- Tools requiring user approval are unavailable to you; report them to the parent agent instead.\n" +
         "- ask_user is unavailable: there is no interactive user in your session.\n" +
         "Sandbox environment facts (do NOT waste turns re-checking these):\n" +
-        "- python3 is NOT installed; if the task needs it, install with apt-get or use node/shell instead.\n" +
+        "- python3 and node are NOT installed; if a task needs scripting, use bash/sh with Perl or awk (both preinstalled), or install a runtime with apt-get.\n" +
         "- The shell clock is UTC (no tzdata). TZ=Asia/Shanghai date will show a wrong label; use get_time_info for the user's local time (+08:00).\n" +
         "- /upload may not exist when there are no user uploads; treat ls errors there as empty, not broken.\n" +
         "- Write your deliverables under /workspace/subagents/<your sessionId>/ (create it) so the parent and user can find them.\n" +
@@ -1084,7 +1098,8 @@ class ChatService(
                 put("hint", "Poll with poll_agent(taskId) to fetch progress/result; cancel with cancel_agent(taskId).")
             }.toString()
         }
-        return executeChildAgent(
+        val syncStartedAtMs = System.currentTimeMillis()
+        val syncResult = executeChildAgent(
             childId = childId,
             description = description,
             userMessages = listOf(UIMessage.user(prompt)),
@@ -1097,6 +1112,21 @@ class ChatService(
             maxToolCalls = maxToolCalls,
             persona = persona,
         )
+        // ISSUE-02: 同步任务补登记终态，让 list_agents 可见；返回值丢失时也能找回 sessionId
+        subagentManager.recordSyncTask(
+            taskId = childId,
+            parentConversationId = parentConversationId,
+            description = description,
+            status = SubagentManager.statusFromResult(
+                runCatching {
+                    JsonInstant.parseToJsonElement(syncResult).jsonObject["status"]
+                        ?.jsonPrimitive?.contentOrNull.orEmpty()
+                }.getOrDefault("")
+            ),
+            resultJson = subagentManager.summarizeResultJson(syncResult),
+            startedAtMs = syncStartedAtMs,
+        )
+        return syncResult
     }
 
     /** P0-2 b) poll_agent：运行中返回进度（工具调用数/最近动作），终态返回完整结果 */
@@ -1117,6 +1147,8 @@ class ChatService(
                 put("taskId", taskId)
                 put("description", task.description)
                 put("durationMs", System.currentTimeMillis() - task.startedAt)
+                // ISSUE-05: 轮询活性信号，调用方可据此区分「正在生成」与「卡死」
+                put("lastProgressAt", System.currentTimeMillis())
                 put("toolCalls", run?.messages?.sumOf { m -> m.parts.count { it is UIMessagePart.Tool } } ?: 0)
                 run?.messages?.lastOrNull()?.parts?.lastOrNull()?.let { lastPart ->
                     val preview = when (lastPart) {
@@ -1170,6 +1202,7 @@ class ChatService(
                         put("taskId", task.taskId.toString())
                         put("description", task.description)
                         put("status", task.status.name.lowercase())
+                        put("mode", if (task.async) "async" else "sync")
                         put("durationMs", (task.endedAt ?: System.currentTimeMillis()) - task.startedAt)
                         if (task.expiresAt != null) put("sessionExpiresAt", task.expiresAt)
                     })
@@ -1338,15 +1371,24 @@ class ChatService(
                     if (cancelSignal == null) {
                         collectBlock()
                     } else {
-                        // cancel 与正常结束竞速：监听协程等到信号即抛出，
-                        // coroutineScope 会取消兄弟协程（collectBlock），终止生成
+                        // cancel 与正常结束竞速：select 任一方胜出立即返回，无悬空子协程。
+                        // P1 缺陷修复：原实现 scope 内的 cancel 监听协程挂在 await() 上，
+                        // collect 结束后 scope 仍要等它 → executeChildAgent 永久挂起，
+                        // 异步任务终态永远落不了地（症状：工作已完成但 poll 一直 running，
+                        // 直到 cancel_agent 才解锁终态）。
+                        // 语义：collect 已完成时 onJoin 优先（首个就绪子句胜出），
+                        // 完成后才到达的 cancel 不会把已完成的任务标成 CANCELLED。
                         try {
                             coroutineScope {
-                                launch {
-                                    cancelSignal.await()
+                                val collectJob = launch { collectBlock() }
+                                val cancelled = select<Boolean> {
+                                    collectJob.onJoin { false }
+                                    cancelSignal.onAwait { true }
+                                }
+                                if (cancelled) {
+                                    collectJob.cancel()
                                     throw ChildAgentCancelledException(null)
                                 }
-                                collectBlock()
                             }
                         } catch (e: ChildAgentCancelledException) {
                             throw e
@@ -1603,47 +1645,17 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
             useExternalWebSearch = useExternalWebSearch,
             parentConversationId = parentConversationId,
         )
-            .filter {
-                it.name != SPAWN_AGENT_TOOL_NAME &&
-                    it.name != FOLLOWUP_AGENT_TOOL_NAME &&
-                    it.name != ASK_USER_TOOL_NAME
+            // ISSUE-04: 管理类工具仅限主代理。子代理往往无人监督批量运行，改共享配置
+            // （MCP 注册表、技能库、定时任务）或覆盖主会话待办属于越权面；
+            // 直接从工具集中剔除，而不是保留后拒绝——避免模型误以为自己拥有这些能力。
+            .filter { tool ->
+                tool.name !in PARENT_ONLY_TOOL_NAMES &&
+                    tool.name != SPAWN_AGENT_TOOL_NAME &&
+                    tool.name != FOLLOWUP_AGENT_TOOL_NAME &&
+                    tool.name != ASK_USER_TOOL_NAME
             }
             .map { tool ->
                 when {
-                    // P1-5: 技能库写入仅限主代理 (会直接生效到用户共享的 /skills), 子代理明确拒绝
-                    tool.name == "manage_skill" && conversation.parentConversationId != null -> tool.copy(
-                        execute = { args ->
-                            val action = runCatching {
-                                args.jsonObject["action"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                            }.getOrDefault("")
-                            if (action == "save" || action == "delete") {
-                                error(
-                                    "REJECTED: child agents cannot modify the skill library (action=$action). " +
-                                        "Report the desired skill change to the main agent so it can apply it."
-                                )
-                            }
-                            tool.execute(args)
-                        }
-                    )
-
-                    // 定时任务写操作仅限主代理：子代理往往无人监督批量运行，
-                    // 静默创建/删除用户可见的自动化任务（尤其 run_now 会再起一轮生成）风险太大，
-                    // 只允许 list 查询，其余操作转交主代理
-                    tool.name == SCHEDULED_TASK_TOOL_NAME && conversation.parentConversationId != null -> tool.copy(
-                        execute = { args ->
-                            val action = runCatching {
-                                args.jsonObject["action"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                            }.getOrDefault("")
-                            if (action != "list") {
-                                error(
-                                    "REJECTED: child agents cannot modify scheduled tasks (action=$action). " +
-                                        "Report the desired change to the main agent so it can apply it."
-                                )
-                            }
-                            tool.execute(args)
-                        }
-                    )
-
                     // 空 JSON 预判: 无入参就需审批的工具 (如 shell/审批类 MCP) 直接包装拦截
                     !tool.needsApproval(JsonObject(emptyMap())) -> tool
 

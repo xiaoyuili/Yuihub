@@ -1,7 +1,9 @@
 package me.yui.yuihub.data.ai.tools
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TextReplacersTest {
@@ -37,6 +39,36 @@ class TextReplacersTest {
             replaceText("foo foo", "foo", "bar", replaceAll = false)
         }
         assertEquals(true, e.message!!.contains("2 locations"))
+    }
+
+    @Test
+    fun `line trimmed keeps window indentation instead of mixing old_text indentation`() {
+        // ISSUE-01 复现场景: 文件里是 tab 缩进, 模型用 4 空格传入 old_text,
+        // 旧实现会把 old_text 首行缩进当基准, 产出 "    \tline4" 这种双重缩进
+        val content = "line1\n    line2\nline3\n\tline4\nline5"
+        val result = replaceText(content, "line3\n    line4", "line3\n    line4", replaceAll = false)
+        assertEquals("line1\n    line2\nline3\n\tline4\nline5", result.updated)
+        assertTrue(result.indentationAdjusted)
+    }
+
+    @Test
+    fun `line trimmed maps inserted lines to window indentation`() {
+        val content = "class A {\n    fun f() {\n        old()\n    }\n}"
+        val result = replaceText(
+            content = content,
+            oldText = "old()\n}",
+            newText = "new1()\nnew2()\n}",
+            replaceAll = false,
+        )
+        assertEquals("class A {\n    fun f() {\n        new1()\n    new2()\n    }\n}", result.updated)
+        assertTrue(result.indentationAdjusted)
+    }
+
+    @Test
+    fun `exact match never flags indentation adjustment`() {
+        val result = replaceText("fun main() {\n    println(\"a\")\n}", "println(\"a\")", "println(\"b\")", replaceAll = false)
+        assertEquals("exact", result.strategy)
+        assertFalse(result.indentationAdjusted)
     }
 
     @Test

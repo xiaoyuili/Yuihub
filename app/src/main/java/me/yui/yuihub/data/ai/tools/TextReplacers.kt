@@ -13,6 +13,8 @@ interface TextReplacer {
         val start: Int,
         val endExclusive: Int,
         val replacement: String,
+        /** 匹配器为了贴合原文件而重排了 new_text 的缩进时为 true（宽松匹配降级场景） */
+        val indentationAdjusted: Boolean = false,
     )
 }
 
@@ -21,6 +23,8 @@ data class ReplaceTextResult(
     val replacements: Int,
     val occurrences: Int,
     val strategy: String,
+    /** 宽松匹配策略下 new_text 与被替换块缩进结构不一致时为 true, 提醒调用方检查 */
+    val indentationAdjusted: Boolean = false,
 )
 
 val WorkspaceEditReplacers: List<TextReplacer> = listOf(
@@ -64,6 +68,7 @@ fun replaceText(
             replacements = applied.size,
             occurrences = matches.size,
             strategy = replacer.name,
+            indentationAdjusted = applied.any { it.indentationAdjusted },
         )
     }
     throw IllegalArgumentException(
@@ -116,12 +121,16 @@ abstract class LineWindowReplacer : TextReplacer {
         while (index + oldLines.size <= contentLines.size) {
             val window = contentLines.subList(index, index + oldLines.size)
             if (windowMatches(window.map { it.text.trim() }, oldTrimmed)) {
-                val replacement = reindent(
-                    text = adjustedNewText,
-                    oldIndent = indentOf(oldLines.first()),
-                    newIndent = indentOf(window.first().text),
+                // 保留匹配处的原缩进结构：new_text 各行沿用 window 对应行的前导空白，
+                // 多余行（插入/追加）沿用 window 最后一行缩进。ISSUE-01：不能拿 old_text
+                // 的缩进当基准，宽松匹配下它是错的，会把 tab 混进空格缩进里静默改坏文件。
+                val replacement = reindentToWindow(adjustedNewText, window.map { it.text })
+                matches += TextReplacer.Match(
+                    start = window.first().start,
+                    endExclusive = window.last().endExclusive,
+                    replacement = replacement.text,
+                    indentationAdjusted = replacement.indentationAdjusted,
                 )
-                matches += TextReplacer.Match(window.first().start, window.last().endExclusive, replacement)
                 index += oldLines.size
             } else {
                 index++
@@ -129,6 +138,32 @@ abstract class LineWindowReplacer : TextReplacer {
         }
         return matches
     }
+
+    /** new_text 各行沿用窗口对应行的缩进；行数超出窗口的追加行沿用窗口最后一行缩进 */
+    private fun reindentToWindow(newText: String, windowLines: List<String>): ReindentOutcome {
+        val newLines = newText.lines()
+        val windowIndent = windowLines.map { indentOf(it) }
+        val fallbackIndent = windowIndent.lastOrNull().orEmpty()
+        var adjusted = false
+        val rebuilt = newLines.mapIndexed { lineIndex, line ->
+            when {
+                line.isBlank() -> line
+                // new_text 行数多于窗口时, 超出部分挂到窗口最后一行缩进下
+                lineIndex >= windowIndent.size -> {
+                    adjusted = adjusted || indentOf(line) != fallbackIndent
+                    fallbackIndent + line.trimStart()
+                }
+                else -> {
+                    val indent = windowIndent[lineIndex]
+                    adjusted = adjusted || indentOf(line) != indent
+                    indent + line.trimStart()
+                }
+            }
+        }
+        return ReindentOutcome(rebuilt.joinToString("\n"), adjusted)
+    }
+
+    private data class ReindentOutcome(val text: String, val indentationAdjusted: Boolean)
 }
 
 /**
@@ -175,17 +210,6 @@ private fun splitLinesWithOffsets(content: String): List<LineWithOffset> {
 }
 
 private fun indentOf(line: String): String = line.takeWhile { it == ' ' || it == '\t' }
-
-private fun reindent(text: String, oldIndent: String, newIndent: String): String {
-    if (oldIndent == newIndent) return text
-    return text.lines().joinToString("\n") { line ->
-        when {
-            line.isBlank() -> line
-            line.startsWith(oldIndent) -> newIndent + line.removePrefix(oldIndent)
-            else -> line
-        }
-    }
-}
 
 private fun String.removeOneTrailingNewline(): String = when {
     endsWith("\r\n") -> dropLast(2)

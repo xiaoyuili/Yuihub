@@ -8,7 +8,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import me.rerere.ai.ui.UIMessage
+import me.yui.yuihub.utils.JsonInstant
 import kotlin.uuid.Uuid
 
 /**
@@ -26,8 +30,10 @@ data class SubagentRun(
 }
 
 /**
- * P0-2: async 模式的子代理任务句柄。
- * spawn_agent(async=true) 创建后立即返回 taskId=childId，父代理经 poll_agent 轮询状态/取结果。
+ * 子代理任务句柄（async 与 sync 通用）。
+ * async 任务创建即登记（P0-2 b）：spawn 立即返回 taskId，父代理经 poll_agent 轮询状态/取结果；
+ * sync 任务在结束后补登记（ISSUE-02）：结果已随工具输出返回，登记只为让 list_agents 可见、
+ * 返回值丢失时可找回 sessionId 去 followup。
  */
 data class SubagentTask(
     val taskId: Uuid,
@@ -40,6 +46,8 @@ data class SubagentTask(
     val resultJson: String? = null,
     // 会话回收时间（末次活动 + TTL），null 表示未过期
     val expiresAt: Long? = null,
+    // true = async 派发（创建即登记，结果靠 poll 取回）；false = 同步任务的事后记录
+    val async: Boolean = true,
 )
 
 enum class SubagentTaskStatus { RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT }
@@ -117,17 +125,60 @@ class SubagentManager {
         taskId: Uuid,
         status: SubagentTaskStatus,
         resultJson: String?,
+    ) = recordTaskFinal(taskId, status, resultJson)
+
+    /**
+     * ISSUE-02: 同步任务完成后补登记（终态 + TTL + result），让 list_agents 能列出
+     * 所有派发过的子代理；返回值丢失时父代理仍可找回 sessionId 去 followup。
+     * 结果已随工具输出返回，无需再靠 poll 取。
+     */
+    suspend fun recordSyncTask(
+        taskId: Uuid,
+        parentConversationId: Uuid,
+        description: String,
+        status: SubagentTaskStatus,
+        resultJson: String?,
+        startedAtMs: Long,
+    ) = recordTaskFinal(taskId, status, resultJson, parentConversationId, description, startedAtMs)
+
+    private suspend fun recordTaskFinal(
+        taskId: Uuid,
+        status: SubagentTaskStatus,
+        resultJson: String?,
+        parentConversationId: Uuid? = null,
+        description: String? = null,
+        startedAtMs: Long = System.currentTimeMillis(),
     ) {
+        val endedAtMs = System.currentTimeMillis()
         mutex.withLock {
-            val existing = _tasks.value[taskId] ?: return
-            if (existing.status != SubagentTaskStatus.RUNNING) return
+            // sync 补登记时记录可能不存在：直接以终态建一条
+            val existing = _tasks.value[taskId]
+            if (existing == null) {
+                val parentId = requireNotNull(parentConversationId) { "sync record requires parentConversationId" }
+                val desc = requireNotNull(description) { "sync record requires description" }
+                _tasks.update {
+                    it + (taskId to SubagentTask(
+                        taskId = taskId,
+                        parentConversationId = parentId,
+                        description = desc,
+                        status = status,
+                        startedAt = startedAtMs,
+                        endedAt = endedAtMs,
+                        resultJson = resultJson,
+                        expiresAt = endedAtMs + SESSION_TTL_MS,
+                        async = false,
+                    ))
+                }
+                return@withLock
+            }
+            if (existing.status != SubagentTaskStatus.RUNNING) return@withLock
             _tasks.update {
                 it + (taskId to existing.copy(
                     status = status,
-                    endedAt = System.currentTimeMillis(),
+                    endedAt = endedAtMs,
                     resultJson = resultJson,
                     // 会话 TTL：终态时间起 [SESSION_TTL_MS] 内可 followup
-                    expiresAt = System.currentTimeMillis() + SESSION_TTL_MS,
+                    expiresAt = endedAtMs + SESSION_TTL_MS,
                 ))
             }
             cancelSignals.remove(taskId)
@@ -142,6 +193,26 @@ class SubagentManager {
         _tasks.value.values
             .filter { parentConversationId == null || it.parentConversationId == parentConversationId }
             .sortedBy { it.startedAt }
+
+    /** poll_agent 取结果用；仅 async 任务登记过运行态，sync 任务无运行期记录 */
+    fun getRunningSnapshot(taskId: Uuid): SubagentRun? = _runs.value[taskId]
+
+    /** 压缩后的任务结果 JSON：完整结果已在子会话/工具输出里，注册表只留 list/poll 摘要 */
+    fun summarizeResultJson(resultJson: String?): String? {
+        if (resultJson == null) return null
+        return runCatching {
+            val obj = JsonInstant.parseToJsonElement(resultJson).jsonObject
+            buildJsonObject {
+                obj["status"]?.let { put("status", it) }
+                obj["error"]?.let { put("error", it) }
+                obj["sessionId"]?.let { put("sessionId", it) }
+                obj["durationMs"]?.let { put("durationMs", it) }
+                obj["result"]?.let { put("result", it) }
+                obj["toolCallsDetail"]?.let { put("toolCallsDetail", it) }
+                obj["files"]?.let { put("files", it) }
+            }.toString()
+        }.getOrNull()
+    }
 
     /**
      * cancel_agent：置取消信号（执行协程负责落 CANCELLED 终态并停止产生副作用）。
@@ -179,5 +250,13 @@ class SubagentManager {
          * 之后 collectExpired 回收记录，followup_agent 返回 AGENT_SESSION_NOT_FOUND(expired)。
          */
         const val SESSION_TTL_MS = 30L * 60 * 1000
+
+        /** 把 buildChildAgentResultJson 的 status 字符串映射到任务终态（未知值归 FAILED） */
+        fun statusFromResult(status: String): SubagentTaskStatus = when (status) {
+            "ok", "empty_output" -> SubagentTaskStatus.COMPLETED
+            "timeout" -> SubagentTaskStatus.TIMEOUT
+            "cancelled" -> SubagentTaskStatus.CANCELLED
+            else -> SubagentTaskStatus.FAILED
+        }
     }
 }

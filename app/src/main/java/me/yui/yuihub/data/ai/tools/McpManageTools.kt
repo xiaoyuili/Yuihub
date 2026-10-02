@@ -22,6 +22,7 @@ import me.yui.yuihub.data.ai.mcp.McpServerConfig
 import me.yui.yuihub.data.ai.mcp.serverUrl
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.utils.jsonPrimitiveOrNull
+import java.net.URI
 import kotlin.uuid.Uuid
 
 /**
@@ -30,6 +31,10 @@ import kotlin.uuid.Uuid
  * 仅支持远程传输（sse / streamable_http）：本项目的 McpServerConfig 没有 stdio 变体，
  * 无法在 Android 上拉起本地进程，故不对外暴露 command/args 一类字段。
  */
+
+/** manage_mcp_server 工具的 name，子代理过滤按名引用 */
+const val MCP_MANAGE_TOOL_NAME = "manage_mcp_server"
+
 fun createMcpManageTools(
     mcpManager: McpManager,
     settingsStore: SettingsStore,
@@ -39,6 +44,7 @@ fun createMcpManageTools(
         description = """
             Manage MCP server registrations (remote transports only).
             `action`: list | save | delete. save needs `name` + `url` (+ `id` to update; `transport` streamable_http|sse, optional `headers` JSON object for auth, `enable`).
+            `url` must be a valid http(s) endpoint (scheme + host); invalid URLs are rejected on save.
             Saved servers connect in the background; their tools appear shortly after. Only register servers the user asked for — a server can expose many tools.
         """.trimIndent(),
         parameters = {
@@ -127,6 +133,14 @@ private suspend fun saveServer(
         ?: target?.commonOptions?.name.orEmpty()
     val finalUrl = url.ifEmpty { target?.serverUrl.orEmpty() }
     require(finalUrl.isNotEmpty()) { "url is required when adding a server" }
+    // ISSUE-03: 保存前做基本格式校验，拼错的 URL 立刻报错，而不是等后台连接失败才发现
+    require(finalUrl.startsWith("http://") || finalUrl.startsWith("https://")) {
+        "URL must start with http:// or https:// (got: '$finalUrl')"
+    }
+    val parsedUrl = runCatching { URI(finalUrl) }.getOrNull()
+    require(parsedUrl != null && !parsedUrl.host.isNullOrBlank()) {
+        "URL is missing a host (got: '$finalUrl'); expected e.g. https://example.com/mcp"
+    }
 
     val transport = obj["transport"]?.jsonPrimitive?.contentOrNull?.trim()
         ?: target?.let { transportOf(it) }

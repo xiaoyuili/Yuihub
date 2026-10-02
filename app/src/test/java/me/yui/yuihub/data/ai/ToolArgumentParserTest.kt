@@ -158,6 +158,15 @@ class ToolArgumentParserTest {
     }
 
     @Test
+    fun `literal error code is not double prefixed`() {
+        val output = ToolArgumentParser.formatError(
+            "workspace_write_file",
+            IllegalStateException("WRITE_CONFLICT: /workspace/a was modified by another session"),
+        )
+        assertFalse("不得双重前缀", output.contains("WRITE_CONFLICT: WRITE_CONFLICT"))
+    }
+
+    @Test
     fun `error code AGENT_SESSION_NOT_FOUND`() {
         assertSingleLineJson(
             "followup_agent",

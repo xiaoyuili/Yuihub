@@ -43,7 +43,8 @@ fun createSubagentTool(
         Use only when a task is truly independent and long-running (e.g. broad research spanning many lookups); do not spawn for simple questions or single-step lookups — answer directly instead.
         The prompt must stand alone - include all files, constraints and expected output format. Children cannot spawn children.
         By default this call BLOCKS until the child finishes and returns structured JSON: status (ok | empty_output | error | timeout), result, toolCalls, toolCallsDetail, startedAt/endedAt/durationMs, files, sessionId.
-        With async=true it returns {status:"running", taskId} immediately; fetch the result later with poll_agent, and optionally cancel with cancel_agent.
+        With async=true it returns {status:"running", taskId} immediately; fetch the result later with poll_agent, and optionally cancel with cancel_agent. In async mode taskId equals the child's sessionId (they are the same id).
+        All spawned agents (sync and async) stay listed by list_agents for about 30 minutes after they finish, so a lost result can be re-discovered there; pass its sessionId/taskId to followup_agent to continue.
         Optional timeoutMs cancels a runaway child (status=timeout, partial result preserved); maxToolCalls caps its tool round-trips.
         To ask a finished child agent follow-up questions, pass its sessionId to followup_agent instead of spawning again.
         Multiple spawn_agent calls in one turn run in parallel (up to 4 concurrently).
@@ -244,8 +245,8 @@ fun createListAgentsTool(
 ): Tool = Tool(
     name = LIST_AGENTS_TOOL_NAME,
     description = """
-        List child agents spawned in this conversation (running and finished): taskId, description, status, durationMs.
-        Use it to re-discover taskIds for poll_agent / cancel_agent / followup_agent.
+        List child agents spawned in this conversation (running and finished, both sync and async): taskId, description, status, mode, durationMs.
+        Use it to re-discover taskIds/sessionIds for poll_agent / cancel_agent / followup_agent.
     """.trimIndent(),
     parameters = { null },
     execute = {

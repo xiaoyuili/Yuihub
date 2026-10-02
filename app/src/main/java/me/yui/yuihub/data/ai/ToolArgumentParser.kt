@@ -42,6 +42,11 @@ object ToolArgumentParser {
     /** 常见异常 → 稳定错误码（P1-3 回归表覆盖项） */
     fun errorCode(toolName: String, error: Throwable): String {
         val message = error.message?.replace('\n', ' ')?.take(300).orEmpty()
+        // ISSUE-07: 消息里已带字面错误码时直接采用，避免外层再包一层产生
+        // "WRITE_CONFLICT: WRITE_CONFLICT: ..." 之类的双重前缀
+        LITERAL_ERROR_CODES.firstOrNull { code ->
+            message.startsWith(code, ignoreCase = true)
+        }?.let { return it }
         return when {
             error is kotlinx.serialization.SerializationException && !message.contains("invalid_arguments_json") -> "INVALID_ARGS"
             message.contains("invalid_arguments_json", ignoreCase = true) -> "INVALID_ARGS"
@@ -64,15 +69,25 @@ object ToolArgumentParser {
         }
     }
 
+    private val LITERAL_ERROR_CODES = listOf(
+        "WRITE_CONFLICT",
+        "AGENT_SESSION_NOT_FOUND",
+        "AGENT_TASK_NOT_FOUND",
+        "BINARY_CONTENT",
+        "REJECTED",
+    )
+
     /**
      * 面向模型的工具错误统一为单行 JSON（P1-4）：`{"error": "<CODE>: <message> (tool=…)"}`。
+     * 消息体已自带字面错误码时不重复拼接（ISSUE-07）。
      * 完整栈由调用方负责打印到日志，不进入模型上下文。
      */
     fun formatError(toolName: String, error: Throwable): String {
         val message = error.message?.replace('\n', ' ')?.take(300).orEmpty()
         val code = errorCode(toolName, error)
+        val body = if (message.startsWith(code, ignoreCase = true)) message else "$code: $message"
         return buildJsonObject {
-            put("error", "$code: $message (tool=$toolName)")
+            put("error", "$body (tool=$toolName)")
         }.toString()
     }
 }
