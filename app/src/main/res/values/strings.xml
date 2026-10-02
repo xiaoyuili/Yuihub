@@ -1317,6 +1317,7 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="backup_page_rikkahub_import_desc">Read chats, settings and files from an upstream RikkaHub backup</string>
   <string name="backup_page_rikkahub_import_confirm">Data from the backup will be merged into your current data. Continue?</string>
   <string name="backup_page_rikkahub_import_success">Imported %1$d records from RikkaHub</string>
+  <string name="backup_page_rikkahub_settings_failed">Settings could not be imported (incompatible backup). Providers and assistants were not changed.</string>
   <string name="backup_page_auto_backup">Auto backup</string>
   <string name="backup_page_auto_backup_enable">Enable auto backup</string>
   <string name="backup_page_auto_backup_desc">Create a backup automatically at the selected interval.</string>

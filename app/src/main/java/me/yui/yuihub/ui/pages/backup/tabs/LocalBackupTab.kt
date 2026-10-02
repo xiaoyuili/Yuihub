@@ -120,14 +120,21 @@ fun LocalBackupTab(
                         // 选到的是 RikkaHub 备份：已自动改走「按列名交集」导入，
                         // 不替换数据库文件，因此不会触发上游库与迁移链不兼容的问题
                         is RestoreOutcome.RikkaHubImported -> {
+                            // 设置导入失败（如备份里 settings 结构不兼容）时明确告知，
+                            // 避免只看到记录数而不知道供应商/助手等设置没进来
+                            val suffix = if (outcome.result.settingsImported) {
+                                ""
+                            } else {
+                                "\n" + context.getString(R.string.backup_page_rikkahub_settings_failed)
+                            }
                             toaster.show(
                                 context.getString(
                                     R.string.backup_page_rikkahub_import_success,
                                     outcome.result.totalRows,
-                                ),
-                                type = ToastType.Success
+                                ) + suffix,
+                                type = if (outcome.result.settingsImported) ToastType.Success else ToastType.Warning
                             )
-                            if (outcome.result.totalRows > 0) onShowRestartDialog()
+                            if (outcome.result.totalRows > 0 || outcome.result.settingsImported) onShowRestartDialog()
                         }
                     }
 
@@ -164,14 +171,19 @@ fun LocalBackupTab(
                     val result = vm.importRikkaHubBackup(tempFile)
                     tempFile.delete()
 
+                    val suffix = if (result.settingsImported) {
+                        ""
+                    } else {
+                        "\n" + context.getString(R.string.backup_page_rikkahub_settings_failed)
+                    }
                     toaster.show(
                         context.getString(
                             R.string.backup_page_rikkahub_import_success,
                             result.totalRows,
-                        ),
-                        type = ToastType.Success
+                        ) + suffix,
+                        type = if (result.settingsImported) ToastType.Success else ToastType.Warning
                     )
-                    if (result.totalRows > 0) onShowRestartDialog()
+                    if (result.totalRows > 0 || result.settingsImported) onShowRestartDialog()
                 }.onFailure { e ->
                     e.printStackTrace()
                     toaster.show(

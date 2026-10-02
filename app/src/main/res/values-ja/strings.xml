@@ -1488,6 +1488,7 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="backup_page_rikkahub_import_desc">上流 RikkaHub のバックアップからチャット・設定・ファイルを読み込みます</string>
   <string name="backup_page_rikkahub_import_confirm">バックアップのデータは現在のデータにマージされます。続行しますか？</string>
   <string name="backup_page_rikkahub_import_success">RikkaHub から %1$d 件のレコードをインポートしました</string>
+  <string name="backup_page_rikkahub_settings_failed">設定をインポートできませんでした（互換性のないバックアップ）。プロバイダーとアシスタントは変更されていません</string>
   <string name="backup_page_auto_backup">自動バックアップ</string>
   <string name="backup_page_auto_backup_enable">自動バックアップを有効化</string>
   <string name="backup_page_auto_backup_desc">選択した間隔でバックアップを自動生成します。</string>

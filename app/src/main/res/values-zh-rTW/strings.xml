@@ -1486,6 +1486,7 @@
   <string name="backup_page_rikkahub_import_desc">從上游 RikkaHub 備份讀取聊天記錄、設定與檔案</string>
   <string name="backup_page_rikkahub_import_confirm">備份中的資料將合併進目前資料，是否繼續？</string>
   <string name="backup_page_rikkahub_import_success">已從 RikkaHub 匯入 %1$d 筆記錄</string>
+  <string name="backup_page_rikkahub_settings_failed">設定未能匯入（備份格式不相容），供應商與助手未變更</string>
   <string name="backup_page_auto_backup">自動備份</string>
   <string name="backup_page_auto_backup_enable">啟用自動備份</string>
   <string name="backup_page_auto_backup_desc">依所選間隔在背景自動產生一份備份。</string>

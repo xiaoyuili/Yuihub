@@ -1488,6 +1488,7 @@ mDNS 주소: .local 호스트네임을 사용하며, IP를 몰라도 같은 네�
   <string name="backup_page_rikkahub_import_desc">업스트림 RikkaHub 백업에서 대화, 설정, 파일을 읽어옵니다</string>
   <string name="backup_page_rikkahub_import_confirm">백업의 데이터가 현재 데이터에 병합됩니다. 계속할까요?</string>
   <string name="backup_page_rikkahub_import_success">RikkaHub에서 %1$d개 레코드를 가져왔습니다</string>
+  <string name="backup_page_rikkahub_settings_failed">설정을 가져오지 못했습니다(호환되지 않는 백업). 공급자와 어시스턴트는 변경되지 않았습니다</string>
   <string name="backup_page_auto_backup">자동 백업</string>
   <string name="backup_page_auto_backup_enable">자동 백업 사용</string>
   <string name="backup_page_auto_backup_desc">선택한 간격으로 백업을 자동 생성합니다.</string>

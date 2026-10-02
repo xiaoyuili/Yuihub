@@ -1313,6 +1313,7 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="backup_page_rikkahub_import_desc">从上游 RikkaHub 备份读取聊天记录、设置与文件</string>
   <string name="backup_page_rikkahub_import_confirm">备份中的数据将合并进当前数据，是否继续？</string>
   <string name="backup_page_rikkahub_import_success">已从 RikkaHub 导入 %1$d 条记录</string>
+  <string name="backup_page_rikkahub_settings_failed">设置未能导入（备份格式不兼容），供应商与助手未变更</string>
   <string name="backup_page_auto_backup">自动备份</string>
   <string name="backup_page_auto_backup_enable">启用自动备份</string>
   <string name="backup_page_auto_backup_desc">按所选间隔在后台自动生成一份备份。</string>
