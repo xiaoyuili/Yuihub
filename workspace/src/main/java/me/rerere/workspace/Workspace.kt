@@ -1,5 +1,6 @@
 package me.rerere.workspace
 
+import java.io.File
 import kotlinx.serialization.Serializable
 
 data class Workspace(
@@ -82,4 +83,6 @@ data class WorkspaceCommandResult(
     val stderr: String,
     val timedOut: Boolean = false,
     val truncated: Boolean = false,
+    /** 输出超限时完整原始输出的落盘文件（宿主机路径）；未截断时为 null */
+    val spillFile: File? = null,
 )

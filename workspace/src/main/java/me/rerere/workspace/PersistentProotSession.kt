@@ -1,6 +1,7 @@
 package me.rerere.workspace
 
 import java.io.BufferedOutputStream
+import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -95,7 +96,7 @@ class PersistentProotSession private constructor(
         pumpQueue.clear()
 
         val marker = MARKER_PREFIX + java.lang.Long.toUnsignedString(System.nanoTime(), 36)
-        val script = buildCommandScript(context.command, context.prootCwdSpec(), stdin = context.stdin, marker = marker)
+        val script = buildCommandScript(context.command, context.prootCwdSpec(), stdin = context.stdin, marker = marker, timeoutMillis = context.timeoutMillis)
 
         try {
             synchronized(writeLock) {
@@ -110,7 +111,7 @@ class PersistentProotSession private constructor(
         // 协程取消会中断 poll; 此时命令可能还在跑, 连会话一起销毁避免留下孤儿进程。
         // 重抛 InterruptedException 让 runInterruptible 正常转成 CancellationException。
         return try {
-            collectOutput(marker, context.timeoutMillis)
+            collectOutput(marker, context.timeoutMillis, context.spillDir)
         } catch (e: InterruptedException) {
             destroy()
             throw e
@@ -160,10 +161,12 @@ class PersistentProotSession private constructor(
         }
     }
 
-    private fun collectOutput(marker: String, timeoutMillis: Long): WorkspaceCommandResult {
-        val stdout = StreamSide(marker)
-        val stderr = StreamSide(marker)
-        val deadline = System.currentTimeMillis() + timeoutMillis
+    private fun collectOutput(marker: String, timeoutMillis: Long, spillDir: File?): WorkspaceCommandResult {
+        val stdout = StreamSide(marker, spillDir?.let { File(it, "${marker.trimStart('_')}-stdout.txt") })
+        val stderr = StreamSide(marker, spillDir?.let { File(it, "${marker.trimStart('_')}-stderr.txt") })
+        // 兜底 deadline 比 shell 侧 timeout 晚 10s：正常情况下 shell 的 timeout 先杀掉命令并
+        // 打出 marker（会话保留）；只有连它也没兵住（极端）才销毁会话。
+        val deadline = System.currentTimeMillis() + timeoutMillis + 10_000
         var stderrDeadline = Long.MAX_VALUE
         var streamDied = false
 
@@ -179,6 +182,7 @@ class PersistentProotSession private constructor(
                         stderr = stderr.retained(),
                         timedOut = true,
                         truncated = stdout.truncated || stderr.truncated,
+                        spillFile = stdout.spillFile?.takeIf { it.exists() },
                     )
                 }
                 break // stdout 已完结, 只差 stderr 的收尾 marker, 用现有内容返回
@@ -203,25 +207,34 @@ class PersistentProotSession private constructor(
             throw IOException("proot session terminated during command execution")
         }
 
+        stdout.closeSpill()
+        stderr.closeSpill()
         return WorkspaceCommandResult(
             exitCode = stdout.exitCode ?: -1,
             stdout = stdout.retained(),
             stderr = stderr.retained(),
-            timedOut = false,
+            // shell 侧 timeout 触发时命令退出码为 124/137, marker 行带 timeout=1 标志
+            timedOut = stdout.timedOut || stderr.timedOut,
             truncated = stdout.truncated || stderr.truncated,
+            spillFile = stdout.spillFile?.takeIf { it.exists() },
         )
     }
 
     /**
-     * 单个流的收集器: 保留前 [MAX_OUTPUT_CHARS] 字符, 之后的只计数;
+     * 单个流的收集器: 保留前 [MAX_OUTPUT_CHARS] 字符进内存; 超出后
+     * 继续把完整内容写入 [spillTarget]（若给）, 保证完整输出可找回。
      * 用一个小滚动尾窗跨块扫描 marker(命令输出可能把 marker 推到任意远的下游)。
      */
-    private class StreamSide(private val marker: String) {
+    private class StreamSide(private val marker: String, val spillTarget: File?) {
         val content = StringBuilder()
         var totalSeen = 0L
         var exitCode: Int? = null
+        var timedOut = false
         var truncated = false
         var done = false
+        var spillFile: File? = null
+            private set
+        private var spillWriter: java.io.Writer? = null
         private var tail = ""
 
         fun feed(text: String) {
@@ -234,6 +247,7 @@ class PersistentProotSession private constructor(
                 val lineEnd = combined.indexOf('\n', idx)
                 val line = if (lineEnd < 0) combined.substring(idx) else combined.substring(idx, lineEnd)
                 exitCode = Regex("rc=(-?\\d+)").find(line)?.groupValues?.get(1)?.toIntOrNull()
+                timedOut = line.contains("timeout=1")
                 // marker 行之后的残留(理论上无)并入内容
                 if (lineEnd >= 0 && lineEnd + 1 < combined.length) {
                     appendContent(combined.substring(lineEnd + 1))
@@ -251,11 +265,30 @@ class PersistentProotSession private constructor(
 
         private fun appendContent(text: String) {
             totalSeen += text.length
-            val remaining = MAX_OUTPUT_CHARS - content.length
-            if (remaining > 0) {
-                content.append(text, 0, minOf(text.length, remaining))
-            }
+            val remaining = (MAX_OUTPUT_CHARS - content.length).coerceAtLeast(0)
+            val memoryPart = if (text.length <= remaining) text else text.take(remaining)
+            if (memoryPart.isNotEmpty()) content.append(memoryPart)
+            val spillPart = text.substring(memoryPart.length)
             truncated = totalSeen > MAX_OUTPUT_CHARS
+            val target = spillTarget
+            if (spillPart.isNotEmpty() && target != null) {
+                val writer = spillWriter ?: run {
+                    // 首次溢出: 把内存中保留的前段先补写到文件, 形成完整副本
+                    target.parentFile?.mkdirs()
+                    target.bufferedWriter().also { newWriter ->
+                        if (content.isNotEmpty()) newWriter.write(content.toString())
+                        spillFile = target
+                        spillWriter = newWriter
+                    }
+                }
+                writer.write(spillPart)
+            }
+        }
+
+        fun closeSpill() {
+            runCatching { spillWriter?.flush() }
+            runCatching { spillWriter?.close() }
+            spillWriter = null
         }
 
         fun retained(): String = content.toString()
@@ -273,6 +306,7 @@ class PersistentProotSession private constructor(
         cwdSpec: String,
         stdin: ByteArray?,
         marker: String,
+        timeoutMillis: Long,
     ): String = buildString {
         append("__YUIHUB_TMP='").append(CMD_TMP_PREFIX).append(java.lang.Long.toUnsignedString(System.nanoTime(), 36)).append("'\n")
         append("__YUIHUB_TMP_DIR=\"\${__YUIHUB_TMP%/*}\"\n")
@@ -287,16 +321,24 @@ class PersistentProotSession private constructor(
         // /tmp 自愈: 目录被清理(如 App 启动时 cleanupAllTempDirs)时先重建, 避免脚本写入失败 exit 127
         append("mkdir -p -- \"\${__YUIHUB_TMP_DIR}\"\n")
         append("printf '%s' \"").append(varRefs("__YUIHUB_CMD", cmdChunks)).append("\" | base64 -d > \"\$__YUIHUB_TMP\"\n")
-        // cd 失败时 && 短路, 子壳退出码 = cd 的退出码; 不用 "|| exit $?" —— 此处的 $? 是 read 的, 不是上一行的
+        // 超时执行：shell 侧的 timeout 只杀本条命令的进程组（timeout 自建进程组），
+        // 主壳与 nohup 后台服务都存活——不再走「超时=销毁整个会话」的破坏性路径。
+        // 秒数比 App 侧 deadline 提前 2s，让本条路径先触发；-k 3 兼顶住忽略 TERM 的命令。
+        val timeoutSeconds = ((timeoutMillis / 1000L) - 2L).coerceAtLeast(1L)
+        val timeoutPrelude = "timeout -k 3 ${timeoutSeconds}s"
+        // cd 失败时 && 短路, 退出码 = cd 的退出码; 不用 "|| exit $?" —— 此处的 $? 是 read 的, 不是上一行的
         if (inChunks > 0) {
-            append("printf '%s' \"").append(varRefs("__YUIHUB_IN", inChunks)).append("\" | base64 -d | { cd -- \"\$__YUIHUB_CWD\" && /bin/bash \"\$__YUIHUB_TMP\"; }\n")
+            append("printf '%s' \"").append(varRefs("__YUIHUB_IN", inChunks)).append("\" | base64 -d | { cd -- \"\$__YUIHUB_CWD\" && exec $timeoutPrelude /bin/bash \"\$__YUIHUB_TMP\"; }\n")
         } else {
             // 用子壳(圆括号): 花括号组会在主壳上下文里 cd, 失败或 exit 会把整个常驻会话杀掉
-            append("( cd -- \"\$__YUIHUB_CWD\" && /bin/bash \"\$__YUIHUB_TMP\" ) < /dev/null\n")
+            append("( cd -- \"\$__YUIHUB_CWD\" && exec $timeoutPrelude /bin/bash \"\$__YUIHUB_TMP\" ) < /dev/null\n")
         }
+        // 上一行为命令执行行, eval 后 __YUIHUB_RC = 其退出码; 本行判超时标志后再恢复 __YUIHUB_RC,
+        // 供下面 marker 行使用（timeout 触发时退出码为 124/137）
+        append("__YUIHUB_CMD_RC=\$__YUIHUB_RC; case \"\$__YUIHUB_CMD_RC\" in 124|137) __YUIHUB_TO=' timeout=1';; *) __YUIHUB_TO='';; esac; __YUIHUB_RC=\$__YUIHUB_CMD_RC\n")
         // __YUIHUB_RC 由主壳循环在上一行 eval 后写入(见 PERSISTENT_MAIN_COMMAND), marker 行直接取用
-        append("printf '%s\\n' \"\$__YUIHUB_MK rc=\$__YUIHUB_RC\"\n")
-        append("printf '%s\\n' \"\$__YUIHUB_MK rc=\$__YUIHUB_RC\" >&2\n")
+        append("printf '%s\\n' \"\$__YUIHUB_MK rc=\$__YUIHUB_RC\$__YUIHUB_TO\"\n")
+        append("printf '%s\\n' \"\$__YUIHUB_MK rc=\$__YUIHUB_RC\$__YUIHUB_TO\" >&2\n")
         append("rm -f -- \"\$__YUIHUB_TMP\"\n")
     }
 

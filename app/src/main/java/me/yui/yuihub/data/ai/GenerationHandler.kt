@@ -81,6 +81,14 @@ private const val INITIAL_PROVIDER_RETRY_DELAY_MS = 1_000L
 /** P0-1 路线A: 同批 spawn/followup_agent 的并发上限，超出排队等待 */
 private const val SPAWN_AGENT_CONCURRENCY = 4
 
+/**
+ * 空回复补救提示（P0-2）：多步操作后模型只输出思考、无可见正文也无工具调用时，
+ * 向随后一次请求追加此提示要求补出可见回答。仅重试一次；不写入对话历史。
+ */
+private const val VISIBLE_ANSWER_RECOVERY_HINT =
+    "Your previous response produced no visible output for the user (reasoning only). " +
+        "Provide your visible answer now."
+
 private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(cause)
 
 @Serializable
@@ -120,6 +128,9 @@ class GenerationHandler(
         val providerImpl = providerManager.getProviderByType(provider)
 
         var messages: List<UIMessage> = messages
+        // 空回复补救：只重试一次；pendingRecoveryHint 只作用于下一次请求的系统提示
+        var visibleAnswerRecovered = false
+        var pendingRecoveryHint: String? = null
 
         for (stepIndex in 0 until maxSteps) {
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
@@ -195,7 +206,9 @@ class GenerationHandler(
                     conversationModeInjectionIds = conversationModeInjectionIds,
                     conversationLorebookIds = conversationLorebookIds,
                     workspaceCwd = workspaceCwd,
+                    recoveryHint = pendingRecoveryHint,
                 )
+                pendingRecoveryHint = null
                 messages = messages.visualTransforms(
                     transformers = outputTransformers,
                     context = context,
@@ -218,6 +231,21 @@ class GenerationHandler(
 
                 val tools = messages.last().getTools().filter { !it.isExecuted }
                 if (tools.isEmpty()) {
+                    // 空回复补救：多步操作后模型可能只输出思考、既无可见正文也无工具调用，
+                    // 直接结束会让用户看到「思考完就不回复」。这里注入一次恢复提示重试，
+                    // 提示只作用于下一次请求的系统提示，不写入对话历史。
+                    val lastParts = messages.lastOrNull()?.parts.orEmpty()
+                    val hasVisibleOutput = lastParts.any { part ->
+                        (part is UIMessagePart.Text && part.text.isNotBlank()) ||
+                            part is UIMessagePart.Image ||
+                            part is UIMessagePart.ServerTool
+                    }
+                    if (!hasVisibleOutput && !visibleAnswerRecovered) {
+                        visibleAnswerRecovered = true
+                        pendingRecoveryHint = VISIBLE_ANSWER_RECOVERY_HINT
+                        Log.i(TAG, "generateText: empty visible reply, requesting visible answer once")
+                        continue
+                    }
                     // no tool calls, break
                     break
                 }
@@ -433,8 +461,9 @@ class GenerationHandler(
         conversationModeInjectionIds: Set<Uuid> = emptySet(),
         conversationLorebookIds: Set<Uuid> = emptySet(),
         workspaceCwd: String? = null,
+        /** 空回复补救提示（只作用于本请求系统提示，不进入对话历史） */
+        recoveryHint: String? = null,
     ) {
-        // 分段计时（构建/首字/流续/工具），用于定位『一顿顿』的开销分布
         val buildStartMs = SystemClock.elapsedRealtime()
         val internalMessages = buildList {
             val system = buildString {
@@ -456,6 +485,13 @@ class GenerationHandler(
                 if (tools.isNotEmpty()) {
                     appendLine()
                     append(AGENT_TOOL_STYLE_PROMPT)
+                }
+                // 空回复补救提示（一次性，不进入对话历史）
+                if (!recoveryHint.isNullOrBlank()) {
+                    appendLine()
+                    appendLine("<recovery_note>")
+                    appendLine(recoveryHint)
+                    append("</recovery_note>")
                 }
             }
             if (system.isNotBlank()) {

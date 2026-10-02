@@ -73,6 +73,7 @@ private fun createReadFileTool(
         Read a file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
         Use /workspace for the workspace files area.
         Supports UTF-8 text files and image files (png, jpg, jpeg, gif, webp, bmp, svg, heic, heif, avif, ico).
+        Non-UTF-8 binary files are rejected with BINARY_CONTENT — handle them via workspace_shell (od/hexdump/base64) instead.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -104,6 +105,14 @@ private fun createReadFileTool(
             workspaceRepository.readImageInRootfs(workspaceId, path)
         } else {
             val text = workspaceRepository.readTextInRootfs(workspaceId, path)
+            if (text.contains('\uFFFD')) {
+                // ISSUE-08: toString(UTF-8) 是有损解码，非 UTF-8 字节静默变 U+FFFD 会把损坏内容当原文写回；
+                // 真实文本里出现 U+FFFD 的概率极低，检测到就按二进制拒绝，引导走 shell
+                error(
+                    "BINARY_CONTENT: $path is not valid UTF-8 text (lossy decode would corrupt it). " +
+                        "Use workspace_shell (od/hexdump/base64) for binary files."
+                )
+            }
             listOf(
                 UIMessagePart.Text(
                     buildJsonObject {
@@ -156,7 +165,9 @@ private fun createWriteFileTool(
     execute = {
         val params = it.jsonObject
         val path = params.absolutePath("path")
-        val text = params.string("text") ?: error("text is required")
+        rejectReadOnlyPath(path)
+        val text = params.string("text")
+            ?: error("text is required (parameters: path, text, overwrite, expectedMtimeMs, force; the content parameter is named 'text')")
         val overwrite = params["overwrite"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: true
         val expectedMtime = params["expectedMtimeMs"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
         val force = params["force"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
@@ -190,7 +201,7 @@ private fun createEditFileTool(
         Edit a UTF-8 text file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
         Use /workspace for the workspace files area.
         Provide old_text and new_text. By default old_text must occur exactly once; set replace_all=true to replace every occurrence.
-        If no exact match is found, whitespace-tolerant line matching is attempted automatically.
+        If no exact match is found, whitespace-tolerant line matching is attempted automatically; the replacement may then be re-indented to the matched block's whitespace and is flagged with indentationWarning.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -216,8 +227,11 @@ private fun createEditFileTool(
     execute = {
         val params = it.jsonObject
         val path = params.absolutePath("path")
-        val oldText = params.string("old_text") ?: error("old_text is required")
-        val newText = params.string("new_text") ?: error("new_text is required")
+        rejectReadOnlyPath(path)
+        val oldText = params.string("old_text")
+            ?: error("old_text is required (parameters: path, old_text, new_text, replace_all)")
+        val newText = params.string("new_text")
+            ?: error("new_text is required (parameters: path, old_text, new_text, replace_all)")
         val replaceAll = params["replace_all"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
         require(oldText.isNotEmpty()) { "old_text must not be empty" }
 
@@ -236,6 +250,14 @@ private fun createEditFileTool(
                     put("path", entry.path)
                     put("replacements", result.replacements)
                     if (result.strategy != ExactReplacer.name) put("matchStrategy", result.strategy)
+                    // ISSUE-01: 宽松匹配策略重排过缩进时显式告知，避免静默改坏缩进敏感文件
+                    if (result.indentationAdjusted) {
+                        put(
+                            "indentationWarning",
+                            "old_text indentation did not match the file, so the replacement was re-indented " +
+                                "to the matched block's original leading whitespace. Re-read the file to verify indentation."
+                        )
+                    }
                     put("sizeBytes", entry.sizeBytes)
                     put("updatedAt", entry.updatedAt)
                 }.toString(),
@@ -355,22 +377,31 @@ private fun createShellTool(
         listOf(
             UIMessagePart.Text(
                 buildJsonObject {
-                    put("exitCode", result.exitCode)
-                    put("stdout", result.stdout)
-                    put("stderr", result.stderr)
-                    put("timedOut", result.timedOut)
+                    // 截断提示字段放在 stdout 之前：完整 JSON 可能再次被调用链截断为前 4K,
+                    // 提示若排在输出后面就随尾部一起看不到
                     if (result.truncated) {
                         put("truncated", true)
                         put(
                             "truncatedMarker",
                             "[truncated: showing first ${result.stdout.length} of more chars (cap ${MAX_OUTPUT_CHARS / 1024}K)]",
                         )
-                        put(
-                            "truncatedHint",
-                            "Output exceeded ${MAX_OUTPUT_CHARS / 1024}K chars and was cut off mid-stream. " +
-                                "Use pipes like `cmd 2>&1 | tail -c 4000`, `| head -50`, `| grep keyword`, " +
-                                "or redirect to a file and read parts of it."
-                        )
+                        val spill = result.spillFile
+                        if (spill != null) {
+                            put("fullOutputPath", "/tool_outputs/${spill.name}")
+                            put(
+                                "truncatedHint",
+                                "Output exceeded ${MAX_OUTPUT_CHARS / 1024}K chars; the COMPLETE output is saved to " +
+                                    "/tool_outputs/${spill.name} — read it with workspace_read_file or grep/sed it. " +
+                                    "For future commands prefer pipes like `cmd 2>&1 | tail -c 4000`, `| head -50` or `| grep keyword`."
+                            )
+                        } else {
+                            put(
+                                "truncatedHint",
+                                "Output exceeded ${MAX_OUTPUT_CHARS / 1024}K chars and was cut off mid-stream. " +
+                                    "Use pipes like `cmd 2>&1 | tail -c 4000`, `| head -50`, `| grep keyword`, " +
+                                    "or redirect to a file and read parts of it."
+                            )
+                        }
                     }
                     if (result.timedOut) {
                         put(
@@ -379,6 +410,10 @@ private fun createShellTool(
                                 "Retry with a larger timeout parameter (e.g. 300) or run it in the background with nohup."
                         )
                     }
+                    put("exitCode", result.exitCode)
+                    put("stdout", result.stdout)
+                    put("stderr", result.stderr)
+                    put("timedOut", result.timedOut)
                 }.toString()
             )
         )
@@ -554,6 +589,25 @@ private fun kotlinx.serialization.json.JsonObject.absolutePath(name: String): St
 
 // 免强制审批的可写安全区: 工作区文件目录、临时目录和技能目录
 private val WRITABLE_ROOT_PREFIXES = listOf("/workspace", "/tmp", "/skills")
+
+// 平台只读区（PRoot 的 -b 无只读能力，靠工具层拒绝写入；见 WorkspaceBindMount.readOnly 注释）
+private val READ_ONLY_ROOT_PREFIXES = listOf("/upload")
+
+private fun String.isInReadOnlyRoot(): Boolean {
+    val normalized = trimEnd('/').ifBlank { "/" }
+    return READ_ONLY_ROOT_PREFIXES.any { prefix ->
+        normalized == prefix || normalized.startsWith("$prefix/")
+    }
+}
+
+private fun rejectReadOnlyPath(path: String) {
+    if (path.isInReadOnlyRoot()) {
+        error(
+            "READ_ONLY: $path is under a read-only mount (/upload holds user-uploaded originals). " +
+                "Copy it into /workspace first, then modify the copy."
+        )
+    }
+}
 
 private fun kotlinx.serialization.json.JsonElement.pathOutsideWritableRoots(name: String): Boolean =
     runCatching {

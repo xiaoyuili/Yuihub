@@ -20,6 +20,11 @@ class RootfsPatcher {
         // /var/tmp, 若只靠 marker 短路, 重启后首次命令的临时脚本(写在 /tmp)会因目录缺失
         // 直接 exit 127。这里每次都重建, 仅几个 mkdir/stat, 开销可忽略。
         ensureTempDirs(linuxDir)
+        // CA 证书同理放在短路外: 每次仅 stat 一个文件, 缺失时才重建。
+        // ubuntu-base 最小镜像不含 ca-certificates, 不补的话所有 https 请求都会失败
+        // (curl 报 000), 而 apt 装证书又依赖网络, 形成死循环——这里直接复用
+        // Android 系统证书库离线生成, 新 rootfs 与旧 rootfs 都能自愈。
+        ensureCaCertificates(etcDir)
         if (alreadyPatched) return
 
         ensureRootfsDns(etcDir, options.nameservers)
@@ -32,6 +37,43 @@ class RootfsPatcher {
     }
 
     /**
+     * 用 Android 系统证书库离线生成 Rootfs 的 CA bundle。
+     *
+     * 生成的 [ca-certificates.crt] 是 Debian/Ubuntu 系 curl/openssl 的默认信任链，
+     * 同时把每张证书按 Android 原有哈希名（*.0）拷贝到 /etc/ssl/certs，
+     * 两条路径都能在 `apt-get install ca-certificates` 之前的裸镜像里立即生效。
+     */
+    private fun ensureCaCertificates(etcDir: File) {
+        val sslCertsDir = File(etcDir, "ssl/certs")
+        val bundle = File(sslCertsDir, "ca-certificates.crt")
+        if (bundle.isFile && bundle.length() > 0) return
+
+        val sources = CA_SOURCE_DIRS.map(::File).filter { it.isDirectory }
+        if (sources.isEmpty()) return
+
+        sslCertsDir.mkdirs()
+        val builder = StringBuilder()
+        var count = 0
+        sources.forEach { dir ->
+            val certs = dir.listFiles { file -> file.isFile && file.name.endsWith(".0") } ?: return@forEach
+            certs.forEach { cert ->
+                runCatching {
+                    val text = cert.readText()
+                    if (!text.contains("BEGIN CERTIFICATE")) return@runCatching
+                    val target = File(sslCertsDir, cert.name)
+                    if (!target.exists()) target.writeText(text)
+                    builder.append(text)
+                    if (!text.endsWith("\n")) builder.append('\n')
+                    count++
+                }
+            }
+        }
+        if (count > 0) {
+            bundle.writeText(builder.toString())
+        }
+    }
+
+    /**
      * 把 apt 源换成国内镜像。ubuntu-base 的源默认指向 ports.ubuntu.com / archive.ubuntu.com，
      * 国内直连极慢，AI 装包（node/git 等）经常超时被当成「环境不可用」。
      *
@@ -41,6 +83,38 @@ class RootfsPatcher {
     private fun ensureAptMirror(linuxDir: File) {
         if (AptSources.isExplicit(linuxDir)) return
         AptSources.rewriteTo(linuxDir, AptSources.DEFAULT_MIRROR, explicit = false)
+    }
+
+    private fun ensureGroupNames(etcDir: File, groupIds: List<Long>) {
+        val target = File(etcDir, "group")
+        if (!target.exists()) {
+            target.writeText("root:x:0:\n")
+        }
+        val lines = target.readLines().toMutableList()
+        val existingIds = lines.mapNotNull { line ->
+            line.split(':').getOrNull(2)?.toLongOrNull()
+        }.toSet()
+        val existingNames = lines.mapNotNull { line ->
+            line.substringBefore(':').takeIf { it.isNotBlank() }
+        }.toSet()
+        val additions = groupIds
+            .filter { it > 0 && it !in existingIds }
+            .distinct()
+            .map { id ->
+                val baseName = "android_gid_$id"
+                val name = if (baseName in existingNames) "${baseName}_workspace" else baseName
+                "$name:x:$id:"
+            }
+        if (additions.isEmpty()) return
+
+        target.appendText(
+            buildString {
+                if (target.length() > 0 && !target.readText().endsWith('\n')) {
+                    appendLine()
+                }
+                additions.forEach { appendLine(it) }
+            }
+        )
     }
 
     private fun ensureRootfsDns(
@@ -130,38 +204,6 @@ class RootfsPatcher {
         target.writeText(lines.joinToString(separator = "\n", postfix = "\n"))
     }
 
-    private fun ensureGroupNames(etcDir: File, groupIds: List<Long>) {
-        val target = File(etcDir, "group")
-        if (!target.exists()) {
-            target.writeText("root:x:0:\n")
-        }
-        val lines = target.readLines().toMutableList()
-        val existingIds = lines.mapNotNull { line ->
-            line.split(':').getOrNull(2)?.toLongOrNull()
-        }.toSet()
-        val existingNames = lines.mapNotNull { line ->
-            line.substringBefore(':').takeIf { it.isNotBlank() }
-        }.toSet()
-        val additions = groupIds
-            .filter { it > 0 && it !in existingIds }
-            .distinct()
-            .map { id ->
-                val baseName = "android_gid_$id"
-                val name = if (baseName in existingNames) "${baseName}_workspace" else baseName
-                "$name:x:$id:"
-            }
-        if (additions.isEmpty()) return
-
-        target.appendText(
-            buildString {
-                if (target.length() > 0 && !target.readText().endsWith('\n')) {
-                    appendLine()
-                }
-                additions.forEach { appendLine(it) }
-            }
-        )
-    }
-
     private fun ensureTempDirs(linuxDir: File) {
         listOf("tmp", "var/tmp", "root").forEach { path ->
             File(linuxDir, path).mkdirs()
@@ -194,6 +236,12 @@ class RootfsPatcher {
         private const val MAX_DNS_SERVERS = 3
         private const val DEFAULT_HOSTNAME = "localhost"
         private val WHITESPACE_REGEX = Regex("\\s+")
+        // Android 系统 CA 存储的候选位置（新版以 conscrypt apex 为主，旧版在 /system/etc）
+        private val CA_SOURCE_DIRS = listOf(
+            "/apex/com.android.conscrypt/cacerts",
+            "/system/etc/security/cacerts",
+            "/system/etc/cacerts",
+        )
         private val LOCAL_RESOLVERS = setOf(
             "127.0.0.1",
             "127.0.0.53",

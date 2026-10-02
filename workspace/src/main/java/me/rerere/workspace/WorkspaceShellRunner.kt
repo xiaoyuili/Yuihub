@@ -21,6 +21,8 @@ data class WorkspaceShellContext(
     val stdin: ByteArray? = null,
     val bindMounts: List<WorkspaceBindMount> = emptyList(),
     val shellCompatibilityMode: Boolean = false,
+    /** 输出超限时完整输出的落盘目录（/tool_outputs 挂载源；无挂载时为 null） */
+    val spillDir: File? = null,
 )
 
 class HostShellRunner : WorkspaceShellRunner {

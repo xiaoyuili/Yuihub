@@ -68,8 +68,8 @@ val repositoryModule = module {
                 WorkspaceBindMount(
                     source = File(context.filesDir, FileFolders.UPLOAD).apply { mkdirs() },
                     target = "/upload",
-                    // 与系统提示一致：/upload 是用户上传的原始文件区，AI 不可修改，
-                    // 需要改动时先复制到 /workspace。只读挂载在 PRoot 层直接拦截写入。
+                    // /upload 是用户上传的原始文件区：readOnly 只是语义标记（PRoot 的 -b 无只读
+                    // 能力，写入拦截由文件工具的 /upload 路径保护实现），需要改动时先复制到 /workspace
                     readOnly = true,
                 ),
             ),

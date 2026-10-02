@@ -342,6 +342,10 @@ class WorkspaceManager(
                 stdin = stdin,
                 bindMounts = mergeBindMounts(bindMounts, extraBindMounts),
                 shellCompatibilityMode = shellCompatibilityMode,
+                // /tool_outputs 挂载源用作截断落盘目录（与 bindMounts 同源，无挂载时为 null）
+                spillDir = mergeBindMounts(bindMounts, extraBindMounts)
+                    .firstOrNull { it.target.trimEnd('/') == "/tool_outputs" }
+                    ?.source,
             )
         )
     }

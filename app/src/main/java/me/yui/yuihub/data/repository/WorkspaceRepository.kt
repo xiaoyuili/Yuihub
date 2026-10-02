@@ -504,9 +504,12 @@ class WorkspaceRepository(
     private fun installCommonNetworkToolsAsync(id: String) {
         appScope.launch(Dispatchers.IO) {
             runCatching {
+                // ca-certificates 一并装：ubuntu-base 裸镜像不含它，缺了会让所有 https 请求
+                // 失败（curl 返回 000）。RootfsPatcher 已有离线兜底（复用 Android 系统证书库），
+                // 这里联网后用包管理器装齐更正规的更新机制（update-ca-certificates）。
                 executeAptCommand(
                     id = id,
-                    command = "command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y --no-install-recommends curl; }",
+                    command = "command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y --no-install-recommends curl ca-certificates; }",
                     timeoutMillis = 300_000L,
                 )
             }.onFailure {

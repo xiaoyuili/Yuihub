@@ -13,12 +13,17 @@ data class WorkspaceBindMount(
         require(target.startsWith("/")) { "Bind mount target must be absolute: $target" }
     }
 
-    /** PRoot `-b` 参数形式：`<宿主路径>:<Rootfs 路径>[:ro]` */
+    /**
+     * PRoot `-b` 参数形式：`<宿主路径>:<Rootfs 路径>`。
+     *
+     * PRoot 的 `-b` 不支持 `:ro` 等权限后缀——早期版本会把它当作目标路径的一部分，
+     * 导致挂载点变成字面名为 `/upload:ro` 的目录，`/upload` 反而不存在。
+     * readOnly 仅作为语义标记供工具层做写保护（PRoot 层无只读能力）。
+     */
     fun prootBindSpec(): String = buildString {
         append(source.absolutePath)
         append(':')
         append(target.trimEnd('/'))
-        if (readOnly) append(":ro")
     }
 }
 
@@ -249,7 +254,9 @@ class ProotShellRunner(
         private const val SESSION_INIT_TIMEOUT_MS = 20_000L
 
         /** 常驻主壳的读-求值循环: 每行完整命令经 stdin 投递进来, 登录 profile 只跑一次。
-         *  循环负责把每行的退出码存进 __YUIHUB_RC —— 下一行的 $? 已被 read 覆盖, 不能用 */
+         *  循环负责把每行的退出码存进 __YUIHUB_RC —— 下一行的 $? 已被 read 覆盖, 不能用。
+         *  超时由命令脚本内的 `timeout` 接管（只杀当前命令的进程组），主壳与 nohup
+         *  后台服务不受影响——不再依赖「超时=销毁会话」的破坏性路径 */
         private const val PERSISTENT_MAIN_COMMAND =
             "while IFS= read -r __YUIHUB_LINE; do eval \"\$__YUIHUB_LINE\"; __YUIHUB_RC=\$?; done"
     }
