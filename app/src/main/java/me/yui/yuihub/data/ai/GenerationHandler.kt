@@ -47,6 +47,7 @@ import me.rerere.ai.util.ProviderRetryPolicy
 import me.rerere.common.android.Logging
 import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.limitContext
+import me.rerere.ai.ui.isOutputLimitTruncation
 import me.yui.yuihub.R
 import me.yui.yuihub.data.ai.transformers.InputMessageTransformer
 import me.yui.yuihub.data.ai.transformers.MessageTransformer
@@ -89,6 +90,48 @@ private const val VISIBLE_ANSWER_RECOVERY_HINT =
     "Your previous response produced no visible output for the user (reasoning only). " +
         "Provide your visible answer now."
 
+/**
+ * 输出被 token 上限截断时的续写提示：追加到下一请求的系统提示，要求接着上次停处继续，
+ * 不重复已输出内容。续写结果会追加到同一条助手消息（StreamChunkHandler 复用末尾助手消息）。
+ */
+private const val CONTINUE_TRUNCATED_HINT =
+    "Your previous response was cut off because it reached the output token limit. " +
+        "Continue exactly from where it stopped, without repeating any text you already produced " +
+        "and without restarting or adding a preamble. Just resume the sentence/block mid-way."
+
+/**
+ * 响应流以裸 EOF 结束时的续写提示（中转/网络在未给显式终止标记的情况下提前关流）。
+ * 与 [CONTINUE_TRUNCATED_HINT] 语义等价：从停处续写、不重复、不重新开头。
+ */
+private const val CONTINUE_INCOMPLETE_HINT =
+    "Your previous response ended unexpectedly in the middle (the stream was cut off before a proper stop signal). " +
+        "Continue exactly from where it stopped, without repeating any text you already produced " +
+        "and without restarting or adding a preamble. Just resume the sentence/block mid-way."
+
+/** 自动续写的最大次数，避免连续截断时无限循环 */
+private const val MAX_AUTO_CONTINUATIONS = 3
+
+/** 自动续写类提示集合：用于识别「本次请求是续写」以便收尾时合并新增的 Text part */
+private val CONTINUATION_HINTS = setOf(CONTINUE_TRUNCATED_HINT, CONTINUE_INCOMPLETE_HINT)
+
+/**
+ * 统一的「未完成检测 + 续写策略」：判断本次响应是否因可续写的原因中途结束，
+ * 返回应注入下一请求的续写提示，或 null 表示正常结束。
+ *
+ * 覆盖三类真实场景：
+ * - 撞到输出 token 上限（正常停止但未写完）
+ * - 裸 EOF：中转/网络提前关流，未收到任何显式结束标记
+ * - （`content_filter` 等由供应商主动拦截的结束不在此列，不可靠续写）
+ */
+private fun autoContinueHint(last: UIMessage?, continuationCount: Int): String? {
+    if (last == null || continuationCount >= MAX_AUTO_CONTINUATIONS) return null
+    return when {
+        last.finishReason.isOutputLimitTruncation() -> CONTINUE_TRUNCATED_HINT
+        last.finishIncomplete -> CONTINUE_INCOMPLETE_HINT
+        else -> null
+    }
+}
+
 private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(cause)
 
 @Serializable
@@ -123,6 +166,11 @@ class GenerationHandler(
         conversationModeInjectionIds: Set<Uuid> = emptySet(),
         conversationLorebookIds: Set<Uuid> = emptySet(),
         workspaceCwd: String? = null,
+        /**
+         * 生成过程中的检查点回调：每个流式 chunk 合并后以当前消息列表调用。
+         * 调用方（ChatService）节流落库，使进程被杀/崩溃后能恢复到断点。
+         */
+        onCheckpoint: suspend (List<UIMessage>) -> Unit = {},
     ): Flow<GenerationChunk> = flow {
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
@@ -131,6 +179,8 @@ class GenerationHandler(
         // 空回复补救：只重试一次；pendingRecoveryHint 只作用于下一次请求的系统提示
         var visibleAnswerRecovered = false
         var pendingRecoveryHint: String? = null
+        // 输出被 token 上限截断时自动续写，最多 MAX_AUTO_CONTINUATIONS 次
+        var autoContinuations = 0
 
         for (stepIndex in 0 until maxSteps) {
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
@@ -182,17 +232,17 @@ class GenerationHandler(
                             assistant = assistant,
                             settings = settings
                         )
-                        emit(
-                            GenerationChunk.Messages(
-                                messages.visualTransforms(
-                                    transformers = outputTransformers,
-                                    context = context,
-                                    model = model,
-                                    assistant = assistant,
-                                    settings = settings
-                                )
-                            )
+                        // UI/落库使用同一份视图转换结果，检查点必须与最终保存的节点一致
+                        val visualMessages = messages.visualTransforms(
+                            transformers = outputTransformers,
+                            context = context,
+                            model = model,
+                            assistant = assistant,
+                            settings = settings
                         )
+                        emit(GenerationChunk.Messages(visualMessages))
+                        // 持久化检查点：以转换后的消息落库；调用方内部节流为固定间隔
+                        onCheckpoint(visualMessages)
                     },
                     transformers = inputTransformers,
                     model = model,
@@ -208,7 +258,11 @@ class GenerationHandler(
                     workspaceCwd = workspaceCwd,
                     recoveryHint = pendingRecoveryHint,
                 )
+                // 续写步骤结束后把新增的 Text part 合并回上一段：
+                // StreamChunkHandler 会为新一轮流新建 Text part，不合并会在消息里多出一个 markdown 块的空行
+                val wasContinuation = pendingRecoveryHint in CONTINUATION_HINTS
                 pendingRecoveryHint = null
+                if (wasContinuation) messages = messages.mergeTrailingAssistantTextParts()
                 messages = messages.visualTransforms(
                     transformers = outputTransformers,
                     context = context,
@@ -244,6 +298,19 @@ class GenerationHandler(
                         visibleAnswerRecovered = true
                         pendingRecoveryHint = VISIBLE_ANSWER_RECOVERY_HINT
                         Log.i(TAG, "generateText: empty visible reply, requesting visible answer once")
+                        continue
+                    }
+                    // 统一未完成检测：length 截断 / 裸 EOF 都注入续写提示，续写追加到同一条助手消息
+                    autoContinueHint(messages.lastOrNull(), autoContinuations)?.let { hint ->
+                        autoContinuations++
+                        pendingRecoveryHint = hint
+                        Log.i(
+                            TAG,
+                            "generateText: reply ended before completion " +
+                                "(finishReason=${messages.lastOrNull()?.finishReason ?: "n/a"}, " +
+                                "incomplete=${messages.lastOrNull()?.finishIncomplete == true}), " +
+                                "auto-continuing ($autoContinuations/$MAX_AUTO_CONTINUATIONS)"
+                        )
                         continue
                     }
                     // no tool calls, break
@@ -384,7 +451,10 @@ class GenerationHandler(
                             Log.i(TAG, "generateText: tool ${toolDef.name} took ${SystemClock.elapsedRealtime() - toolStartMs}ms")
                             pushExecuted(
                                 tool.copy(
-                                    output = maybeTruncateToolOutput(tool.toolCallId, result)
+                                    output = maybeTruncateToolOutput(
+                                        tool.toolCallId,
+                                        normalizeToolResultParts(toolDef.name, result),
+                                    )
                                 )
                             )
                         }.onFailure { e ->
@@ -854,4 +924,25 @@ class GenerationHandler(
         ) + nonTextParts
     }
 
+    /**
+     * 把末尾助手消息里相邻的多个 Text part 合并为一个。仅用于截断续写的收尾步骤：
+     * 续写请求会在同一条消息上新建 Text part，不合并会在正文里多出一个 markdown 块的空行。
+     */
+    private fun List<UIMessage>.mergeTrailingAssistantTextParts(): List<UIMessage> {
+        val last = lastOrNull() ?: return this
+        if (last.role != MessageRole.ASSISTANT) return this
+        val textParts = last.parts.filterIsInstance<UIMessagePart.Text>()
+        if (textParts.size <= 1) return this
+        val merged = UIMessagePart.Text(textParts.joinToString("\n") { it.text })
+        var inserted = false
+        val newParts = last.parts.mapNotNull { part ->
+            if (part is UIMessagePart.Text) {
+                if (inserted) null else {
+                    inserted = true
+                    merged
+                }
+            } else part
+        }
+        return dropLast(1) + last.copy(parts = newParts)
+    }
 }

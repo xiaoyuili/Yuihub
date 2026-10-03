@@ -327,6 +327,35 @@ class ConversationRepository(
         messageFtsManager.indexConversation(conversation)
     }
 
+    /**
+     * 生成检查点：只 upsert 正在生成的节点与对话元信息，绝不删除其它节点。
+     *
+     * 流式生成过程中周期调用，使进程被杀/崩溃后最多丢失一个检查点间隔的输出；
+     * 与 [updateConversation] 的全量 delete+insert 区分开，避免高频落库把整库节点重写。
+     *
+     * @param generatingMessageId 正在生成的助手消息 id：用它定位节点，
+     *   重生成历史消息、或压缩检查点导致请求窗口与节点下标偏移时都能命中正确节点。
+     */
+    suspend fun checkpointGeneratingNode(conversationId: Uuid, conversation: Conversation, generatingMessageId: Uuid) {
+        val nodeIndex = conversation.messageNodes.indexOfFirst { node ->
+            node.messages.any { it.id == generatingMessageId }
+        }
+        if (nodeIndex < 0) return
+        val node = conversation.messageNodes[nodeIndex]
+        database.withTransaction {
+            messageNodeDAO.insert(
+                MessageNodeEntity(
+                    id = node.id.toString(),
+                    conversationId = conversationId.toString(),
+                    nodeIndex = nodeIndex,
+                    messages = JsonInstant.encodeToString(node.messages),
+                    selectIndex = node.selectIndex,
+                )
+            )
+            conversationDAO.update(conversationToConversationEntity(conversation))
+        }
+    }
+
     suspend fun deleteConversation(conversation: Conversation) {
         // 获取完整的 Conversation（包含 messageNodes）以正确清理文件
         val fullConversation = if (conversation.messageNodes.isEmpty()) {

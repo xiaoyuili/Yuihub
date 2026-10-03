@@ -53,6 +53,7 @@ import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.isOutputLimitTruncation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.canResumeToolExecution
 import me.rerere.ai.ui.finishPendingTools
@@ -126,7 +127,6 @@ import me.yui.yuihub.data.repository.ScheduledTaskRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.utils.AUTO_COMPRESS_RETAIN_RATIO
 import me.yui.yuihub.utils.AUTO_COMPRESS_TARGET_TOKENS
-import me.yui.yuihub.utils.AUTO_COMPRESS_THRESHOLD_RATIO
 import me.yui.yuihub.utils.JsonInstant
 import me.yui.yuihub.utils.applyPlaceholders
 import me.yui.yuihub.utils.effectiveContextLength
@@ -142,6 +142,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.selects.select
 
 private const val TAG = "ChatService"
+
+/** 生成检查点落库间隔（毫秒）：崩溃/被杀后最多丢失这段时长内的流式输出 */
+private const val GENERATION_CHECKPOINT_INTERVAL_MS = 2_000L
 
 // 子代理工具循环步数上限: 严于主代理默认值, 防止失控子任务无限制消耗 token
 private const val CHILD_AGENT_MAX_STEPS = 32
@@ -159,8 +162,9 @@ private val PARENT_ONLY_TOOL_NAMES = setOf(
 
 // 子代理平台限制声明 (P1-2): 经工具 systemPrompt 注入子代理系统提示,
 // 把「工具不存在」的隐式限制变成平台明确声明, 避免子代理把缺工具理解成环境缺失而自行排查。
-// P2-5: 同时声明沙箱预置缺口（无 python3 / shell 为 UTC / 无 tzdata / 产物目录约定），
-// 避免子代理浪费轮次自查环境；产物统一写 /workspace/subagents/<sessionId>/ 便于清理与归属
+// P2-5: 同时声明沙箱预置缺口（无 python3 / shell 为 UTC / 无 tzdata / 产物目录约定）。
+// 交付目录为共享的 /workspace/subagents/（不再按 sessionId 建子目录），
+// 与 spawn_agent 工具说明中的同一约定保持一致，避免父代理指令与子代理自述冲突
 private const val CHILD_AGENT_PLATFORM_DECLARATION =
     "<child_agent_constraints>\n" +
         "You are a CHILD agent spawned by a parent agent. Platform restrictions:\n" +
@@ -172,7 +176,7 @@ private const val CHILD_AGENT_PLATFORM_DECLARATION =
         "- python3 and node are NOT installed; if a task needs scripting, use bash/sh with Perl or awk (both preinstalled), or install a runtime with apt-get.\n" +
         "- The shell clock is UTC (no tzdata). TZ=Asia/Shanghai date will show a wrong label; use get_time_info for the user's local time (+08:00).\n" +
         "- /upload may not exist when there are no user uploads; treat ls errors there as empty, not broken.\n" +
-        "- Write your deliverables under /workspace/subagents/<your sessionId>/ (create it) so the parent and user can find them.\n" +
+        "- Deliver produced files under /workspace/subagents/ (create it if missing). This is the shared drop-off directory for ALL subagents — do not create a per-session subfolder; return the exact paths to the parent.\n" +
         "</child_agent_constraints>"
 
 internal fun backgroundTextGenerationParams(
@@ -298,6 +302,51 @@ class ChatService(
     // 生成完成流
     private val _generationDoneFlow = MutableSharedFlow<Uuid>()
     val generationDoneFlow: SharedFlow<Uuid> = _generationDoneFlow.asSharedFlow()
+
+    // 手动压缩（/压缩）完成后产出的摘要 Markdown；无 replay，避免重新进入会话时重复弹窗
+    private val _manualCompressionFlow = MutableSharedFlow<Pair<Uuid, String>>()
+    val manualCompressionFlow: SharedFlow<Pair<Uuid, String>> = _manualCompressionFlow.asSharedFlow()
+
+    // 正在手动压缩的会话集合（供输入栏显示「正在压缩上下文…」反馈）
+    private val _compressingConversations = MutableStateFlow<Set<Uuid>>(emptySet())
+    val compressingConversations: StateFlow<Set<Uuid>> = _compressingConversations.asStateFlow()
+
+    // 生成检查点节流：上次落库时间。流式 chunk 频率很高，只在超过间隔时写库，
+    // 既让崩溃后丢失的输出不超过一个间隔，又避免每 token 一次磁盘写入。
+    private val lastCheckpointMs = ConcurrentHashMap<Uuid, Long>()
+    private val checkpointInFlight = ConcurrentHashMap.newKeySet<Uuid>()
+
+    /**
+     * 生成过程中的检查点：将当前（含半截助手消息的）会话直接 upsert 到数据库。
+     *
+     * 与 [saveConversation] 不同，它只更新末尾节点与对话元信息，不删除其它节点，
+     * 因此可以高频调用。进程被杀后重新进入该会话即可看到断点前的输出。
+     */
+    private suspend fun checkpointConversation(conversationId: Uuid, messages: List<UIMessage>) {
+        val now = System.currentTimeMillis()
+        val last = lastCheckpointMs[conversationId] ?: 0L
+        if (now - last < GENERATION_CHECKPOINT_INTERVAL_MS) return
+        // 避免落库耗时超过间隔时堆积多个并发写
+        if (!checkpointInFlight.add(conversationId)) return
+        try {
+            lastCheckpointMs[conversationId] = now
+            val session = getOrCreateSession(conversationId)
+            // 正在生成的助手消息 id：从本轮提交的消息里取（末尾必为待生成的助手消息）
+            val generatingMessageId = messages.lastOrNull()?.id ?: return
+            // 与最终保存走同一条 updateCurrentMessages 映射，保证检查点与收尾落库一致
+            val conversation = session.mutationLock.withLock {
+                session.state.value.updateCurrentMessages(messages)
+            }
+            conversationRepo.checkpointGeneratingNode(conversationId, conversation, generatingMessageId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 检查点是兑底机制，失败不应中断生成
+            Log.w(TAG, "checkpointConversation failed: ${e.message}")
+        } finally {
+            checkpointInFlight.remove(conversationId)
+        }
+    }
 
     fun cleanup() = runCatching {
         sessions.values.forEach { it.cleanup() }
@@ -859,6 +908,7 @@ class ChatService(
                     useExternalWebSearch = useExternalWebSearch,
                     parentConversationId = conversationId,
                 ),
+                onCheckpoint = { checkpointConversation(conversationId, it) },
             ).onCompletion {
                 // 可能被取消了，或者意外结束，兜底更新；NonCancellable 保证取消场景下兜底也执行
                 val updatedConversation = withContext(NonCancellable) {
@@ -1812,15 +1862,37 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
         if (last.getTools().isNotEmpty()) return
         if (last.parts.any { it is UIMessagePart.ServerTool }) return
         val hasVisibleText = last.parts.any { it is UIMessagePart.Text && it.text.isNotBlank() }
-        if (hasVisibleText) return
-        val titleRes = when (last.finishReason) {
-            "length" -> R.string.error_title_reply_truncated
-            "content_filter" -> R.string.error_title_reply_filtered
+        if (hasVisibleText) {
+            // 已有正文但仍被输出上限截断（自动续写已达上限）：告知用户可继续让他接着写
+            if (last.finishReason.isOutputLimitTruncation()) {
+                addError(
+                    error = IllegalStateException("model output still truncated after auto-continuations (finishReason=length)"),
+                    conversationId = conversation.id,
+                    title = context.getString(R.string.error_title_reply_truncated_partial),
+                    solution = ChatErrorSolution.CheckModelSettings,
+                )
+            } else if (last.finishIncomplete) {
+                // 裸 EOF：中转/网络在未给显式终标记的情况下提前关流，正文可能被截断
+                addError(
+                    error = IllegalStateException("stream ended with a bare EOF (no explicit stop signal)"),
+                    conversationId = conversation.id,
+                    title = context.getString(R.string.error_title_reply_incomplete_partial),
+                    solution = ChatErrorSolution.CheckModelSettings,
+                )
+            }
+            return
+        }
+        val titleRes = when {
+            last.finishReason.isOutputLimitTruncation() -> R.string.error_title_reply_truncated
+            last.finishReason == "content_filter" -> R.string.error_title_reply_filtered
+            // 无正文且裸 EOF：与「只思考不回复」区分开，前者更可能是传输层提前断流
+            last.finishIncomplete -> R.string.error_title_reply_incomplete
             else -> R.string.error_title_reply_empty
         }
         addError(
             error = IllegalStateException(
-                "model returned no visible answer (finishReason=${last.finishReason ?: "n/a"})"
+                "model returned no visible answer " +
+                    "(finishReason=${last.finishReason ?: "n/a"}, incomplete=${last.finishIncomplete})"
             ),
             conversationId = conversation.id,
             title = context.getString(titleRes),
@@ -1937,10 +2009,10 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
 
     /**
      * agent/pre-step：发送前用占用估算（真实 usage 优先，缺失时本地估算）对比模型窗口，
-     * 达到 AUTO_COMPRESS_THRESHOLD_RATIO 时把早期历史压缩为检查点摘要（对齐 deepseek-harness
-     * compaction-basic）：摘要以 <compressed-summary> user 消息形式替换早期历史（是替换不是追加），
-     * 保留尾部 AUTO_COMPRESS_RETAIN_RATIO 窗口原文；新摘要与旧检查点合并为单一摘要（harness 合并规则）。
-     * 失败静默（不影响发送）。
+     * 达到设置阈值（settings.autoCompressThreshold，默认 85%）时把早期历史压缩为检查点摘要
+     * （对齐 deepseek-harness compaction-basic）：保留尾部 AUTO_COMPRESS_RETAIN_RATIO 窗口原文，
+     * 其余进摘要；新摘要与旧检查点合并为单一摘要（harness 合并规则）。
+     * 用户关闭自动压缩、或窗口节点过少时不触发。失败静默（不影响发送）。
      */
     private suspend fun autoCompressIfNeeded(conversationId: Uuid, assistant: Assistant) {
         val conversation = conversationRepo.getConversationById(conversationId) ?: return
@@ -1948,33 +2020,72 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
         if (conversation.windowNodes().size <= 2) return
 
         val settings = settingsStore.settingsFlow.first()
+        if (!settings.autoCompressEnabled) return
         val model = settings.findModelById(assistant.chatModelId)
             ?: settings.getCurrentChatModel()
             ?: return
         val window = model.effectiveContextLength()
-        val threshold = (window * AUTO_COMPRESS_THRESHOLD_RATIO).toInt()
+        val threshold = (window * settings.autoCompressThreshold).toInt()
         val usedTokens = conversation.estimateWindowTokens(model)
         if (usedTokens < threshold) return
 
         Log.i(TAG, "autoCompressIfNeeded: $usedTokens / $window tokens >= threshold $threshold, compacting conversation $conversationId")
-        compressToSummary(conversationId, conversation, settings, model, window)
+        compressWindow(conversationId, conversation, settings, model, window, keepVerbatim = true)
+    }
+
+    /**
+     * 手动压缩（/压缩）：忽略自动压缩开关，把整个当前发送窗口历史压成检查点摘要，
+     * 结果发到 [manualCompressionFlow] 供聊天页弹窗展示（Markdown）。
+     * 非阻塞；失败走 addError 提示。
+     */
+    fun compressManually(conversationId: Uuid) {
+        if (conversationId in _compressingConversations.value) return
+        _compressingConversations.update { it + conversationId }
+        appScope.launch {
+            try {
+                val conversation = conversationRepo.getConversationById(conversationId) ?: return@launch
+                if (conversation.windowNodes().size <= 1) {
+                    addError(
+                        error = IllegalStateException(context.getString(R.string.error_manual_compress_nothing)),
+                        conversationId = conversationId,
+                        title = context.getString(R.string.error_title_compress_context),
+                    )
+                    return@launch
+                }
+                val settings = settingsStore.settingsFlow.first()
+                val assistant = settings.getAssistantById(conversation.assistantId)
+                    ?: settings.getCurrentAssistant()
+                val model = settings.findModelById(assistant.chatModelId)
+                    ?: settings.getCurrentChatModel()
+                    ?: return@launch
+                val window = model.effectiveContextLength()
+                val result = compressWindow(conversationId, conversation, settings, model, window, keepVerbatim = false)
+                if (result.isNotBlank()) {
+                    _manualCompressionFlow.emit(conversationId to result)
+                }
+            } finally {
+                _compressingConversations.update { it - conversationId }
+            }
+        }
     }
 
     /**
      * 压缩实现（对齐 harness compaction-basic + DSH 分段轨迹）：
-     * 1. 保留策略 token 驱动：从尾部往前累加，预算 = 窗口 × retainRatio（至少留 2 条）；
+     * 1. [keepVerbatim] 为 true 时按 token 驱动保留尾部原文，预算 = 窗口 × retainRatio（至少留 2 条）；
+     *    为 false（手动压缩整个上下文）时不保留，整个发送窗口都进摘要（已在检查点里的旧历史参与合并）；
      * 2. 其余发送窗口历史分块并行摘要，与旧摘要（prior checkpoint）合并为单一新摘要；
      * 3. **轨迹只追加**：不删除/改写任何消息节点，只落库新摘要与其压缩边界（boundaryNodeId）；
      *    请求组装时（requestWindowMessages）以检查点合成消息为新段起点，边界前节点保留在
      *    轨迹中但不发送 —— 旧前缀字节可回溯，检查点之后的前缀保持稳定。
-     * 压缩使用对话模型（model 参数）。
+     * 压缩使用对话模型（model 参数）。返回摘要 Markdown，失败/无需压缩返回空串。
      */
-    private suspend fun compressToSummary(
+    private suspend fun compressWindow(
         conversationId: Uuid,
         conversation: Conversation,
         settings: Settings,
         model: Model,
         windowTokens: Int,
+        keepVerbatim: Boolean,
     ): String {
         return runCatching {
             val provider = model.findProvider(settings.providers) ?: return@runCatching ""
@@ -1985,15 +2096,18 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
             val allNodes = conversation.windowNodes()
             val allMessages = allNodes.map { it.currentMessage }
 
-            // 保留策略（harness retainRatio）：从尾部往前累加，预算 = 窗口 × retainRatio，至少留 2 条
+            // 保留策略（harness retainRatio）：从尾部往前累加，预算 = 窗口 × retainRatio，至少留 2 条；
+            // 手动压缩整个上下文时 keepCount 为 0，整个发送窗口都进摘要
             val keepBudget = (windowTokens * AUTO_COMPRESS_RETAIN_RATIO).toInt()
             var keepCount = 0
-            var keepTokens = 0
-            for (message in allMessages.asReversed()) {
-                val msgTokens = estimateTokenCount(listOf(message))
-                if (keepCount >= 2 && keepTokens + msgTokens > keepBudget) break
-                keepTokens += msgTokens
-                keepCount++
+            if (keepVerbatim) {
+                var keepTokens = 0
+                for (message in allMessages.asReversed()) {
+                    val msgTokens = estimateTokenCount(listOf(message))
+                    if (keepCount >= 2 && keepTokens + msgTokens > keepBudget) break
+                    keepTokens += msgTokens
+                    keepCount++
+                }
             }
             val nodesToKeep = allNodes.takeLast(keepCount)
             val nodesToCompress = allNodes.drop(nodesToKeep.size)
@@ -2048,6 +2162,8 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                 content = combined,
                 messageCount = messagesToCompress.size + conversation.compressionSummaries.sumOf { it.messageCount },
                 boundaryNodeId = boundaryNodeId,
+                // 手动压缩不隐藏聊天页历史（只缩减发送上下文）
+                manual = !keepVerbatim,
             )
             getOrCreateSession(conversationId).mutationLock.withLock {
                 saveConversation(conversationId, conversation.copy(compressionSummaries = listOf(newCompression)))
