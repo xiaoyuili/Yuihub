@@ -15,7 +15,6 @@ import me.rerere.ai.ui.UIMessagePart
 import me.yui.yuihub.data.db.entity.ScheduleType
 import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
 import me.yui.yuihub.data.repository.ScheduledTaskRepository
-import me.yui.yuihub.utils.JsonInstantPretty
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -125,7 +124,7 @@ fun createScheduledTaskTools(
             val action = obj["action"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             val tasks = repository.getTasksForAssistant(assistantId.toString())
             when (action) {
-                "list" -> listOf(UIMessagePart.Text(renderTasks(tasks)))
+                "list" -> renderTasks(tasks)
 
                 "create" -> createTask(repository, assistantId, obj, tasks)
 
@@ -137,7 +136,7 @@ fun createScheduledTaskTools(
 
                 "run_now" -> runNow(obj, tasks, onRunNow)
 
-                else -> listOf(UIMessagePart.Text("Unknown action '$action'"))
+                else -> toolErrorResult("Unknown action '$action' (expected list / create / update / delete / set_enabled / run_now)")
             }
         },
     ),
@@ -173,7 +172,13 @@ private suspend fun createTask(
         updatedAt = now,
     )
     repository.upsert(task)
-    return listOf(UIMessagePart.Text("Created task '${task.name}' (id=${task.id}, ${describe(task)})"))
+    return toolJson {
+        put("action", "created")
+        put("id", task.id)
+        put("name", task.name)
+        put("schedule", describe(task))
+        put("message", "Created task '${task.name}'")
+    }
 }
 
 private suspend fun updateTask(
@@ -181,7 +186,7 @@ private suspend fun updateTask(
     obj: JsonObject,
     tasks: List<ScheduledTaskEntity>,
 ): List<UIMessagePart> {
-    val target = findTask(obj, tasks) ?: return listOf(UIMessagePart.Text("No matching task found"))
+    val target = findTask(obj, tasks) ?: return toolErrorResult("No matching task found")
 
     var updated = target
     obj["name"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }?.let { newName ->
@@ -205,10 +210,21 @@ private suspend fun updateTask(
     }
 
     if (updated == target) {
-        return listOf(UIMessagePart.Text("Nothing to update: no recognized fields were provided."))
+        // 非错误：没有可更新的字段，用 ok=false 与 error 区分
+        return toolJson {
+            put("action", "update")
+            put("ok", false)
+            put("message", "Nothing to update: no recognized fields were provided.")
+        }
     }
     repository.upsert(updated.copy(updatedAt = System.currentTimeMillis()))
-    return listOf(UIMessagePart.Text("Updated task '${updated.name}' (id=${updated.id}, ${describe(updated)})"))
+    return toolJson {
+        put("action", "updated")
+        put("id", updated.id)
+        put("name", updated.name)
+        put("schedule", describe(updated))
+        put("message", "Updated task '${updated.name}'")
+    }
 }
 
 private suspend fun deleteTask(
@@ -216,9 +232,14 @@ private suspend fun deleteTask(
     obj: JsonObject,
     tasks: List<ScheduledTaskEntity>,
 ): List<UIMessagePart> {
-    val target = findTask(obj, tasks) ?: return listOf(UIMessagePart.Text("No matching task found"))
+    val target = findTask(obj, tasks) ?: return toolErrorResult("No matching task found")
     repository.delete(target)
-    return listOf(UIMessagePart.Text("Deleted task '${target.name}'"))
+    return toolJson {
+        put("action", "deleted")
+        put("id", target.id)
+        put("name", target.name)
+        put("message", "Deleted task '${target.name}'")
+    }
 }
 
 private suspend fun setEnabled(
@@ -226,13 +247,17 @@ private suspend fun setEnabled(
     obj: JsonObject,
     tasks: List<ScheduledTaskEntity>,
 ): List<UIMessagePart> {
-    val target = findTask(obj, tasks) ?: return listOf(UIMessagePart.Text("No matching task found"))
+    val target = findTask(obj, tasks) ?: return toolErrorResult("No matching task found")
     val enabled = obj["enabled"]?.jsonPrimitive?.contentOrNull?.trim()?.toBooleanStrictOrNull()
-        ?: return listOf(UIMessagePart.Text("enabled (true/false) is required for action=set_enabled"))
+        ?: return toolErrorResult("enabled (true/false) is required for action=set_enabled")
     repository.setEnabled(target.id, enabled, System.currentTimeMillis())
-    return listOf(
-        UIMessagePart.Text("${if (enabled) "Enabled" else "Disabled"} task '${target.name}'"),
-    )
+    return toolJson {
+        put("action", "set_enabled")
+        put("id", target.id)
+        put("name", target.name)
+        put("enabled", enabled)
+        put("message", "${if (enabled) "Enabled" else "Disabled"} task '${target.name}'")
+    }
 }
 
 private fun runNow(
@@ -240,9 +265,14 @@ private fun runNow(
     tasks: List<ScheduledTaskEntity>,
     onRunNow: (ScheduledTaskEntity) -> Unit,
 ): List<UIMessagePart> {
-    val target = findTask(obj, tasks) ?: return listOf(UIMessagePart.Text("No matching task found"))
+    val target = findTask(obj, tasks) ?: return toolErrorResult("No matching task found")
     onRunNow(target)
-    return listOf(UIMessagePart.Text("Triggered '${target.name}' to run now; the result will appear in a new conversation."))
+    return toolJson {
+        put("action", "run_now")
+        put("id", target.id)
+        put("name", target.name)
+        put("message", "Triggered '${target.name}' to run now; the result will appear in a new conversation.")
+    }
 }
 
 /** 定位任务：优先 id，其次唯一 name；只在传入的（已按助手限定的）列表内查找 */
@@ -338,24 +368,23 @@ internal fun describe(task: ScheduledTaskEntity): String = when (
         .format(Date(task.triggerAt))
 }
 
-private fun renderTasks(tasks: List<ScheduledTaskEntity>): String {
-    if (tasks.isEmpty()) {
-        return "No scheduled tasks for this assistant yet. Use action=create to add one."
-    }
-    // id 用原始 JSON 数组输出，避免模型把 id 抄错
-    val lines = tasks.map { task ->
-        buildJsonObject {
-            put("id", task.id)
-            put("name", task.name)
-            put("prompt", task.prompt)
-            put("schedule", describe(task))
-            put("enabled", task.enabled)
-            put("last_run_status", task.lastRunStatus.ifBlank { "NEVER" })
+private fun renderTasks(tasks: List<ScheduledTaskEntity>): List<UIMessagePart> = toolJson {
+    put("action", "list")
+    put("count", tasks.size)
+    put("tasks", buildJsonArray {
+        tasks.forEach { task ->
+            add(buildJsonObject {
+                put("id", task.id)
+                put("name", task.name)
+                put("prompt", task.prompt)
+                put("schedule", describe(task))
+                put("enabled", task.enabled)
+                put("last_run_status", task.lastRunStatus.ifBlank { "NEVER" })
+            })
         }
-    }
-    return buildString {
-        appendLine("Scheduled tasks of this assistant (${tasks.size}):")
-        appendLine(JsonInstantPretty.encodeToString(buildJsonArray { lines.forEach { add(it) } }))
+    })
+    if (tasks.isEmpty()) {
+        put("hint", "No scheduled tasks for this assistant yet. Use action=create to add one.")
     }
 }
 

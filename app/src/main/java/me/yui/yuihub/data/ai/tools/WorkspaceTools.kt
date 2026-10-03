@@ -593,14 +593,14 @@ private val WRITABLE_ROOT_PREFIXES = listOf("/workspace", "/tmp", "/skills")
 // 平台只读区（PRoot 的 -b 无只读能力，靠工具层拒绝写入；见 WorkspaceBindMount.readOnly 注释）
 private val READ_ONLY_ROOT_PREFIXES = listOf("/upload")
 
-private fun String.isInReadOnlyRoot(): Boolean {
+internal fun String.isInReadOnlyRoot(): Boolean {
     val normalized = trimEnd('/').ifBlank { "/" }
     return READ_ONLY_ROOT_PREFIXES.any { prefix ->
         normalized == prefix || normalized.startsWith("$prefix/")
     }
 }
 
-private fun rejectReadOnlyPath(path: String) {
+internal fun rejectReadOnlyPath(path: String) {
     if (path.isInReadOnlyRoot()) {
         error(
             "READ_ONLY: $path is under a read-only mount (/upload holds user-uploaded originals). " +
@@ -614,7 +614,7 @@ private fun kotlinx.serialization.json.JsonElement.pathOutsideWritableRoots(name
         jsonObject.absolutePath(name).isOutsideWritableRoots()
     }.getOrDefault(true)
 
-private fun String.isOutsideWritableRoots(): Boolean {
+internal fun String.isOutsideWritableRoots(): Boolean {
     val normalized = trimEnd('/').ifBlank { "/" }
     return WRITABLE_ROOT_PREFIXES.none { prefix ->
         normalized == prefix || normalized.startsWith("$prefix/")
@@ -649,8 +649,15 @@ private fun WorkspaceFileEntry.toJson() = buildJsonObject {
     put("isDirectory", isDirectory)
     put("sizeBytes", sizeBytes)
     put("updatedAt", updatedAt)
-    // P1-3: ISO8601 可读时间与覆盖标记（毫秒时间戳 updatedAt 保留，向后兼容）
-    put("updatedAtIso", java.time.Instant.ofEpochMilli(updatedAt).toString())
+    // P1-3: 可读时间与覆盖标记（毫秒时间戳 updatedAt 保留，向后兼容）。
+    // 时区与 get_time_info 对齐：本地时区带偏移（如 2026-10-03T11:48:16.805+08:00），
+    // 此前输出 UTC 的 `...Z`，与 get_time_info 的 +08:00 两套表示容易误读。
+    put(
+        "updatedAtIso",
+        java.time.Instant.ofEpochMilli(updatedAt)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toString(),
+    )
     put("overwrote", overwrote)
 }
 

@@ -45,6 +45,7 @@ fun createSubagentTool(
         By default this call BLOCKS until the child finishes and returns structured JSON: status (ok | empty_output | error | timeout), result, toolCalls, toolCallsDetail, startedAt/endedAt/durationMs, files, sessionId.
         With async=true it returns {status:"running", taskId} immediately; fetch the result later with poll_agent, and optionally cancel with cancel_agent. In async mode taskId equals the child's sessionId (they are the same id).
         All spawned agents (sync and async) stay listed by list_agents for about 30 minutes after they finish, so a lost result can be re-discovered there; pass its sessionId/taskId to followup_agent to continue.
+        File hand-off: children write produced files under /workspace/subagents/ (they create it if missing) and return the paths; when you instruct a child where to put files, use /workspace/subagents/ (or a subpath of it) so parent and child agree on the location. If the child returns a path, use it as-is rather than assuming a directory.
         Optional timeoutMs cancels a runaway child (status=timeout, partial result preserved); maxToolCalls caps its tool round-trips.
         To ask a finished child agent follow-up questions, pass its sessionId to followup_agent instead of spawning again.
         Multiple spawn_agent calls in one turn run in parallel (up to 4 concurrently).

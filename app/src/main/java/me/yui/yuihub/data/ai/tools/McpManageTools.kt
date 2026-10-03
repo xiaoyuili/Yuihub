@@ -100,13 +100,13 @@ fun createMcpManageTools(
         execute = { args ->
             val obj = args.jsonObject
             when (obj["action"]?.jsonPrimitive?.contentOrNull.orEmpty()) {
-                "list" -> listOf(UIMessagePart.Text(renderServers(currentServers(settingsStore))))
+                "list" -> renderServers(currentServers(settingsStore))
 
                 "save" -> saveServer(obj, mcpManager, settingsStore)
 
                 "delete" -> deleteServer(obj, mcpManager, settingsStore)
 
-                else -> listOf(UIMessagePart.Text("Unknown action"))
+                else -> toolErrorResult("Unknown action (expected list / save / delete)")
             }
         },
     ),
@@ -182,12 +182,15 @@ private suspend fun saveServer(
     mcpManager.syncAll()
 
     val verb = if (added) "Added" else "Updated"
-    return listOf(
-        UIMessagePart.Text(
-            "$verb MCP server '${name.ifBlank { finalUrl }}' (${transportOf(config)}) " +
-                "id=${config.id}, enable=$enable",
-        ),
-    )
+    return toolJson {
+        put("action", if (added) "added" else "updated")
+        put("id", config.id.toString())
+        put("name", name.ifBlank { finalUrl })
+        put("transport", transportOf(config))
+        put("url", finalUrl)
+        put("enable", enable)
+        put("message", "$verb MCP server '${name.ifBlank { finalUrl }}'")
+    }
 }
 
 private suspend fun deleteServer(
@@ -200,7 +203,7 @@ private suspend fun deleteServer(
     val target = currentServers(settingsStore).firstOrNull { server ->
         server.id.toString() == idText ||
             (!name.isNullOrEmpty() && server.commonOptions.name == name)
-    } ?: return listOf(UIMessagePart.Text("No matching MCP server found"))
+    } ?: return toolErrorResult("No matching MCP server found")
 
     mcpManager.removeClient(target)
     settingsStore.update { settings ->
@@ -216,7 +219,12 @@ private suspend fun deleteServer(
             },
         )
     }
-    return listOf(UIMessagePart.Text("Deleted MCP server '${target.commonOptions.name}'"))
+    return toolJson {
+        put("action", "deleted")
+        put("id", target.id.toString())
+        put("name", target.commonOptions.name)
+        put("message", "Deleted MCP server '${target.commonOptions.name}'")
+    }
 }
 
 private fun transportOf(config: McpServerConfig): String = when (config) {
@@ -250,16 +258,21 @@ private fun parseBoolean(element: JsonElement?): Boolean? = when (element) {
     else -> null
 }
 
-private fun renderServers(servers: List<McpServerConfig>): String {
-    if (servers.isEmpty()) return "No MCP servers registered. Use action=save to add one."
-    return buildString {
-        appendLine("MCP servers (${servers.size}):")
+private fun renderServers(servers: List<McpServerConfig>): List<UIMessagePart> = toolJson {
+    put("action", "list")
+    put("count", servers.size)
+    put("servers", buildJsonArray {
         servers.forEach { server ->
-            appendLine(
-                "- id=${server.id} | ${server.commonOptions.name.ifBlank { "(unnamed)" }} | " +
-                    "${transportOf(server)} | ${server.serverUrl} | " +
-                    "enable=${server.commonOptions.enable}",
-            )
+            add(buildJsonObject {
+                put("id", server.id.toString())
+                put("name", server.commonOptions.name)
+                put("transport", transportOf(server))
+                put("url", server.serverUrl)
+                put("enable", server.commonOptions.enable)
+            })
         }
+    })
+    if (servers.isEmpty()) {
+        put("hint", "No MCP servers registered. Use action=save to add one.")
     }
 }

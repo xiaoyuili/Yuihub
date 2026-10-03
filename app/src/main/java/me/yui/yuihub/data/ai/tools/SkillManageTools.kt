@@ -71,7 +71,7 @@ fun createSkillManageTools(skillManager: SkillManager): List<Tool> = listOf(
             val path = obj["path"]?.jsonPrimitive?.contentOrNull?.trim()
 
             when (action) {
-                "list" -> listOf(UIMessagePart.Text(renderSkills(skillManager)))
+                "list" -> renderSkills(skillManager)
 
                 "read" -> {
                     require(name.isNotEmpty()) { "name is required for action=read" }
@@ -80,41 +80,72 @@ fun createSkillManageTools(skillManager: SkillManager): List<Tool> = listOf(
                     } else {
                         skillManager.resolveSkillFile(name, path)?.takeIf { it.isFile }
                             ?.readText()
-                    } ?: "Skill '$name'${path?.let { " file '$it'" } ?: ""} not found"
-                    listOf(UIMessagePart.Text(content))
+                    }
+                    if (content == null) {
+                        toolErrorResult(
+                            "Skill '$name'${path?.let { " file '$it'" } ?: ""} not found",
+                        )
+                    } else {
+                        toolJson {
+                            put("action", "read")
+                            put("name", name)
+                            path?.takeIf { it.isNotBlank() }?.let { put("path", it) }
+                            put("content", content)
+                        }
+                    }
                 }
 
                 "save" -> {
                     require(name.isNotEmpty()) { "name is required for action=save" }
                     val content = obj["content"]?.jsonPrimitive?.contentOrNull
                     require(!content.isNullOrBlank()) { "content is required for action=save" }
-                    val result = if (path.isNullOrBlank() || path == "SKILL.md") {
-                        skillManager.saveSkill(name, content)?.let { "Saved skill '${it.name}'" }
-                            ?: "Failed to save skill '$name'"
+                    if (path.isNullOrBlank() || path == "SKILL.md") {
+                        val saved = skillManager.saveSkill(name, content)
+                        if (saved == null) {
+                            toolErrorResult("Failed to save skill '$name'")
+                        } else {
+                            toolJson {
+                                put("action", "save")
+                                put("name", saved.name)
+                                put("saved", true)
+                            }
+                        }
                     } else {
                         val ok = skillManager.saveSkillFile(name, path, content)
-                        if (ok) "Saved '$path' in skill '$name'" else "Failed to save '$path'"
+                        if (!ok) {
+                            toolErrorResult("Failed to save '$path' in skill '$name'")
+                        } else {
+                            toolJson {
+                                put("action", "save")
+                                put("name", name)
+                                put("path", path)
+                                put("saved", true)
+                            }
+                        }
                     }
-                    listOf(UIMessagePart.Text(result))
                 }
 
                 "delete" -> {
                     require(name.isNotEmpty()) { "name is required for action=delete" }
                     val ok = skillManager.deleteSkill(name)
-                    listOf(
-                        UIMessagePart.Text(
-                            if (ok) "Deleted skill '$name'" else "Skill '$name' not found",
-                        ),
-                    )
+                    if (!ok) {
+                        toolErrorResult("Skill '$name' not found")
+                    } else {
+                        toolJson {
+                            put("action", "delete")
+                            put("name", name)
+                            put("deleted", true)
+                        }
+                    }
                 }
 
-                else -> listOf(UIMessagePart.Text("Unknown action '$action'"))
+                else -> toolErrorResult("Unknown action '$action' (expected list / read / save / delete)")
             }
         },
     ),
 )
 
-private fun renderSkills(skillManager: SkillManager): String {
+private fun renderSkills(skillManager: SkillManager): List<UIMessagePart> {
     val skills = skillManager.listSkills()
     // P2: /skills 下无 SKILL.md 的目录与普通文件会被 listSkills 静默过滤，
     // 模型看不到它们的存在就无法清理或复用，这里显式提示
@@ -130,19 +161,28 @@ private fun renderSkills(skillManager: SkillManager): String {
             }
         }
         .map { it.name }
-    return buildString {
-        if (skills.isEmpty()) {
-            appendLine("No skills exist yet. Use action=save to create one.")
-        } else {
-            appendLine("Skills (${skills.size}):")
+    return toolJson {
+        put("action", "list")
+        put("count", skills.size)
+        put("skills", buildJsonArray {
             skills.forEach { skill ->
-                appendLine("- ${skill.name}: ${skill.description.ifBlank { "(no description)" }}")
+                add(buildJsonObject {
+                    put("name", skill.name)
+                    put("description", skill.description)
+                })
             }
+        })
+        if (skills.isEmpty()) {
+            put("hint", "No skills exist yet. Use action=save to create one.")
         }
         if (unregistered.isNotEmpty()) {
-            appendLine()
-            appendLine("Warning: ${unregistered.size} unregistered entries in /skills (missing or invalid SKILL.md): ${unregistered.joinToString(", ")}")
-            appendLine("They are invisible to use_skill. Clean them up or add a valid SKILL.md if they should be registered.")
+            // 这些条目对 use_skill 不可见：要么清理，要么补上合法 SKILL.md
+            put("unregistered", buildJsonArray { unregistered.forEach { add(it) } })
+            put(
+                "unregisteredWarning",
+                "These entries in /skills have no valid SKILL.md, so use_skill cannot see them. " +
+                    "Clean them up or add a valid SKILL.md."
+            )
         }
     }
 }
