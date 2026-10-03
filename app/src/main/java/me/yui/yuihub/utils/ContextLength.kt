@@ -11,7 +11,7 @@ import me.yui.yuihub.data.model.Conversation
 const val DEFAULT_CONTEXT_LENGTH: Int = 256 * 1024
 
 // 自动压缩触发阈值：占模型窗口的比例（对齐 deepseek-harness compaction-basic 默认 thresholdRatio）
-const val AUTO_COMPRESS_THRESHOLD_RATIO: Float = 0.8f
+const val AUTO_COMPRESS_THRESHOLD_RATIO: Float = 0.85f
 
 // 压缩时保留最近窗口的这个比例作为原文（对齐 harness retainRatio：其余全部进摘要检查点）
 const val AUTO_COMPRESS_RETAIN_RATIO: Float = 0.16f

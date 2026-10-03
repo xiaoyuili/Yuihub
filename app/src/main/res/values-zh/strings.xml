@@ -282,7 +282,10 @@
   <string name="error_title_compress_context">上下文自动压缩失败</string>
   <string name="error_title_reply_empty">模型只输出了思考内容，没有正文回复</string>
   <string name="error_title_reply_truncated">正文还没生成就被 token 上限截断</string>
+  <string name="error_title_reply_truncated_partial">回答达到输出上限被截断，发送「继续」可让他接着写</string>
   <string name="error_title_reply_filtered">供应商安全策略拦截了回复，未返回正文</string>
+  <string name="error_title_reply_incomplete">回复提前结束（流被提前关闭，未收到正常结束标记）</string>
+  <string name="error_title_reply_incomplete_partial">回复可能不完整——响应流被提前切断，发送「继续」可接着写</string>
   <string name="error_title_operation">操作失败</string>
   <string name="error_title_regenerate_message">消息重新生成失败</string>
   <string name="error_title_send_message">消息发送失败</string>
@@ -685,6 +688,11 @@
   <string name="setting_model_page_title_model">标题模型</string>
   <string name="setting_model_page_title_model_desc">用于生成对话标题的模型。未设置时使用对话模型</string>
   <string name="setting_model_page_catalog_title">模型信息识别</string>
+  <string name="setting_model_page_auto_compress_title">上下文压缩</string>
+  <string name="setting_model_page_auto_compress_enable">自动压缩</string>
+  <string name="setting_model_page_auto_compress_enable_desc">上下文达到阈值时自动把较早历史压缩为摘要检查点</string>
+  <string name="setting_model_page_auto_compress_threshold">自动压缩阈值</string>
+  <string name="setting_model_page_auto_compress_off_hint">自动压缩已关闭。在输入框输入“/压缩”可手动压缩。</string>
   <string name="setting_model_page_catalog_enable">自动识别模型信息</string>
   <string name="setting_model_page_catalog_enable_desc">添加模型时根据 models.dev 数据库自动填写上下文长度、视觉与工具支持等能力</string>
   <string name="setting_model_page_catalog_never_synced">尚未同步</string>
@@ -1145,6 +1153,14 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="setting_provider_page_context_length_invalid">格式无效，请输入如 256K、1M 或 token 数字</string>
   <string name="chat_context_usage_tooltip">已使用 %1$s / %2$s 上下文</string>
   <string name="tool_ui_compress_context_title">上下文压缩</string>
+  <string name="slash_command_compress_desc">手动压缩当前上下文。</string>
+  <string name="manual_compress_dialog_title">上下文压缩结果</string>
+  <string name="manual_compress_copied">压缩结果已复制</string>
+  <string name="manual_compress_export">导出 md</string>
+  <string name="manual_compress_exported">压缩结果已导出</string>
+  <string name="chat_manual_compression_in_progress">正在压缩上下文…</string>
+  <string name="close">关闭</string>
+  <string name="error_manual_compress_nothing">当前没有可压缩的内容</string>
   <string name="memory_page_category">类别</string>
   <string name="memory_page_category_profile">用户画像</string>
   <string name="memory_page_category_preference">偏好</string>

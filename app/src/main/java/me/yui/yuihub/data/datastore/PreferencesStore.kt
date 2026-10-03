@@ -124,6 +124,10 @@ class SettingsStore(
         val TITLE_PROMPT = stringPreferencesKey("title_prompt")
         val COMPRESS_PROMPT = stringPreferencesKey("compress_prompt")
 
+        // 上下文自动压缩
+        val AUTO_COMPRESS_ENABLED = booleanPreferencesKey("auto_compress_enabled")
+        val AUTO_COMPRESS_THRESHOLD = floatPreferencesKey("auto_compress_threshold")
+
         // 供应商
         val PROVIDERS = stringPreferencesKey("providers")
 
@@ -192,6 +196,8 @@ class SettingsStore(
                 visionModelId = preferences[VISION_MODEL]?.let { Uuid.parse(it) },
                 titlePrompt = preferences[TITLE_PROMPT] ?: DEFAULT_TITLE_PROMPT,
                 compressPrompt = preferences[COMPRESS_PROMPT] ?: DEFAULT_COMPRESS_PROMPT,
+                autoCompressEnabled = preferences[AUTO_COMPRESS_ENABLED] ?: true,
+                autoCompressThreshold = (preferences[AUTO_COMPRESS_THRESHOLD] ?: 0.85f).coerceIn(0.5f, 0.95f),
                 assistantId = preferences[SELECT_ASSISTANT]?.let { Uuid.parse(it) }
                     ?: DEFAULT_ASSISTANT_ID,
                 assistantTags = preferences[ASSISTANT_TAGS]?.let {
@@ -360,6 +366,8 @@ class SettingsStore(
             }
             preferences[TITLE_PROMPT] = settings.titlePrompt
             preferences[COMPRESS_PROMPT] = settings.compressPrompt
+            preferences[AUTO_COMPRESS_ENABLED] = settings.autoCompressEnabled
+            preferences[AUTO_COMPRESS_THRESHOLD] = settings.autoCompressThreshold.coerceIn(0.5f, 0.95f)
 
             preferences[PROVIDERS] = JsonInstant.encodeToString(settings.providers)
 
@@ -483,6 +491,9 @@ data class Settings(
     val visionModelId: Uuid? = null,
     val titlePrompt: String = DEFAULT_TITLE_PROMPT,
     val compressPrompt: String = DEFAULT_COMPRESS_PROMPT,
+    // 上下文自动压缩：达到窗口占比阈值时自动压缩早期历史，默认开启
+    val autoCompressEnabled: Boolean = true,
+    val autoCompressThreshold: Float = 0.85f,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,
     val providers: List<ProviderSetting> = DEFAULT_PROVIDERS,
     val assistants: List<Assistant> = DEFAULT_ASSISTANTS,

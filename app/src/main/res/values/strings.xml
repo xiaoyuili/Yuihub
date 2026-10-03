@@ -287,7 +287,10 @@
   <string name="error_title_compress_context">Context compression failed</string>
   <string name="error_title_reply_empty">The model returned thinking but no answer</string>
   <string name="error_title_reply_truncated">Answer cut off before any text was produced</string>
+  <string name="error_title_reply_truncated_partial">Answer was cut off by the output limit; send "continue" to keep going</string>
   <string name="error_title_reply_filtered">Provider filtered the answer, no text returned</string>
+  <string name="error_title_reply_incomplete">Reply ended early (stream cut off before a proper stop)</string>
+  <string name="error_title_reply_incomplete_partial">Reply may be incomplete — the stream was cut off; send "continue" to keep going</string>
   <string name="error_title_operation">Operation failed</string>
   <string name="error_title_regenerate_message">Message regeneration failed</string>
   <string name="error_title_send_message">Message send failed</string>
@@ -696,6 +699,11 @@
   <string name="setting_model_page_title_model">Title Model</string>
   <string name="setting_model_page_title_model_desc">Model used to generate conversation titles. If not set, uses the conversation model</string>
   <string name="setting_model_page_catalog_title">Model Info Recognition</string>
+  <string name="setting_model_page_auto_compress_title">Context Compression</string>
+  <string name="setting_model_page_auto_compress_enable">Auto compression</string>
+  <string name="setting_model_page_auto_compress_enable_desc">Automatically compress earlier history into a summary checkpoint when the context reaches the threshold</string>
+  <string name="setting_model_page_auto_compress_threshold">Auto compression threshold</string>
+  <string name="setting_model_page_auto_compress_off_hint">Auto compression is off. Enter "/压缩" in the input box to compress manually.</string>
   <string name="setting_model_page_catalog_enable">Auto-detect model info</string>
   <string name="setting_model_page_catalog_enable_desc">Fill in context length, vision and tool support automatically when adding models, using the models.dev database</string>
   <string name="setting_model_page_catalog_never_synced">Not synced yet</string>
@@ -1156,6 +1164,14 @@ GitHub: https://github.com/xiaoyuili/Yuihub</string>
   <string name="setting_provider_page_context_length_invalid">Invalid format. Use e.g. 256K, 1M or a token number.</string>
   <string name="chat_context_usage_tooltip">Used %1$s / %2$s of context</string>
   <string name="tool_ui_compress_context_title">Context compression</string>
+  <string name="slash_command_compress_desc">Manually compress the current context.</string>
+  <string name="manual_compress_dialog_title">Context compression result</string>
+  <string name="manual_compress_copied">Compression result copied</string>
+  <string name="manual_compress_export">Export .md</string>
+  <string name="manual_compress_exported">Compression result exported</string>
+  <string name="chat_manual_compression_in_progress">Compressing context…</string>
+  <string name="close">Close</string>
+  <string name="error_manual_compress_nothing">Nothing to compress yet</string>
   <string name="memory_page_category">Category</string>
   <string name="memory_page_category_profile">Profile</string>
   <string name="memory_page_category_preference">Preference</string>

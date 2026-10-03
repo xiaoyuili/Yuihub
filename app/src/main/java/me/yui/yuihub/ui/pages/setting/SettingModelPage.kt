@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,6 +16,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -56,6 +58,7 @@ import me.yui.yuihub.utils.toLocalDateTime
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
 import java.time.Instant
+import kotlin.math.roundToInt
 import kotlin.uuid.Uuid
 
 @Composable
@@ -134,7 +137,64 @@ private fun ModelSettingsPage(settings: Settings, vm: SettingVM, contentPadding:
             )
         }
         item {
+            AutoCompressSettingItem(settings = settings, vm = vm)
+        }
+        item {
             ModelCatalogSettingItem(settings = settings, vm = vm)
+        }
+    }
+}
+
+/** 上下文自动压缩：开关、触发阈值（默认 85%）、关闭时的手动压缩提示 */
+@Composable
+private fun AutoCompressSettingItem(settings: Settings, vm: SettingVM) {
+    Column {
+        CardGroup(title = { Text(stringResource(R.string.setting_model_page_auto_compress_title)) }) {
+            item(
+                trailingContent = {
+                    Switch(
+                        checked = settings.autoCompressEnabled,
+                        onCheckedChange = { enabled ->
+                            vm.updateSettings(settings.copy(autoCompressEnabled = enabled))
+                        },
+                    )
+                },
+                headlineContent = { Text(stringResource(R.string.setting_model_page_auto_compress_enable)) },
+                supportingContent = { Text(stringResource(R.string.setting_model_page_auto_compress_enable_desc)) },
+            )
+
+            if (settings.autoCompressEnabled) {
+                item(
+                    headlineContent = { Text(stringResource(R.string.setting_model_page_auto_compress_threshold)) },
+                    supportingContent = {
+                        // 拖动过程只改本地状态（避免每帧全量写 DataStore 导致掉帧），松手才提交一次
+                        var threshold by remember(settings.autoCompressThreshold) {
+                            mutableStateOf(settings.autoCompressThreshold)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Slider(
+                                value = threshold,
+                                onValueChange = { threshold = it },
+                                onValueChangeFinished = {
+                                    vm.updateSettings(settings.copy(autoCompressThreshold = threshold))
+                                },
+                                valueRange = 0.5f..0.95f,
+                                steps = 8,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(text = "${(threshold * 100).roundToInt()}%")
+                        }
+                    },
+                )
+            } else {
+                item(
+                    headlineContent = { Text(stringResource(R.string.setting_model_page_auto_compress_off_hint)) },
+                )
+            }
         }
     }
 }
