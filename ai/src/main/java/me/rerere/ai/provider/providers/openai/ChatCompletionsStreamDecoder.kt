@@ -36,9 +36,16 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
     private var finishReason: String? = null
     private var finished = false
 
+    /** 是否收到过显式协议结束（[DONE] / message_stop 等）；从未收到就关闭连接即裸 EOF */
+    override var explicitEnd: Boolean = false
+        private set
+
     override fun accept(event: SseEvent): DecodeResult {
         if (finished) return DecodeResult(completed = true)
-        if (event.data == "[DONE]") return DecodeResult(finish(), completed = true)
+        if (event.data == "[DONE]") {
+            explicitEnd = true
+            return DecodeResult(finish(), completed = true)
+        }
 
         val chunks = buildList {
             event.data.trim().split("\n").filter(String::isNotBlank).forEach { line ->
@@ -84,12 +91,12 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
         return DecodeResult(chunks)
     }
 
-    override fun onClosed(): List<StreamChunk> = finish()
+    override fun onClosed(): List<StreamChunk> = if (finished) emptyList() else finish(incomplete = !explicitEnd)
 
-    private fun finish(): List<StreamChunk> {
+    private fun finish(incomplete: Boolean = false): List<StreamChunk> {
         if (finished) return emptyList()
         finished = true
-        return streamState.finish(finishReason, responseId, responseModel)
+        return streamState.finish(finishReason, responseId, responseModel, incomplete)
     }
 
     private fun parseMessage(payload: JsonObject): UIMessage {
@@ -244,9 +251,9 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
             if (message.annotations.isNotEmpty()) add(StreamChunk.Annotations(message.annotations))
         }
 
-        fun finish(reason: String?, responseId: String?, model: String?): List<StreamChunk> = buildList {
+        fun finish(reason: String?, responseId: String?, model: String?, incomplete: Boolean): List<StreamChunk> = buildList {
             addAll(closeText()); addAll(closeReasoning()); addAll(closeImage()); addAll(closeTools())
-            add(StreamChunk.Finish(reason, responseId, model))
+            add(StreamChunk.Finish(reason, responseId, model, incomplete))
         }
 
         private fun closeText() = textId?.let { textId = null; listOf(StreamChunk.TextEnd(it)) }.orEmpty()

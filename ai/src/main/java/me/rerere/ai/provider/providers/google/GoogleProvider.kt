@@ -43,6 +43,7 @@ import me.rerere.ai.provider.providers.PartGroup
 import me.rerere.ai.provider.providers.google.vertex.ServiceAccountTokenProvider
 import me.rerere.ai.provider.providers.groupPartsByToolBoundary
 import me.rerere.ai.provider.stream.SseEvent
+import me.rerere.ai.provider.stream.describeSseEvent
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.GoogleThoughtMetadata
 import me.rerere.ai.ui.ServerToolMetadata
@@ -303,7 +304,10 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 try {
                     val result = decoder.accept(SseEvent(id = id, event = type, data = data))
                     sendChunks(result.chunks)
-                    if (result.completed) close()
+                    if (result.completed) {
+                        Log.i(TAG, "onEvent: explicit end -> ${describeSseEvent(id, type, data)}")
+                        close()
+                    }
                 } catch (e: Throwable) {
                     Log.e(TAG, "Failed to parse stream event: $data", e)
                     close(e)
@@ -349,6 +353,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             }
 
             override fun onClosed(eventSource: EventSource) {
+                Log.i(TAG, "onClosed: transport closed (explicitEnd=${decoder.explicitEnd})")
                 sendChunks(decoder.onClosed())
                 close()
             }

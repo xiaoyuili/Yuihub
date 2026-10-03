@@ -29,9 +29,16 @@ internal class InteractionsStreamDecoder(
     private var status: String? = null
     private var finished = false
 
+    /** 是否收到过显式协议结束（interaction.completed 等）；从未收到就关闭连接即裸 EOF */
+    override var explicitEnd: Boolean = false
+        private set
+
     override fun accept(event: SseEvent): DecodeResult {
         if (finished) return DecodeResult(completed = true)
-        if (event.data == "[DONE]") return DecodeResult(finish(), completed = true)
+        if (event.data == "[DONE]") {
+            explicitEnd = true
+            return DecodeResult(finish(), completed = true)
+        }
 
         val payload = json.parseToJsonElement(event.data).jsonObject
         val eventType = payload.stringOrNull("event_type") ?: event.event ?: payload.stringOrNull("type")
@@ -48,6 +55,7 @@ internal class InteractionsStreamDecoder(
             "interaction.completed" -> {
                 val interaction = payload["interaction"]?.jsonObjectOrNull
                 captureInteraction(interaction)
+                explicitEnd = true
                 DecodeResult(
                     chunks = buildList {
                         parseInteractionsUsage(interaction?.get("usage")?.jsonObjectOrNull)?.let {
@@ -72,7 +80,7 @@ internal class InteractionsStreamDecoder(
         }
     }
 
-    override fun onClosed(): List<StreamChunk> = finish()
+    override fun onClosed(): List<StreamChunk> = if (finished) emptyList() else finish(incomplete = !explicitEnd)
 
     private fun captureInteraction(interaction: JsonObject?) {
         if (interaction == null) return
@@ -248,14 +256,14 @@ internal class InteractionsStreamDecoder(
         else -> emptyList()
     }
 
-    private fun finish(): List<StreamChunk> {
+    private fun finish(incomplete: Boolean = false): List<StreamChunk> {
         if (finished) return emptyList()
         finished = true
         return buildList {
             // 连接提前断开时，未完成的服务端工具结果没有可回传的内容，不物化
             steps.values.filterNot { isInteractionsServerToolResult(it.type) }.forEach { addAll(closeStep(it)) }
             steps.clear()
-            add(StreamChunk.Finish(status, interactionId, model ?: fallbackModel))
+            add(StreamChunk.Finish(status, interactionId, model ?: fallbackModel, incomplete))
         }
     }
 

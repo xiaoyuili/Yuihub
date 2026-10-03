@@ -304,6 +304,7 @@ class StreamChunkHandler(private val model: Model? = null) {
             is StreamChunk.Finish -> copy(
                 finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
                 finishReason = chunk.finishReason,
+                finishIncomplete = chunk.incomplete,
             ).finishReasoning().also {
                 // Finish 同时结束尚未显式结束的 reasoning，并释放本次响应流的索引状态。
                 textPartIndexes.clear()

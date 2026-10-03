@@ -25,9 +25,16 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
     private var finishReason: String? = null
     private var finished = false
 
+    /** 是否收到过显式协议结束（message_stop 等）；从未收到就关闭连接即裸 EOF */
+    override var explicitEnd: Boolean = false
+        private set
+
     override fun accept(event: SseEvent): DecodeResult {
         if (finished) return DecodeResult(completed = true)
-        if (event.data == "[DONE]") return DecodeResult(finish(), completed = true)
+        if (event.data == "[DONE]") {
+            explicitEnd = true
+            return DecodeResult(finish(), completed = true)
+        }
 
         val dataJson = json.parseToJsonElement(event.data).jsonObject
         if (event.event == "error") {
@@ -150,21 +157,22 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
         }
 
         return if (event.event == "message_stop") {
+            explicitEnd = true
             DecodeResult(chunks + finish(), completed = true)
         } else {
             DecodeResult(chunks)
         }
     }
 
-    override fun onClosed(): List<StreamChunk> = finish()
+    override fun onClosed(): List<StreamChunk> = if (finished) emptyList() else finish(incomplete = !explicitEnd)
 
-    private fun finish(): List<StreamChunk> {
+    private fun finish(incomplete: Boolean = false): List<StreamChunk> {
         if (finished) return emptyList()
         finished = true
         return buildList {
             blocks.values.mapNotNull(::endBlock).forEach(::add)
             blocks.clear()
-            add(StreamChunk.Finish(finishReason, responseId, responseModel))
+            add(StreamChunk.Finish(finishReason, responseId, responseModel, incomplete))
         }
     }
 

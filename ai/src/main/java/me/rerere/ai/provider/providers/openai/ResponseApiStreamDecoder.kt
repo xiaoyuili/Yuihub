@@ -23,19 +23,27 @@ import me.rerere.common.http.jsonObjectOrNull
 internal class ResponseApiStreamDecoder : StreamChunkDecoder {
     private val state = ResponseStreamState()
 
+    /** 是否收到过显式协议结束（response.completed/incomplete）；从未收到就关闭连接即裸 EOF */
+    override var explicitEnd: Boolean = false
+        private set
+
     override fun accept(event: SseEvent): DecodeResult {
         if (state.finished) return DecodeResult(completed = true)
-        if (event.data == "[DONE]") return DecodeResult(state.finish(), completed = true)
+        if (event.data == "[DONE]") {
+            explicitEnd = true
+            return DecodeResult(state.finish(), completed = true)
+        }
 
         val payload = json.parseToJsonElement(event.data).jsonObject
         val eventType = payload["type"]?.jsonPrimitive?.contentOrNull
         val chunks = parseEvent(payload)
         val completed = eventType == "response.completed" || eventType == "response.incomplete" ||
             event.event == "response.completed" || event.event == "response.incomplete"
+        if (completed) explicitEnd = true
         return DecodeResult(chunks, completed)
     }
 
-    override fun onClosed(): List<StreamChunk> = state.finish()
+    override fun onClosed(): List<StreamChunk> = if (state.finished) emptyList() else state.finish(incomplete = !explicitEnd)
 
     private fun parseEvent(payload: JsonObject): List<StreamChunk> {
         val chunkType = payload["type"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
@@ -364,6 +372,7 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
             finishReason: String? = null,
             responseId: String? = null,
             model: String? = null,
+            incomplete: Boolean = false,
         ): List<StreamChunk> {
             if (finished) return emptyList()
             finished = true
@@ -376,7 +385,7 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
                 openImageIds.toList().forEach { addAll(endImage(it)) }
                 openToolIds.toList().forEach { addAll(endTool(it)) }
                 openServerToolIds.clear()
-                add(StreamChunk.Finish(finishReason, responseId, model))
+                add(StreamChunk.Finish(finishReason, responseId, model, incomplete))
             }
         }
     }

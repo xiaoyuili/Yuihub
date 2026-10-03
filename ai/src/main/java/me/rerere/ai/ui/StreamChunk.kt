@@ -152,5 +152,11 @@ sealed class StreamChunk {
         val finishReason: String? = null,
         val responseId: String? = null,
         val model: String? = null,
+        /**
+         * 传输层在收到显式协议终止标记（[DONE] / message_stop / response.completed 等）之前
+         * 就关闭了连接（裸 EOF）。此时 [finishReason] 通常为 null，回复可能在任意位置被截断。
+         * 显式结束与供应商给出的结束原因（stop/length/tool_calls）均置为 false。
+         */
+        val incomplete: Boolean = false,
     ) : StreamChunk()
 }

@@ -35,6 +35,7 @@ import me.rerere.ai.provider.TextGenerationResult
 import me.rerere.ai.provider.providers.PartGroup
 import me.rerere.ai.provider.providers.groupPartsByToolBoundary
 import me.rerere.ai.provider.stream.SseEvent
+import me.rerere.ai.provider.stream.describeSseEvent
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.GoogleInteractionsMetadata
 import me.rerere.ai.ui.ServerToolMetadata
@@ -130,7 +131,10 @@ internal class InteractionsAPI(
                 try {
                     val result = decoder.accept(SseEvent(id = id, event = type, data = data))
                     sendChunks(result.chunks)
-                    if (result.completed) close()
+                    if (result.completed) {
+                        Log.i(TAG, "onEvent: explicit end -> ${describeSseEvent(id, type, data)}")
+                        close()
+                    }
                 } catch (e: Throwable) {
                     Log.e(TAG, "Failed to parse stream event: $data", e)
                     close(e)
@@ -155,6 +159,7 @@ internal class InteractionsAPI(
             }
 
             override fun onClosed(eventSource: EventSource) {
+                Log.i(TAG, "onClosed: transport closed (explicitEnd=${decoder.explicitEnd})")
                 sendChunks(decoder.onClosed())
                 close()
             }

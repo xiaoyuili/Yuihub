@@ -36,6 +36,9 @@ data class UIMessage(
     // 供应商返回的结束原因（stop/length/content_filter/tool_calls 等）：
     // 此前被丢弃，导致「思考完就断」的截断/过滤场景静默无提示。
     val finishReason: String? = null,
+    // 本次响应流以裸 EOF 结束（未收到显式协议终止标记）：回复可能在任意位置被截断。
+    // 与 finishReason 正交：正常供应商给出的 stop/length 均为 false。
+    val finishIncomplete: Boolean = false,
 ) {
     fun summaryAsText(maxLength: Int = Int.MAX_VALUE): String {
         val text = "[${role.name}]: " + parts.joinToString(separator = "\n") { part ->
