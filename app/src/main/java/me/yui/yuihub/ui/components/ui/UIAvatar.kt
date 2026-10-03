@@ -98,7 +98,9 @@ fun UIAvatar(
     modifier: Modifier = Modifier,
     loading: Boolean = false,
     onUpdate: ((Avatar) -> Unit)? = null,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
+    /** 是否在右下角显示编辑铅笔角标（可编辑时默认显示） */
+    showEditBadge: Boolean = true,
 ) {
     val filesManager: FilesManager = koinInject()
     val context = LocalContext.current
@@ -195,7 +197,7 @@ fun UIAvatar(
         }
 
         // Show edit icon when editable
-        if (onUpdate != null) {
+        if (onUpdate != null && showEditBadge) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)

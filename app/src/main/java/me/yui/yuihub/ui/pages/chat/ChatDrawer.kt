@@ -21,6 +21,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -97,6 +98,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.ArrowDataTransferHorizontal
 import me.rerere.hugeicons.stroke.ArrowLeft01
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ChartColumn
@@ -133,25 +135,20 @@ import me.yui.yuihub.data.repository.ConversationRepository
 import me.yui.yuihub.service.SubagentManager
 import kotlinx.coroutines.flow.map
 import me.yui.yuihub.data.repository.WorkspaceRepository
-import me.yui.yuihub.ui.components.ai.AssistantPicker
+import me.yui.yuihub.ui.components.ai.AssistantPickerSheet
 import me.yui.yuihub.ui.components.ui.BackupReminderCard
-import me.yui.yuihub.ui.components.ui.Greeting
-import me.yui.yuihub.ui.components.ui.Tooltip
 import me.yui.yuihub.ui.components.ui.UIAvatar
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.context.Navigator
 import com.dokar.sonner.ToastType
-import me.yui.yuihub.ui.hooks.EditStateContent
 import me.yui.yuihub.ui.hooks.readBooleanPreference
-import me.yui.yuihub.ui.hooks.useEditState
 import me.yui.yuihub.ui.modifier.onClick
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceFileType
 import me.yui.yuihub.ui.pages.extensions.workspace.detectFileType
 import me.yui.yuihub.utils.fileSizeToString
 import me.yui.yuihub.utils.navigateToChatPage
-import me.yui.yuihub.utils.toDp
 import me.yui.yuihub.utils.writeClipboardText
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -254,15 +251,21 @@ fun ChatDrawerContent(
         filesSearching = false
     }
 
-    // 昵称编辑状态
-    val nicknameEditState = useEditState<String> { newNickname ->
-        vm.updateSettings(
-            settings.copy(
-                displaySetting = settings.displaySetting.copy(
-                    userNickname = newNickname
-                )
-            )
-        )
+    // 切换助手：写入设置后跳到该助手的目标会话（与「新建会话」偏好一致）
+    val applyAssistantChange: (Settings) -> Unit = { newSettings ->
+        val updateJob = vm.updateSettings(newSettings)
+        scope.launch {
+            updateJob.join()
+            val id = if (context.readBooleanPreference("create_new_conversation_on_start", true)) {
+                Uuid.random()
+            } else {
+                repo.getConversationsOfAssistant(newSettings.assistantId)
+                    .first()
+                    .firstOrNull()
+                    ?.id ?: Uuid.random()
+            }
+            navigateToChatPage(navigator = navController, chatId = id)
+        }
     }
 
     // 子代理删除确认
@@ -293,62 +296,15 @@ fun ChatDrawerContent(
                 onClick = { navController.navigate(Screen.Backup) },
             )
 
-            // 用户头像和昵称自定义区域
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                UIAvatar(
-                    name = settings.displaySetting.userNickname.ifBlank { stringResource(R.string.user_default_name) },
-                    value = settings.displaySetting.userAvatar,
-                    onUpdate = { newAvatar ->
-                        vm.updateSettings(
-                            settings.copy(
-                                displaySetting = settings.displaySetting.copy(
-                                    userAvatar = newAvatar
-                                )
-                            )
-                        )
-                    },
-                    modifier = Modifier.size(50.dp),
-                )
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(
-                            text = settings.displaySetting.userNickname.ifBlank { stringResource(R.string.user_default_name) },
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.clickable {
-                                nicknameEditState.open(settings.displaySetting.userNickname)
-                            }
-                        )
-
-                        Icon(
-                            imageVector = HugeIcons.PencilEdit01,
-                            contentDescription = "Edit",
-                            modifier = Modifier
-                                .onClick {
-                                    nicknameEditState.open(settings.displaySetting.userNickname)
-                                }
-                                .size(LocalTextStyle.current.fontSize.toDp())
-                        )
-                    }
-                    Greeting(
-                        style = MaterialTheme.typography.labelMedium,
-                    )
-                }
-            }
+            // 助手卡片：原用户信息区已移到对话页（点消息处的头像/昵称编辑）
+            DrawerAssistantCard(
+                settings = settings,
+                onApply = applyAssistantChange,
+                onOpenAssistantSettings = {
+                    navController.navigate(Screen.AssistantDetail(id = settings.assistantId.toString()))
+                },
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
 
             // 工作区面板：助手绑定工作区且在本机就绪时展示「会话 / 文件」切换（展开动画）
             androidx.compose.animation.AnimatedVisibility(
@@ -489,131 +445,17 @@ fun ChatDrawerContent(
                 }
             }
 
-            // 底部：文件面板显示文件名搜索框；会话面板显示助手选择器
-            if (effectivePanel != DrawerPanel.FILES) {
-                AssistantPicker(
-                    settings = settings,
-                    onUpdateSettings = {
-                        val updateJob = vm.updateSettings(it)
-                        scope.launch {
-                            updateJob.join()
-                            val id = if (context.readBooleanPreference("create_new_conversation_on_start", true)) {
-                                Uuid.random()
-                            } else {
-                                repo.getConversationsOfAssistant(it.assistantId)
-                                    .first()
-                                    .firstOrNull()
-                                    ?.id ?: Uuid.random()
-                            }
-                            navigateToChatPage(navigator = navController, chatId = id)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    onClickSetting = {
-                        val currentAssistantId = settings.assistantId
-                        navController.navigate(Screen.AssistantDetail(id = currentAssistantId.toString()))
-                    }
-                )
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
-            ) {
-                DrawerAction(
-                    icon = {
-                        Icon(
-                            imageVector = HugeIcons.Image02,
-                            contentDescription = stringResource(R.string.chat_page_menu_image_generation)
-                        )
-                    },
-                    label = {
-                        Text(stringResource(R.string.chat_page_menu_image_generation))
-                    },
-                    onClick = {
-                        navController.navigate(Screen.ImageGen)
-                    },
-                )
-
-                DrawerAction(
-                    icon = {
-                        Icon(HugeIcons.InLove, stringResource(R.string.favorite_page_title))
-                    },
-                    label = {
-                        Text(stringResource(R.string.favorite_page_title))
-                    },
-                    onClick = {
-                        navController.navigate(Screen.Favorite)
-                    },
-                )
-
-                DrawerAction(
-                    icon = {
-                        Icon(HugeIcons.ChartColumn, "统计数据")
-                    },
-                    label = {
-                        Text("统计数据")
-                    },
-                    onClick = {
-                        navController.navigate(Screen.Stats(chatId = current.id.toString()))
-                    },
-                )
-
-                Spacer(Modifier.weight(1f))
-
-                DrawerAction(
-                    icon = {
-                        Icon(HugeIcons.Settings03, null)
-                    },
-                    label = { Text(stringResource(R.string.settings)) },
-                    onClick = {
-                        navController.navigate(Screen.Setting)
-                    },
-                )
-            }
+            DrawerActionBar(
+                imageGenerationLabel = stringResource(R.string.chat_page_menu_image_generation),
+                favoritesLabel = stringResource(R.string.favorite_page_title),
+                statsLabel = stringResource(R.string.stats_page_title),
+                settingsLabel = stringResource(R.string.settings),
+                onImageGeneration = { navController.navigate(Screen.ImageGen) },
+                onFavorites = { navController.navigate(Screen.Favorite) },
+                onStats = { navController.navigate(Screen.Stats(chatId = current.id.toString())) },
+                onSettings = { navController.navigate(Screen.Setting) },
+            )
         }
-    }
-
-    // 昵称编辑对话框
-    nicknameEditState.EditStateContent { nickname, onUpdate ->
-        AlertDialog(
-            onDismissRequest = {
-                nicknameEditState.dismiss()
-            },
-            title = {
-                Text(stringResource(R.string.chat_page_edit_nickname))
-            },
-            text = {
-                OutlinedTextField(
-                    value = nickname,
-                    onValueChange = onUpdate,
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    placeholder = { Text(stringResource(R.string.chat_page_nickname_placeholder)) }
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        nicknameEditState.confirm()
-                    }
-                ) {
-                    Text(stringResource(R.string.chat_page_save))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        nicknameEditState.dismiss()
-                    }
-                ) {
-                    Text(stringResource(R.string.chat_page_cancel))
-                }
-            }
-        )
     }
 
     // 移动到文件夹 Bottom Sheet
@@ -881,32 +723,147 @@ fun ChatDrawerContent(
 }
 
 @Composable
-private fun DrawerAction(
+private fun DrawerAssistantCard(
+    settings: Settings,
+    onApply: (Settings) -> Unit,
+    onOpenAssistantSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    icon: @Composable () -> Unit,
-    label: @Composable () -> Unit,
-    onClick: () -> Unit,
 ) {
+    val defaultAssistantName = stringResource(R.string.assistant_page_default_assistant)
+    val currentAssistant = settings.getCurrentAssistant()
+    var showPicker by remember { mutableStateOf(false) }
+
     Surface(
-        onClick = onClick,
-        modifier = modifier,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        shape = CircleShape,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceBright,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        onClick = onOpenAssistantSettings,
     ) {
-        Tooltip(
-            tooltip = {
-                label()
-            }
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .padding(10.dp)
-                    .size(20.dp),
+            UIAvatar(
+                name = currentAssistant.name.ifEmpty { defaultAssistantName },
+                value = currentAssistant.avatar,
+                modifier = Modifier.size(40.dp),
+            )
+            Text(
+                text = currentAssistant.name.ifEmpty { defaultAssistantName },
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = { showPicker = true },
+                modifier = Modifier.size(32.dp),
             ) {
-                icon()
+                Icon(
+                    imageVector = HugeIcons.ArrowDataTransferHorizontal,
+                    contentDescription = stringResource(R.string.chat_page_switch_assistant),
+                    modifier = Modifier.size(20.dp),
+                )
             }
         }
+    }
+
+    if (showPicker) {
+        AssistantPickerSheet(
+            settings = settings,
+            currentAssistant = currentAssistant,
+            onAssistantSelected = { assistant ->
+                showPicker = false
+                onApply(settings.copy(assistantId = assistant.id))
+            },
+            onDismiss = { showPicker = false },
+        )
+    }
+}
+
+@Composable
+private fun DrawerActionBar(
+    imageGenerationLabel: String,
+    favoritesLabel: String,
+    statsLabel: String,
+    settingsLabel: String,
+    onImageGeneration: () -> Unit,
+    onFavorites: () -> Unit,
+    onStats: () -> Unit,
+    onSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.large)
+            .background(MaterialTheme.colorScheme.surfaceBright)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                shape = MaterialTheme.shapes.large,
+            )
+            .padding(horizontal = 4.dp, vertical = 5.dp),
+    ) {
+        DrawerActionStack(
+            icon = HugeIcons.Image02,
+            label = imageGenerationLabel,
+            onClick = onImageGeneration,
+            modifier = Modifier.weight(1f),
+        )
+        DrawerActionStack(
+            icon = HugeIcons.InLove,
+            label = favoritesLabel,
+            onClick = onFavorites,
+            modifier = Modifier.weight(1f),
+        )
+        DrawerActionStack(
+            icon = HugeIcons.ChartColumn,
+            label = statsLabel,
+            onClick = onStats,
+            modifier = Modifier.weight(1f),
+        )
+        DrawerActionStack(
+            icon = HugeIcons.Settings03,
+            label = settingsLabel,
+            onClick = onSettings,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/** 「图标在上、小字在下」的堆：靠小字自解释，不再依赖长按提示 */
+@Composable
+private fun DrawerActionStack(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = modifier
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            modifier = Modifier.size(17.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

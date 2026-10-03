@@ -77,6 +77,7 @@ import me.yui.yuihub.R
 import me.yui.yuihub.Screen
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantAffectScope
+import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.data.model.replaceRegexes
 import me.yui.yuihub.ui.components.richtext.LocalMarkdownAccentColor
@@ -122,6 +123,9 @@ fun ChatMessage(
     onToggleFavorite: (() -> Unit)? = null,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    // 点击消息处的用户头像 / 昵称：分别弹出改头像 / 改昵称（对话页是用户信息唯一的修改入口）
+    onChangeUserAvatar: ((Avatar) -> Unit)? = null,
+    onEditUserNickname: (() -> Unit)? = null,
 ) {
     val message = node.messages[node.selectIndex]
     val settings = LocalSettings.current.displaySetting
@@ -159,6 +163,8 @@ fun ChatMessage(
                     message = message,
                     avatar = settings.userAvatar,
                     nickname = settings.userNickname,
+                    onChangeAvatar = onChangeUserAvatar,
+                    onEditNickname = onEditUserNickname,
                     modifier = Modifier.weight(1f)
                 )
             }

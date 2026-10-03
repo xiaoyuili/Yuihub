@@ -95,6 +95,7 @@ import me.rerere.ai.ui.UIMessage
 import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.getAssistantById
+import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.service.ChatError
@@ -141,6 +142,8 @@ fun ChatList(
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
+    onChangeUserAvatar: ((Avatar) -> Unit)? = null,
+    onEditUserNickname: (() -> Unit)? = null,
 ) {
     AnimatedContent(
         targetState = previewMode,
@@ -182,6 +185,8 @@ fun ChatList(
                 onToolAnswer = onToolAnswer,
                 onToggleFavorite = onToggleFavorite,
                 onConversationSystemPromptChange = onConversationSystemPromptChange,
+                onChangeUserAvatar = onChangeUserAvatar,
+                onEditUserNickname = onEditUserNickname,
             )
         }
     }
@@ -209,11 +214,12 @@ private fun ChatListNormal(
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
+    onChangeUserAvatar: ((Avatar) -> Unit)? = null,
+    onEditUserNickname: (() -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
     val loadingState by rememberUpdatedState(loading)
     var isRecentScroll by remember { mutableStateOf(false) }
-    val conversationUpdated by rememberUpdatedState(conversation)
     val density = LocalDensity.current
     val activity = LocalContext.current as? me.yui.yuihub.RouteActivity
 
@@ -270,10 +276,11 @@ private fun ChatListNormal(
             .flatMap { it.models }
             .associateBy { it.id }
     }
-    // 记忆快照是模型侧上下文，不在界面展示；活跃压缩边界之前的旧历史同样隐藏
-    // （请求侧由 requestWindowMessages 替换为检查点，检查点作为独立行渲染在列表顶部）
+    // 记忆快照是模型侧上下文，不在界面展示；自动压缩边界之前的旧历史同样隐藏
+    // （请求侧由 requestWindowMessages 替换为检查点，检查点作为独立行渲染在列表顶部）；
+    // 手动压缩（uiCompression 为 null）不隐藏任何历史
     val visibleNodes = remember(conversation.messageNodes, conversation.compressionSummaries) {
-        val boundaryIndex = conversation.activeCompression()
+        val boundaryIndex = conversation.uiCompression()
             ?.let { cp -> conversation.messageNodes.indexOfFirst { it.id == cp.boundaryNodeId } }
             ?.takeIf { it >= 0 }
         conversation.messageNodes
@@ -281,7 +288,7 @@ private fun ChatListNormal(
             .filter { !it.currentMessage.isMemorySnapshot() }
     }
     val lastNodeId = visibleNodes.lastOrNull()?.id
-    val activeCheckpoint = conversation.activeCompression()
+    val activeCheckpoint = conversation.uiCompression()
 
     Box(
         modifier = Modifier
@@ -301,8 +308,9 @@ private fun ChatListNormal(
                     val visibleItemsInfo = state.layoutInfo.visibleItemsInfo
                     if (!state.isScrollInProgress && loadingState) {
                         if (visibleItemsInfo.isAtBottom()) {
-                            state.requestScrollToItem(conversationUpdated.messageNodes.lastIndex + 10)
-                            // Log.i(TAG, "ChatList: scroll to ${conversationUpdated.messageNodes.lastIndex}")
+                            // 滚到真实末项：UI 列表隐藏了记忆快照、且流式新项会持续追加，
+                            // 用 visibleNodes 末位而不是数据库全量节点数（压缩/快照后会越界）
+                            state.requestScrollToItem(state.layoutInfo.totalItemsCount)
                         }
                     }
                 }
@@ -324,7 +332,12 @@ private fun ChatListNormal(
         ChatFontProvider(displaySetting = settings.displaySetting) {
             LazyColumn(
                 state = state,
-                contentPadding = PaddingValues(16.dp) + PaddingValues(bottom = 32.dp + innerPadding.calculateBottomPadding()),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    top = 16.dp,
+                    end = 16.dp,
+                    bottom = innerPadding.calculateBottomPadding() + 6.dp,
+                ),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier
@@ -405,6 +418,8 @@ private fun ChatListNormal(
                             onToolApproval = onToolApproval,
                             onToolAnswer = onToolAnswer,
                             lastMessage = node.id == lastNodeId,
+                            onChangeUserAvatar = onChangeUserAvatar,
+                            onEditUserNickname = onEditUserNickname,
                         )
                     }
                 }
@@ -639,7 +654,7 @@ private fun ChatListPreview(
     // 过滤消息，同时保留原始 index 避免后续 O(n) indexOf 查找
     // （与主列表同一窗口过滤：快照前旧历史隐藏，保证跳转序号对齐）
     val filteredMessages = remember(conversation.messageNodes, conversation.compressionSummaries, searchQuery) {
-        val boundaryIndex = conversation.activeCompression()
+        val boundaryIndex = conversation.uiCompression()
             ?.let { cp -> conversation.messageNodes.indexOfFirst { it.id == cp.boundaryNodeId } }
             ?.takeIf { it >= 0 }
         // 跳转目标索引与普通列表（已过滤快照）的序号对齐，避免快照导致跳转偏移
