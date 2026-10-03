@@ -31,6 +31,24 @@ enum class BackupItem {
 }
 
 /**
+ * FILES 备份覆盖的 filesDir 子目录（与 [LocalBackupService.writeFileEntry] 的前缀分派保持一致）。
+ *
+ * 新增一类用户数据目录（FileFolders 里再加常量）时必须同步加到这里，
+ * BackupCoverageTest 会断言两者不得漂移，避免「新增目录忘入备份」这类静默丢数据。
+ *
+ * 有意不纳入：
+ * - `workspaces/`：含 rootfs 与容器临时文件，体积可达数百 MB，属于可重建的运行环境
+ * - `databases/`、`shared_prefs/`、`cache/`、`files/`：非用户资产
+ */
+val BACKED_UP_FILE_FOLDERS: List<String> = listOf(
+    FileFolders.UPLOAD,
+    FileFolders.SKILLS,
+    FileFolders.FONTS,
+    FileFolders.TOOL_OUTPUTS,
+    FileFolders.IMAGES,
+)
+
+/**
  * 本地备份：将选中的内容打成 zip（导出到本地文件 / 从本地文件恢复）。
  *
  * SETTINGS 对应 settings.json——供应商、MCP、技能启用、模型参数等。
@@ -96,32 +114,16 @@ class LocalBackupService(
             }
 
             if (items.contains(BackupItem.FILES)) {
-                addDirectoryToZip(
-                    zipOut = zipOut,
-                    folderName = FileFolders.UPLOAD,
-                    recursive = false,
-                )
-                addDirectoryToZip(
-                    zipOut = zipOut,
-                    folderName = FileFolders.SKILLS,
-                    recursive = true,
-                )
-                addDirectoryToZip(
-                    zipOut = zipOut,
-                    folderName = FileFolders.FONTS,
-                    recursive = false,
-                )
-                addDirectoryToZip(
-                    zipOut = zipOut,
-                    folderName = FileFolders.TOOL_OUTPUTS,
-                    recursive = true,
-                )
-                // 生成图片：DB 里只存相对路径，缺了文件相册就是一堆打不开的条目
-                addDirectoryToZip(
-                    zipOut = zipOut,
-                    folderName = FileFolders.IMAGES,
-                    recursive = false,
-                )
+                // 目录清单以 BACKED_UP_FILE_FOLDERS 为准（有 BackupCoverageTest 防止与 FileFolders 漂移）：
+                // 递归与否按目录内容形态决定，技能/工具输出含子目录，其余为一级平铺。
+                val recursiveFolders = setOf(FileFolders.SKILLS, FileFolders.TOOL_OUTPUTS)
+                BACKED_UP_FILE_FOLDERS.forEach { folderName ->
+                    addDirectoryToZip(
+                        zipOut = zipOut,
+                        folderName = folderName,
+                        recursive = folderName in recursiveFolders,
+                    )
+                }
             }
         }
 
