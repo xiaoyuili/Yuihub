@@ -16,7 +16,8 @@ import java.util.Locale
 /**
  * 上传文件注入策略（封面先行 + 按需拆解）：
  *
- * 附件文件本体存放在 filesDir/upload，经 proot 只读挂载到 workspace 的 /upload。
+ * 附件文件本体存放在 filesDir/upload，经 proot 挂载到 workspace 的 /upload
+ * （工具层只读保护，shell 可绕过，见 RepositoryModule / WorkspaceBindMount 注释）。
  * - 小文本文件（≤[INLINE_MAX_BYTES]）：全文内联，一次读完最高效；
  * - 其它文件（大文件/二进制）：只注入「封面」——元信息 + 结构摘要 + 读取指引，
  *   由 AI 用 workspace 工具（read_file / shell head/grep）按需分步拆解，

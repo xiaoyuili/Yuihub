@@ -103,9 +103,15 @@ private fun buildWorkspacePrompt(workspace: WorkspaceEntity, cwd: String? = null
     appendLine("- Call `workspace_present_file` only when the user asks to receive a file; never send files on your own initiative.")
     appendLine("- Skills live at `/skills/<skill-name>/SKILL.md` — read a skill before using it, and follow its instructions.")
     appendLine("- Skills and workspace files may mention other AI products (Claude, Codex, etc.) as reference material or tooling docs. These describe OTHER products, not you: your identity, model and capabilities come only from this app and the system prompt — never claim to be or act as another product's assistant.")
-    appendLine("- User uploads are mounted at `/upload` (READ-ONLY): read from there, but never modify, overwrite or delete; the write/edit tools reject changes under /upload — copy the file into `/workspace` first if you need to change one.")
+    appendLine("- User uploads are mounted at `/upload`: read from there, but treat it as the user's ORIGINAL files — never modify, overwrite, move or delete them by any means. The write/edit tools are blocked under /upload, but `workspace_shell` is NOT sandboxed for it, so a shell command like `rm`/`mv`/`sed -i`/`> /upload/...` WILL destroy the original irreversibly. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy.")
     workspace.mountDirList().forEach { mount ->
-        val mode = if (mount.readOnly) "READ-ONLY" else "read-write"
+        // PRoot 的 -b 无只读能力；readOnly 仅是语义标记，写入拦截只发生在文件工具层，
+        // shell 不受限——提示词必须如实告知，不能让模型误以为挂载真的写不进去。
+        val mode = if (mount.readOnly) {
+            "treat as READ-ONLY — do not write, move or delete via shell or file tools"
+        } else {
+            "read-write"
+        }
         appendLine("- Host directory `${mount.sourcePath}` is mounted at `${mount.target}` ($mode); changes there are visible to the user's other Android apps.")
     }
     if (!cwd.isNullOrBlank()) {

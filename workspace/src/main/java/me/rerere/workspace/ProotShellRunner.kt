@@ -7,6 +7,13 @@ import java.util.concurrent.ConcurrentHashMap
 data class WorkspaceBindMount(
     val source: File,
     val target: String,
+    /**
+     * 是否为只读挂载（语义标记）。
+     *
+     * PRoot 的 `-b` 不支持只读（`:ro` 会被当成目标路径的一部分，见 [prootBindSpec]），
+     * 因此该标记**不能**阻止写入：真实的写入拦截只发生在文件工具层（见 WorkspaceTools 的
+     * /upload 路径保护），而 **workspace_shell 不受约束，可通过 shell 命令绕过并删除原文件**。
+     */
     val readOnly: Boolean = false,
 ) {
     init {
