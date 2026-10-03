@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.analytics.FirebaseAnalytics
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -128,6 +129,23 @@ class ChatVM(
     // 生成完成
     val generationDoneFlow: SharedFlow<Uuid> = chatService.generationDoneFlow
 
+    // 手动压缩（/压缩）结果：仅本会话的摘要才发非 null；聊天页收到后弹窗展示
+    val manualCompressionResult: Flow<String?> =
+        chatService.manualCompressionFlow
+            .map { (conversationId, content) ->
+                if (conversationId == _conversationId) content else null
+            }
+
+    // 本会话是否正在手动压缩，供输入栏显示进行中反馈
+    val manualCompressionInProgress: StateFlow<Boolean> =
+        chatService.compressingConversations
+            .map { _conversationId in it }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun compressManually() {
+        chatService.compressManually(_conversationId)
+    }
+
     // 更新设置
     fun updateSettings(newSettings: Settings): Job {
         return viewModelScope.launch {
@@ -174,9 +192,19 @@ class ChatVM(
      */
     fun handleMessageSend(content: List<UIMessagePart>,answer: Boolean = true) {
         if (content.isEmptyInputMessage()) return
+        // 手动压缩命令：/压缩 纯文本直接触发压缩，不进入正常发送链路
+        if (answer && content.isCompressCommand()) {
+            compressManually()
+            return
+        }
         analytics.logEvent("ai_send_message", null)
 
         chatService.sendMessage(_conversationId, content, answer)
+    }
+
+    private fun List<UIMessagePart>.isCompressCommand(): Boolean {
+        val text = singleOrNull() as? UIMessagePart.Text ?: return false
+        return text.text.trim() == "/压缩"
     }
 
     fun handleMessageEdit(parts: List<UIMessagePart>, messageId: Uuid) {

@@ -28,6 +28,8 @@ data class CompressionSummary(
     val messageCount: Int = 0,
     // 压缩边界：被压缩范围内的最后一个节点 id；请求只发送该节点之后的内容
     val boundaryNodeId: Uuid? = null,
+    // 手动压缩（/压缩）：只缩减发送上下文，不在聊天页隐藏旧消息/渲染流程行
+    val manual: Boolean = false,
     @Serializable(with = InstantSerializer::class)
     val createdAt: Instant = Instant.now(),
 )
@@ -84,6 +86,13 @@ data class Conversation(
         val boundaryId = checkpoint.boundaryNodeId ?: return null
         return if (messageNodes.any { it.id == boundaryId }) checkpoint else null
     }
+
+    /**
+     * 界面侧生效的压缩检查点：手动压缩只缩减发送上下文，不在聊天页隐藏旧消息、
+     * 也不渲染「上下文压缩」流程行（用户要求手动压缩后对话全部保持可见）。
+     */
+    fun uiCompression(): CompressionSummary? =
+        activeCompression()?.takeIf { !it.manual }
 
     /**
      * 请求发送窗口（缓存分段：检查点是新段起点，边界前的旧前缀保留在轨迹中但不发送）：

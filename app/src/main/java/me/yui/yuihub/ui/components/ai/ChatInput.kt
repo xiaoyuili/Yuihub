@@ -45,6 +45,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material3.BasicAlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -163,6 +164,8 @@ fun ChatInput(
     onBeginEditQueuedMessage: (Uuid) -> QueuedMessage? = { null },
     onFinishEditQueuedMessage: (Uuid, List<UIMessagePart>?) -> Unit = { _, _ -> },
     onResumeMessageQueue: () -> Unit = {},
+    // 手动压缩（/压缩）进行中：输入框上方显示提示条
+    manualCompressionInProgress: Boolean = false,
 ) {
     val toaster = LocalToaster.current
     val assistant = settings.getCurrentAssistant()
@@ -228,6 +231,36 @@ fun ChatInput(
             // 计划细条：常驻在输入框上方，收起一行高度，点开看完整清单；
             // 与输入栏共用同一条淡化动画，滚动列表时一起半透明
             PlanBar(todos = planTodos, alpha = inputAlpha)
+
+            // 手动压缩进行中：输入框上方提示条（否则压缩期间无任何反馈）
+            AnimatedVisibility(
+                visible = manualCompressionInProgress,
+                enter = expandVertically(expandFrom = Alignment.Bottom) + fadeIn(),
+                exit = shrinkVertically(shrinkTowards = Alignment.Bottom) + fadeOut(),
+            ) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text(
+                            text = stringResource(R.string.chat_manual_compression_in_progress),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
 
             // 推理强度面板：位于计划条下方、输入框上方；
             // 打开时自下而上推出（底部对齐向上展开），关闭时向下收回
@@ -354,6 +387,7 @@ fun ChatInput(
                                 ContextUsageBarButton(
                                     usedTokens = usage.usedTokens,
                                     windowTokens = usage.windowTokens,
+                                    thresholdRatio = settings.autoCompressThreshold,
                                 )
                             }
 
@@ -818,6 +852,7 @@ data class ContextUsage(
 private fun ContextUsageBarButton(
     usedTokens: Int,
     windowTokens: Int,
+    thresholdRatio: Float = AUTO_COMPRESS_THRESHOLD_RATIO,
 ) {
     var showPopup by remember { mutableStateOf(false) }
     val fraction = if (windowTokens > 0) {
@@ -825,7 +860,7 @@ private fun ContextUsageBarButton(
     } else {
         0f
     }
-    val isWarning = windowTokens > 0 && fraction >= AUTO_COMPRESS_THRESHOLD_RATIO
+    val isWarning = windowTokens > 0 && fraction >= thresholdRatio
     val primary = MaterialTheme.colorScheme.primary
     val tertiary = MaterialTheme.colorScheme.tertiary
     val errorColor = MaterialTheme.colorScheme.error

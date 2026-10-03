@@ -58,6 +58,7 @@ import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.core.MessageRole
@@ -85,9 +86,11 @@ import me.yui.yuihub.ui.components.ai.ContextUsage
 import me.yui.yuihub.ui.components.ai.FilesPicker
 import me.yui.yuihub.ui.components.ai.SearchMode
 import me.yui.yuihub.ui.components.ai.SearchPickerSheet
+import me.yui.yuihub.ui.components.ai.completion.SlashCommandProvider
 import me.yui.yuihub.ui.components.ai.completion.WorkspaceCompletionProvider
 import me.yui.yuihub.ui.components.ai.rememberChatAttachmentPickerActions
 import me.yui.yuihub.ui.components.message.PlanBar
+import me.yui.yuihub.ui.components.message.ManualCompressionDialog
 import me.yui.yuihub.ui.components.message.findActivePlan
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.context.LocalToaster
@@ -205,7 +208,13 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                     chatListState.scrollToItem(index)
                 }
             } else {
-                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                // 等首帧布局拿到真实项数再定位：用全量节点数会因隐藏快照/压缩边界而越界，
+                // 越界后列表会退回最旧位置（旧行为误显示为最旧消息）
+                if (chatListState.layoutInfo.totalItemsCount == 0) {
+                    snapshotFlow { chatListState.layoutInfo.totalItemsCount }
+                        .first { it > 0 }
+                }
+                chatListState.requestScrollToItem(chatListState.layoutInfo.totalItemsCount - 1)
             }
             vm.chatListInitialized = true
         }
@@ -302,6 +311,14 @@ private fun ChatPageContent(
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
+    // 手动压缩（/压缩）结果弹窗：收集本会话摘要，收到即弹出，关闭后置空
+    var manualCompressionContent by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(vm) {
+        vm.manualCompressionResult.collect { content ->
+            if (content != null) manualCompressionContent = content
+        }
+    }
+    val manualCompressionInProgress by vm.manualCompressionInProgress.collectAsStateWithLifecycle()
     val enableSearchMsg = stringResource(R.string.web_search_enabled)
     val disableSearchMsg = stringResource(R.string.web_search_disabled)
     // 输入框工具条与「+」面板内的搜索窗口共用同一套更新逻辑
@@ -361,6 +378,8 @@ private fun ChatPageContent(
     val assistant = setting.getCurrentAssistant()
     var showFilesSheet by remember { mutableStateOf(false) }
     var showSearchSheet by remember { mutableStateOf(false) }
+    // 昵称编辑：入口在消息处的用户名（点头像改头像由 UIAvatar 自行处理）
+    var showNicknameDialog by remember { mutableStateOf(false) }
     val attachmentPickerActions = rememberChatAttachmentPickerActions(
         inputState = inputState,
         setting = setting,
@@ -368,17 +387,21 @@ private fun ChatPageContent(
     )
     val allowAudioVideoAttachments =
         setting.getCurrentChatModel()?.findProvider(setting.providers) is ProviderSetting.Google
+    val slashCommandDesc = stringResource(R.string.slash_command_compress_desc)
 
-    val completionProviders = remember(assistant.workspaceId, conversation.workspaceCwd, workspaceRepository) {
-        assistant.workspaceId?.let { workspaceId ->
-            listOf(
-                WorkspaceCompletionProvider(
-                    workspaceId = workspaceId.toString(),
-                    repository = workspaceRepository,
-                    currentCwd = conversation.workspaceCwd,
+    val completionProviders = remember(assistant.workspaceId, conversation.workspaceCwd, workspaceRepository, slashCommandDesc) {
+        buildList {
+            add(SlashCommandProvider(listOf(SlashCommandProvider.Command("/压缩", slashCommandDesc))))
+            assistant.workspaceId?.let { workspaceId ->
+                add(
+                    WorkspaceCompletionProvider(
+                        workspaceId = workspaceId.toString(),
+                        repository = workspaceRepository,
+                        currentCwd = conversation.workspaceCwd,
+                    )
                 )
-            )
-        }.orEmpty()
+            }
+        }
     }
 
 
@@ -422,6 +445,7 @@ private fun ChatPageContent(
                     },
                     messageQueue = messageQueue,
                     planTodos = planTodos,
+                    manualCompressionInProgress = manualCompressionInProgress,
                     onRemoveQueuedMessage = vm::removeQueuedMessage,
                     onBeginEditQueuedMessage = vm::beginEditQueuedMessage,
                     onFinishEditQueuedMessage = vm::finishEditQueuedMessage,
@@ -559,8 +583,52 @@ private fun ChatPageContent(
                     vm.updateConversation(conversation.copy(customSystemPrompt = newPrompt))
                     vm.saveConversationAsync()
                 },
+                onChangeUserAvatar = { newAvatar ->
+                    vm.updateSettings(
+                        setting.copy(
+                            displaySetting = setting.displaySetting.copy(userAvatar = newAvatar)
+                        )
+                    )
+                },
+                onEditUserNickname = { showNicknameDialog = true },
             )
         }
+    }
+
+    if (showNicknameDialog) {
+        var nickname by remember { mutableStateOf(setting.displaySetting.userNickname) }
+        AlertDialog(
+            onDismissRequest = { showNicknameDialog = false },
+            title = { Text(stringResource(R.string.chat_page_edit_nickname)) },
+            text = {
+                OutlinedTextField(
+                    value = nickname,
+                    onValueChange = { nickname = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text(stringResource(R.string.chat_page_nickname_placeholder)) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.updateSettings(
+                            setting.copy(
+                                displaySetting = setting.displaySetting.copy(userNickname = nickname.trim())
+                            )
+                        )
+                        showNicknameDialog = false
+                    }
+                ) {
+                    Text(stringResource(R.string.chat_page_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNicknameDialog = false }) {
+                    Text(stringResource(R.string.chat_page_cancel))
+                }
+            },
+        )
     }
 
     if (showFilesSheet) {
@@ -592,8 +660,14 @@ private fun ChatPageContent(
             )
         }
     }
-}
 
+    manualCompressionContent?.let { content ->
+        ManualCompressionDialog(
+            content = content,
+            onDismiss = { manualCompressionContent = null },
+        )
+    }
+}
 @Composable
 private fun ChatFilesPickerSheet(
     inputState: ChatInputState,
