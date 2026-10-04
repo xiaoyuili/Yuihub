@@ -84,6 +84,7 @@ import me.yui.yuihub.data.datastore.findModelById
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.ui.components.message.MessagePartBlock
 import me.yui.yuihub.ui.components.message.ThinkingStep
+import me.yui.yuihub.ui.components.message.ChatMessageNarrationStep
 import me.yui.yuihub.ui.components.message.ChatMessageServerToolStep
 import me.yui.yuihub.ui.components.message.groupMessageParts
 import me.yui.yuihub.ui.components.richtext.MarkdownBlock
@@ -589,6 +590,10 @@ private fun ExportedChatMessage(
 
                                     is ThinkingStep.ServerToolStep -> {
                                         ChatMessageServerToolStep(tool = step.tool)
+                                    }
+
+                                    is ThinkingStep.NarrationStep -> {
+                                        ChatMessageNarrationStep(text = step.text)
                                     }
                                 }
                             }

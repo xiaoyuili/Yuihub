@@ -24,6 +24,17 @@ sealed interface ThinkingStep {
     data class ServerToolStep(
         val tool: UIMessagePart.ServerTool,
     ) : ThinkingStep
+
+    /**
+     * 工具调用之间的过程解说文本（“现在我来…”“让我看看…”）。
+     *
+     * 归一进思考链作为可折叠行，而不是渲染成永远可见的正文气泡：
+     * 否则会在聊天页堆成一串“碎碎念”，还会把思考链切成多个小块导致折叠失效。
+     */
+    data class NarrationStep(
+        val text: UIMessagePart.Text,
+        val index: Int,
+    ) : ThinkingStep
 }
 
 /**
@@ -57,6 +68,10 @@ fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
         }
     }
 
+    // 最后一次工具调用之后出现的文本才是面向用户的最终回答；
+    // 位于工具调用之前的文本是过程解说，归入思考链一起折叠
+    val lastToolIndex = indexOfLast { it is UIMessagePart.Tool || it is UIMessagePart.ServerTool }
+
     this.fastForEachIndexed { index, part ->
         when (part) {
             is UIMessagePart.Reasoning -> {
@@ -81,8 +96,13 @@ fun List<UIMessagePart>.groupMessageParts(): List<MessagePartBlock> {
                 // 会导致一条思考链被拆成多个块（折叠头消失、块间出现间距），
                 // 且空白文本本身不渲染任何内容，这里直接跳过不参与分组。
                 if (part.text.isBlank()) return@fastForEachIndexed
-                flushThinkingSteps()
-                result.add(MessagePartBlock.ContentBlock(part, index))
+                if (index < lastToolIndex) {
+                    // 工具活动之前的文本 = 过程解说，并入思考链折叠
+                    currentThinkingSteps.add(ThinkingStep.NarrationStep(part, index))
+                } else {
+                    flushThinkingSteps()
+                    result.add(MessagePartBlock.ContentBlock(part, index))
+                }
             }
 
             else -> {

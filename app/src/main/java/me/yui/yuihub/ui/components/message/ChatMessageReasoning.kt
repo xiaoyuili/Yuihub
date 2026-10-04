@@ -45,6 +45,7 @@ import kotlinx.coroutines.isActive
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Comment01
 import me.rerere.hugeicons.stroke.Idea01
 import me.yui.yuihub.R
 import me.yui.yuihub.data.model.Assistant
@@ -272,6 +273,30 @@ fun ChainOfThoughtScope.ChatMessageReasoningStep(
     )
 }
 
+
+@Composable
+fun ChainOfThoughtScope.ChatMessageNarrationStep(
+    text: UIMessagePart.Text,
+) {
+    // 过程解说：完整展示，不截断也不折叠（所在思考链本身就是可折叠的）。
+    // 多行文本自然换行；靠思考链整体折叠控制显示量。
+    ChainOfThoughtStep(
+        icon = {
+            Icon(
+                imageVector = HugeIcons.Comment01,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                tint = flowRowMetaColor(),
+            )
+        },
+        label = {
+            Text(
+                text = text.text.trim(),
+                style = flowRowTitleStyle(),
+            )
+        },
+    )
+}
 
 @Composable
 private fun ReasoningTitle(title: String) {

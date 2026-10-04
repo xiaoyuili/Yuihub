@@ -367,6 +367,12 @@ private fun MessagePartsBlock(
                                     ChatMessageServerToolStep(tool = step.tool)
                                 }
                             }
+
+                            is ThinkingStep.NarrationStep -> {
+                                key("narration_${step.index}") {
+                                    ChatMessageNarrationStep(text = step.text)
+                                }
+                            }
                         }
                     }
                 }
