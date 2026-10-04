@@ -217,9 +217,23 @@ class SettingsStore(
                 displaySetting = JsonInstant.decodeFromString(preferences[DISPLAY_SETTING] ?: "{}"),
                 networkSetting = JsonInstant.decodeFromString(preferences[NETWORK_SETTING] ?: "{}"),
                 searchServices = preferences[SEARCH_SERVICES]?.let {
-                    // 过滤已删除的搜索供应商(如 yuihub): sealed 多态反序列化遇到未知
-                    // SerialName 会直接抛异常, 导致整条设置流不可读
-                    val unknownTypes = setOf("yuihub")
+                    // 过滤已移除的搜索供应商(如 yuihub, 以及 2.5.7 起不再提供的
+                    // searxng/linkup/brave/ollama/perplexity/firecrawl/jina/bocha/tinyfish/serper/custom_js):
+                    // sealed 多态反序列化遇到未知 SerialName 会直接抛异常, 导致整条设置流不可读
+                    val unknownTypes = setOf(
+                        "yuihub",
+                        "searxng",
+                        "linkup",
+                        "brave",
+                        "ollama",
+                        "perplexity",
+                        "firecrawl",
+                        "jina",
+                        "bocha",
+                        "tinyfish",
+                        "serper",
+                        "custom_js",
+                    )
                     runCatching {
                         JsonInstant.decodeFromString<List<SearchServiceOptions>>(it)
                     }.getOrElse { _ ->
