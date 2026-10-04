@@ -104,6 +104,7 @@ import me.yui.yuihub.data.ai.prompts.isCompactionCheckpoint
 import me.yui.yuihub.data.ai.prompts.isMemorySnapshot
 import me.yui.yuihub.ui.components.message.ChatMessage
 import me.yui.yuihub.ui.components.message.CompactionRow
+import me.yui.yuihub.ui.components.ui.ChatEmptyGreeting
 import me.yui.yuihub.ui.components.ui.ErrorCardsDisplay
 import me.yui.yuihub.ui.components.ui.ListSelectableItem
 import me.yui.yuihub.ui.components.ui.RabbitLoadingIndicator
@@ -345,6 +346,22 @@ private fun ChatListNormal(
                     .hazeSource(state = hazeState)
                     .padding(top = innerPadding.calculateTopPadding()),
             ) {
+            // 空对话（新会话）：整屏居中的分时问候，避免一整页空白
+            if (visibleNodes.isEmpty() && activeCheckpoint == null) {
+                item(key = "empty_greeting") {
+                    Box(
+                        modifier = Modifier
+                            .fillParentMaxSize()
+                            .padding(bottom = innerPadding.calculateBottomPadding()),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ChatEmptyGreeting(
+                            assistantName = assistant?.name.orEmpty(),
+                            assistantAvatar = assistant?.avatar ?: Avatar.Dummy,
+                        )
+                    }
+                }
+            }
             // 活跃压缩检查点：新段起点渲染为「上下文压缩」流程行（harness 式），
             // 边界前的旧历史已由 visibleNodes 隐藏（旧版本落库的检查点节点仍走下方分支渲染）
             if (activeCheckpoint != null) {

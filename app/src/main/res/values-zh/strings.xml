@@ -399,6 +399,7 @@
   <string name="menu_page_evening_greeting">晚上好\uD83D\uDC4B</string>
   <string name="menu_page_morning_greeting">早上好\uD83D\uDC4B</string>
   <string name="menu_page_night_greeting">夜深了，注意休息\uD83D\uDC4B</string>
+  <string name="chat_empty_greeting_subtitle">有什么想聊的？</string>
   <string name="mermaid_export">导出</string>
   <string name="mermaid_export_failed">导出失败</string>
   <string name="mermaid_export_success">导出成功</string>

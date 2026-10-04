@@ -404,6 +404,7 @@
   <string name="menu_page_evening_greeting">Good evening\uD83D\uDC4B</string>
   <string name="menu_page_morning_greeting">Good morning\uD83D\uDC4B</string>
   <string name="menu_page_night_greeting">It\'s late, take care\uD83D\uDC4B</string>
+  <string name="chat_empty_greeting_subtitle">What would you like to talk about?</string>
   <string name="mermaid_export">Export</string>
   <string name="mermaid_export_failed">Export failed</string>
   <string name="mermaid_export_success">Export successful</string>
