@@ -26,7 +26,7 @@ YuiHub 支持 OpenAI、Gemini、Claude 及兼容接口，提供多助手、对�
 
 - Android 8.0+
 - arm64-v8a
-- 当前版本：3.0.0
+- 当前版本：3.0.1
 
 ## 构建
 
