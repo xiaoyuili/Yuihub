@@ -537,20 +537,6 @@ internal fun DeepSeekOptions(
 
     FormItem(
         label = {
-            Text(stringResource(R.string.search_detail_model))
-        }
-    ) {
-        OutlinedTextField(
-            value = options.model,
-            onValueChange = {
-                onUpdateOptions(options.copy(model = it))
-            },
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-
-    FormItem(
-        label = {
             Text(stringResource(R.string.search_detail_custom_url))
         }
     ) {

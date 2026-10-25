@@ -8,12 +8,8 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.add
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -26,11 +22,12 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 private const val TAG = "DeepSeekSearchService"
+private const val DEFAULT_BASE_URL = "https://api.deepseek.com"
+private const val MAX_QUERY_LENGTH = 128
 
 /**
- * DeepSeek 官方搜索：没有独立搜索端点，通过 Anthropic 兼容的 Messages API
- * 声明 `web_search_20250305` server tool，由 DeepSeek 服务端执行搜索并返回
- * 结构化的 `web_search_tool_result` 块。一次搜索 = 一次完整模型调用的延迟与费用。
+ * DeepSeek 官方搜索接口：POST /v1/tools/search。
+ * 使用与 DeepSeek 模型相同的 Bearer API Key，返回结构化网页结果。
  */
 object DeepSeekSearchService : SearchService<SearchServiceOptions.DeepSeekOptions> {
     override val name: String = "DeepSeek"
@@ -66,98 +63,43 @@ object DeepSeekSearchService : SearchService<SearchServiceOptions.DeepSeekOption
         serviceOptions: SearchServiceOptions.DeepSeekOptions
     ): Result<SearchResult> = withContext(Dispatchers.IO) {
         runCatching {
-            if (serviceOptions.apiKey.isBlank()) {
+            val apiKey = serviceOptions.apiKey.trim()
+            if (apiKey.isEmpty()) {
                 error("DeepSeek API key is required")
             }
 
-            val query = params["query"]?.jsonPrimitive?.content
-                ?: error("query is required")
-
-            val body = buildJsonObject {
-                put("model", JsonPrimitive(serviceOptions.model))
-                put("max_tokens", JsonPrimitive(serviceOptions.maxTokens))
-                put("messages", buildJsonArray {
-                    add(buildJsonObject {
-                        put("role", JsonPrimitive("user"))
-                        put("content", buildJsonArray {
-                            add(buildJsonObject {
-                                put("type", JsonPrimitive("text"))
-                                put("text", JsonPrimitive(query))
-                            })
-                        })
-                    })
-                })
-                put("tools", buildJsonArray {
-                    add(buildJsonObject {
-                        put("type", JsonPrimitive("web_search_20250305"))
-                        put("name", JsonPrimitive("web_search"))
-                        put("max_uses", JsonPrimitive(serviceOptions.maxUses))
-                    })
-                })
+            val query = params["query"]?.jsonPrimitive?.content?.trim().orEmpty()
+            if (query.isEmpty()) {
+                error("query is required")
+            }
+            if (query.length > MAX_QUERY_LENGTH) {
+                error("query must be at most $MAX_QUERY_LENGTH characters")
             }
 
-            Log.i(TAG, "search: $query")
+            val count = commonOptions.resultSize.coerceIn(1, 50)
+            val body = buildJsonObject {
+                put("query", query)
+                put("count", count)
+                put("need_content", false)
+            }
+
+            val endpoint = searchEndpoint(serviceOptions.baseUrl)
+            Log.i(TAG, "search: $query -> $endpoint")
 
             val request = Request.Builder()
-                .url(serviceOptions.baseUrl.trimEnd('/') + "/messages")
+                .url(endpoint)
                 .post(json.encodeToString(body).toRequestBody("application/json".toMediaType()))
-                .addHeader("x-api-key", serviceOptions.apiKey)
-                .addHeader("anthropic-version", "2023-06-01")
+                .addHeader("Authorization", "Bearer $apiKey")
                 .addHeader("Content-Type", "application/json")
                 .build()
 
             val response = httpClient.newCall(request).await()
-            if (response.isSuccessful) {
-                val responseBody = response.body.string().let {
-                    json.decodeFromString<DeepSeekSearchResponse>(it)
-                }
-
-                // web_search_tool_result 块给结果列表; text 块的 citations[] 给摘要
-                val resultBlock = responseBody.content.firstOrNull {
-                    it.type == "web_search_tool_result"
-                }
-                val resultItems = resultBlock?.content.orEmpty()
-
-                val snippets = HashMap<String, String>()
-                responseBody.content.forEach { block ->
-                    block.citations?.forEach { citation ->
-                        val url = citation.url.orEmpty()
-                        val text = citation.citedText.orEmpty()
-                        if (url.isNotBlank() && text.isNotBlank() && url !in snippets) {
-                            snippets[url] = text
-                        }
-                    }
-                }
-
-                val answerBlock = responseBody.content.lastOrNull {
-                    it.type == "text" && !it.text.isNullOrBlank()
-                }
-
-                val items = resultItems
-                    .filter { it.url.isNotBlank() }
-                    .distinctBy { it.url }
-                    .take(commonOptions.resultSize)
-                    .map { item ->
-                        SearchResultItem(
-                            title = item.title ?: item.url,
-                            url = item.url,
-                            text = snippets[item.url].orEmpty()
-                        )
-                    }
-
-                if (items.isEmpty()) {
-                    error("No search results returned by DeepSeek")
-                }
-
-                return@withContext Result.success(
-                    SearchResult(
-                        answer = answerBlock?.text,
-                        items = items
-                    )
-                )
-            } else {
-                error("response failed #${response.code}: ${response.body?.string()}")
+            val payload = response.body.string()
+            if (!response.isSuccessful) {
+                error("response failed #${response.code}: $payload")
             }
+
+            parseResponse(payload, count)
         }
     }
 
@@ -169,30 +111,45 @@ object DeepSeekSearchService : SearchService<SearchServiceOptions.DeepSeekOption
         return Result.failure(Exception("Scraping is not supported for DeepSeek"))
     }
 
-    @Serializable
-    private data class DeepSeekSearchResponse(
-        val content: List<DeepSeekContentBlock> = emptyList()
-    )
+    internal fun parseResponse(payload: String, limit: Int): SearchResult {
+        val response = json.decodeFromString<DeepSeekSearchResponse>(payload)
+        val items = response.results
+            .asSequence()
+            .filter { it.url.isNotBlank() }
+            .distinctBy { it.url }
+            .take(limit.coerceIn(1, 50))
+            .map { item ->
+                SearchResultItem(
+                    title = item.title.ifBlank { item.url },
+                    url = item.url,
+                    text = item.summary.ifBlank { item.snippet }.ifBlank { item.content },
+                )
+            }
+            .toList()
+        return SearchResult(items = items)
+    }
+
+    internal fun searchEndpoint(baseUrl: String): String {
+        val configured = baseUrl.trim().ifBlank { DEFAULT_BASE_URL }
+        val root = configured.substringBefore("/anthropic").ifBlank { DEFAULT_BASE_URL }
+            .trimEnd('/')
+            .removeSuffix("/v1/tools/search")
+            .removeSuffix("/tools/search")
+            .removeSuffix("/v1")
+        return "$root/v1/tools/search"
+    }
 
     @Serializable
-    private data class DeepSeekContentBlock(
-        val type: String,
-        val text: String? = null,
-        // web_search_tool_result 块: 命中的结果条目
-        val content: List<DeepSeekSearchResultItem> = emptyList(),
-        // text 块: 逐 URL 的引用摘录(snippet 来源)
-        val citations: List<DeepSeekCitation> = emptyList(),
+    private data class DeepSeekSearchResponse(
+        val results: List<DeepSeekSearchResultItem> = emptyList(),
     )
 
     @Serializable
     private data class DeepSeekSearchResultItem(
+        val title: String = "",
         val url: String = "",
-        val title: String? = null,
-        @SerialName("page_age") val pageAge: String? = null,
+        val snippet: String = "",
+        val summary: String = "",
+        val content: String = "",
     )
-
-    @Serializable
-    private data class DeepSeekCitation(
-        val url: String? = null,
-        @SerialName("cited_text") val citedText: String? = null,
-    )}
+}

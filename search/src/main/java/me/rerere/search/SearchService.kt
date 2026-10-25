@@ -189,10 +189,7 @@ sealed class SearchServiceOptions {
     data class DeepSeekOptions(
         override val id: Uuid = Uuid.random(),
         val apiKey: String = "",
-        val model: String = "deepseek-flash",
-        val baseUrl: String = "https://api.deepseek.com/anthropic/v1",
-        val maxTokens: Int = 4096,
-        val maxUses: Int = 5,
+        val baseUrl: String = "https://api.deepseek.com",
     ) : SearchServiceOptions()
 
     @Serializable
