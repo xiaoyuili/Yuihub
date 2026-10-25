@@ -17,10 +17,8 @@ import me.yui.yuihub.data.db.fts.MessageSearchSort
 import me.yui.yuihub.data.db.dao.ConversationDAO
 import me.yui.yuihub.data.db.dao.FavoriteDAO
 import me.yui.yuihub.data.db.dao.MessageNodeDAO
-import me.yui.yuihub.data.db.dao.TokenLedgerDAO
 import me.yui.yuihub.data.db.entity.ConversationEntity
 import me.yui.yuihub.data.db.entity.MessageNodeEntity
-import me.yui.yuihub.data.db.entity.TokenLedgerEntity
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.MessageNode
@@ -33,7 +31,6 @@ class ConversationRepository(
     private val conversationDAO: ConversationDAO,
     private val messageNodeDAO: MessageNodeDAO,
     private val favoriteDAO: FavoriteDAO,
-    private val tokenLedgerDAO: TokenLedgerDAO,
     private val database: AppDatabase,
     private val filesManager: FilesManager,
     private val messageFtsManager: MessageFtsManager,
@@ -41,11 +38,6 @@ class ConversationRepository(
 
     suspend fun hasFileReference(fileUrl: String): Boolean =
         messageNodeDAO.hasFileReference(JsonInstant.encodeToString(fileUrl))
-    companion object {
-        private const val PAGE_SIZE = 20
-        private const val INITIAL_LOAD_SIZE = 40
-    }
-
     // 加载时有页读不出来的会话（如超大 blob 行）：整表回写会删掉读不到的节点，需要降级为只 upsert
     private val incompleteLoads = ConcurrentHashMap.newKeySet<String>()
 
@@ -327,31 +319,30 @@ class ConversationRepository(
         messageFtsManager.indexConversation(conversation)
     }
 
-    /**
-     * 生成检查点：只 upsert 正在生成的节点与对话元信息，绝不删除其它节点。
-     *
-     * 流式生成过程中周期调用，使进程被杀/崩溃后最多丢失一个检查点间隔的输出；
-     * 与 [updateConversation] 的全量 delete+insert 区分开，避免高频落库把整库节点重写。
-     *
-     * @param generatingMessageId 正在生成的助手消息 id：用它定位节点，
-     *   重生成历史消息、或压缩检查点导致请求窗口与节点下标偏移时都能命中正确节点。
-     */
-    suspend fun checkpointGeneratingNode(conversationId: Uuid, conversation: Conversation, generatingMessageId: Uuid) {
-        val nodeIndex = conversation.messageNodes.indexOfFirst { node ->
-            node.messages.any { it.id == generatingMessageId }
+    /** 重生成可能插入节点，必须与其后的节点索引一起原子保存。 */
+    suspend fun checkpointGeneratingNode(
+        conversationId: Uuid,
+        conversation: Conversation,
+        generatingMessageId: Uuid,
+        responseNodeId: Uuid? = null,
+        generatedMessageIds: Set<Uuid> = setOf(generatingMessageId),
+    ) {
+        val startIndex = conversation.messageNodes.indexOfFirst { node ->
+            node.id == responseNodeId || node.messages.any { it.id in generatedMessageIds }
         }
-        if (nodeIndex < 0) return
-        val node = conversation.messageNodes[nodeIndex]
+        if (startIndex < 0) return
         database.withTransaction {
-            messageNodeDAO.insert(
+            val nodes = conversation.messageNodes.mapIndexedNotNull { index, node ->
+                if (index < startIndex) return@mapIndexedNotNull null
                 MessageNodeEntity(
                     id = node.id.toString(),
                     conversationId = conversationId.toString(),
-                    nodeIndex = nodeIndex,
+                    nodeIndex = index,
                     messages = JsonInstant.encodeToString(node.messages),
                     selectIndex = node.selectIndex,
                 )
-            )
+            }
+            messageNodeDAO.insertAll(nodes)
             conversationDAO.update(conversationToConversationEntity(conversation))
         }
     }
@@ -377,7 +368,13 @@ class ConversationRepository(
         keyword: String,
         sort: MessageSearchSort = MessageSearchSort.RELEVANCE,
         assistantId: Uuid? = null,
-    ) = messageFtsManager.search(keyword, sort, assistantId?.toString())
+        conversationId: Uuid? = null,
+    ) = messageFtsManager.search(
+        keyword = keyword,
+        sort = sort,
+        assistantId = assistantId?.toString(),
+        conversationId = conversationId?.toString(),
+    )
 
     suspend fun rebuildAllIndexes(onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }) {
         messageFtsManager.deleteAll()
@@ -398,44 +395,63 @@ class ConversationRepository(
         }
     }
 
-    fun conversationToConversationEntity(conversation: Conversation): ConversationEntity {
-        require(conversation.messageNodes.none { it.messages.any { message -> message.hasBase64Part() } })
-        return ConversationEntity(
-            id = conversation.id.toString(),
-            title = conversation.title,
-            nodes = "[]",  // nodes 现在存储在单独的表中
-            createAt = conversation.createAt.toEpochMilli(),
-            updateAt = conversation.updateAt.toEpochMilli(),
-            assistantId = conversation.assistantId.toString(),
-            isPinned = conversation.isPinned,
-            customSystemPrompt = conversation.customSystemPrompt ?: "",
-            modeInjectionIds = JsonInstant.encodeToString(conversation.modeInjectionIds),
-            lorebookIds = JsonInstant.encodeToString(conversation.lorebookIds),
-            workspaceCwd = conversation.workspaceCwd ?: "",
-            folderId = conversation.folderId?.toString() ?: "",
-            parentConversationId = conversation.parentConversationId?.toString() ?: "",
-        )
-    }
+    companion object {
+        private const val PAGE_SIZE = 20
+        private const val INITIAL_LOAD_SIZE = 40
 
-    fun conversationEntityToConversation(
-        conversationEntity: ConversationEntity,
-        messageNodes: List<MessageNode>
-    ): Conversation {
-        return Conversation(
-            id = Uuid.parse(conversationEntity.id),
-            title = conversationEntity.title,
-            messageNodes = messageNodes.filter { it.messages.isNotEmpty() },
-            createAt = Instant.ofEpochMilli(conversationEntity.createAt),
-            updateAt = Instant.ofEpochMilli(conversationEntity.updateAt),
-            assistantId = Uuid.parse(conversationEntity.assistantId),
-            isPinned = conversationEntity.isPinned,
-            customSystemPrompt = conversationEntity.customSystemPrompt.ifEmpty { null },
-            modeInjectionIds = JsonInstant.decodeFromString(conversationEntity.modeInjectionIds),
-            lorebookIds = JsonInstant.decodeFromString(conversationEntity.lorebookIds),
-            workspaceCwd = conversationEntity.workspaceCwd.ifEmpty { null },
-            folderId = conversationEntity.folderId.ifEmpty { null }?.let { Uuid.parse(it) },
-            parentConversationId = conversationEntity.parentConversationId.ifEmpty { null }?.let { Uuid.parse(it) },
-        )
+        fun conversationToConversationEntity(conversation: Conversation): ConversationEntity {
+            require(conversation.messageNodes.none { it.messages.any { message -> message.hasBase64Part() } })
+            return ConversationEntity(
+                id = conversation.id.toString(),
+                title = conversation.title,
+                nodes = "[]",  // nodes 现在存储在单独的表中
+                createAt = conversation.createAt.toEpochMilli(),
+                updateAt = conversation.updateAt.toEpochMilli(),
+                assistantId = conversation.assistantId.toString(),
+                isPinned = conversation.isPinned,
+                customSystemPrompt = conversation.customSystemPrompt ?: "",
+                modeInjectionIds = JsonInstant.encodeToString(conversation.modeInjectionIds),
+                lorebookIds = JsonInstant.encodeToString(conversation.lorebookIds),
+                workspaceCwd = conversation.workspaceCwd ?: "",
+                folderId = conversation.folderId?.toString() ?: "",
+                parentConversationId = conversation.parentConversationId?.toString() ?: "",
+                compressionSummaries = JsonInstant.encodeToString(conversation.compressionSummaries),
+                enabledSkillsOverride = conversation.enabledSkillsOverride?.let { JsonInstant.encodeToString(it) },
+                mcpServersOverride = conversation.mcpServersOverride?.let { JsonInstant.encodeToString(it) },
+                localToolsOverride = conversation.localToolsOverride?.let { JsonInstant.encodeToString(it) },
+                subagentPersonaId = conversation.subagentPersonaId?.toString(),
+            )
+        }
+
+        fun conversationEntityToConversation(
+            conversationEntity: ConversationEntity,
+            messageNodes: List<MessageNode>
+        ): Conversation {
+            return Conversation(
+                id = Uuid.parse(conversationEntity.id),
+                title = conversationEntity.title,
+                messageNodes = messageNodes.filter { it.messages.isNotEmpty() },
+                createAt = Instant.ofEpochMilli(conversationEntity.createAt),
+                updateAt = Instant.ofEpochMilli(conversationEntity.updateAt),
+                assistantId = Uuid.parse(conversationEntity.assistantId),
+                isPinned = conversationEntity.isPinned,
+                customSystemPrompt = conversationEntity.customSystemPrompt.ifEmpty { null },
+                modeInjectionIds = JsonInstant.decodeFromString(conversationEntity.modeInjectionIds),
+                lorebookIds = JsonInstant.decodeFromString(conversationEntity.lorebookIds),
+                workspaceCwd = conversationEntity.workspaceCwd.ifEmpty { null },
+                folderId = conversationEntity.folderId.ifEmpty { null }?.let { Uuid.parse(it) },
+                parentConversationId = conversationEntity.parentConversationId.ifEmpty { null }?.let { Uuid.parse(it) },
+                enabledSkillsOverride = conversationEntity.enabledSkillsOverride?.let { JsonInstant.decodeFromString(it) },
+                mcpServersOverride = conversationEntity.mcpServersOverride?.let { JsonInstant.decodeFromString(it) },
+                localToolsOverride = conversationEntity.localToolsOverride?.let { JsonInstant.decodeFromString(it) },
+                subagentPersonaId = conversationEntity.subagentPersonaId?.let { Uuid.parse(it) },
+                compressionSummaries = runCatching {
+                    JsonInstant.decodeFromString<List<me.yui.yuihub.data.model.CompressionSummary>>(
+                        conversationEntity.compressionSummaries.ifBlank { "[]" }
+                    )
+                }.getOrDefault(emptyList()),
+            )
+        }
     }
 
     fun getPinnedConversations(): Flow<List<Conversation>> {
@@ -573,29 +589,6 @@ class ConversationRepository(
             )
         }
         messageNodeDAO.insertAll(entities)
-        recordTokenUsage(conversationId, nodes.flatMap { it.messages })
-    }
-
-    // 按消息 id 幂等记账；删除对话不清空，历史统计独立累积
-    suspend fun recordTokenUsage(conversationId: String, messages: List<UIMessage>) {
-        val now = System.currentTimeMillis()
-        // 批量写入：之前每条消息一次 insert，消息多时是 N 次事务
-        val rows = messages.mapNotNull { message ->
-            val usage = message.usage ?: return@mapNotNull null
-            if (usage.promptTokens == 0 && usage.completionTokens == 0 && usage.cachedTokens == 0) {
-                return@mapNotNull null
-            }
-            TokenLedgerEntity(
-                messageId = message.id.toString(),
-                conversationId = conversationId,
-                day = message.createdAt.date.toString(),
-                promptTokens = usage.promptTokens.toLong(),
-                completionTokens = usage.completionTokens.toLong(),
-                cachedTokens = usage.cachedTokens.toLong(),
-                createdAt = now,
-            )
-        }
-        if (rows.isNotEmpty()) tokenLedgerDAO.insertIgnore(rows)
     }
 }
 

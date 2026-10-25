@@ -10,18 +10,28 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.ui.UIMessage
+import me.yui.yuihub.data.ai.prompts.PromptId
 import me.yui.yuihub.data.ai.prompts.isMemorySnapshot
+import me.yui.yuihub.data.ai.prompts.isPromptEnabled
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.SettingsStore
+import me.yui.yuihub.data.datastore.findModelById
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.datastore.getAssistantById
 import me.yui.yuihub.data.datastore.getCurrentChatModel
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantMemory
 import me.yui.yuihub.data.model.MemoryCategory
+import me.yui.yuihub.data.model.MemoryEventType
+import me.yui.yuihub.data.model.MemoryKind
+import me.yui.yuihub.data.model.MemorySection
+import me.yui.yuihub.data.model.MemoryStatus
 import me.yui.yuihub.data.repository.ConversationRepository
 import me.yui.yuihub.data.repository.MemoryRepository
+import me.yui.yuihub.data.repository.TokenUsageRepository
+import me.yui.yuihub.data.repository.TokenUsageSource
 import me.yui.yuihub.service.backgroundTextGenerationParams
+import me.yui.yuihub.utils.applyPlaceholders
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
@@ -31,10 +41,8 @@ private const val TAG = "MemoryExtractor"
 
 /**
  * 长期记忆提取管道：每次回复生成完成后异步运行。
- *
- * 与「模型自觉调用 memory_tool」互补：本管道被动、可靠地提取事实，
- * 并在提示词中携带现有记忆索引，由 LLM 输出 add/update/delete 操作，
- * 天然完成合并与冲突消解。提取完成后按阈值触发自动整理（MemoryConsolidator）。
+ * 与模型主动调用 memory_tool 互补：本管道被动、可靠地提取事实，
+ * 在提示词中携带紧凑记忆索引，由 LLM 输出 create/update/delete 操作。
  */
 class MemoryExtractor(
     private val memoryRepository: MemoryRepository,
@@ -44,38 +52,40 @@ class MemoryExtractor(
     private val json: Json,
     private val scope: CoroutineScope,
     private val consolidator: MemoryConsolidator,
+    private val tokenUsageRepository: TokenUsageRepository,
 ) {
-    // 每个助手同一时间只跑一次提取；
-    // 运行期间再次触发则记录最后触发的会话，结束后用它重跑一次，避免连续对话丢事实
+    // 每个助手同一时间只跑一次提取；运行期间再次触发则记录最后触发的会话，结束后重跑一次
     private val runningScopes = ConcurrentHashMap.newKeySet<String>()
     private val pendingScopes = ConcurrentHashMap<String, Uuid>()
 
-    fun launchExtraction(conversationId: Uuid) {
-        // AppScope 默认主线程调度，全部提取工作在 IO 上执行，避免阻塞 UI
+    fun launchExtraction(conversationId: Uuid, onFinished: (() -> Unit)? = null) {
         scope.launch(Dispatchers.IO) {
-            runCatching {
-                extract(conversationId)
-            }.onFailure {
-                Log.w(TAG, "memory extraction failed", it)
+            try {
+                runCatching {
+                    extract(conversationId)
+                }.onFailure {
+                    Log.w(TAG, "memory extraction failed", it)
+                }
+            } finally {
+                onFinished?.invoke()
             }
         }
     }
 
     private suspend fun extract(conversationId: Uuid) {
         val settings = settingsStore.settingsFlow.value
+        if (!settings.isPromptEnabled(PromptId.MEMORY_EXTRACT)) return
         val conversation = conversationRepository.getConversationById(conversationId) ?: return
         val assistant = settings.getAssistantById(conversation.assistantId) ?: return
-        if (!assistant.enableMemory) return
+        if (!assistant.enableMemory || !assistant.memoryAutoExtract) return
 
         val assistantId = assistant.id.toString()
         if (!runningScopes.add(assistantId)) {
-            // 已有提取在跑：记下最后触发的会话（put 保证同助手后到者胜出），不直接丢弃
             pendingScopes[assistantId] = conversationId
             return
         }
         try {
             do {
-                // 取出并清掉标记；若循环期间又有新触发，会重新 put 进来，循环自然重跑
                 val nextConversation = pendingScopes.remove(assistantId) ?: conversationId
                 extractOnce(nextConversation, assistantId, settings, assistant)
             } while (pendingScopes.containsKey(assistantId))
@@ -92,8 +102,9 @@ class MemoryExtractor(
         assistant: Assistant,
     ) {
         val conversation = conversationRepository.getConversationById(conversationId) ?: return
-        // 提取模型：使用当前对话模型
-        val model = settings.getCurrentChatModel() ?: return
+        val model = settings.findModelById(settings.memoryMaintenanceModelId)
+            ?: settings.getCurrentChatModel()
+            ?: return
         val provider = model.findProvider(settings.providers) ?: return
 
         val recentMessages = conversation.currentMessages
@@ -102,7 +113,7 @@ class MemoryExtractor(
         if (recentMessages.isEmpty()) return
 
         val existing = memoryRepository.getMemories(assistantId)
-        val prompt = buildExtractionPrompt(existing, recentMessages)
+        val prompt = buildExtractionPrompt(existing, recentMessages, settings.memoryExtractPrompt)
 
         val handler = providerManager.getProviderByType(provider)
         val result = handler.generateText(
@@ -110,76 +121,82 @@ class MemoryExtractor(
             messages = listOf(UIMessage.user(prompt = prompt)),
             params = backgroundTextGenerationParams(model, Uuid.random(), ReasoningLevel.AUTO),
         )
+        result.usage?.let { usage ->
+            tokenUsageRepository.record(
+                conversationId = conversationId.toString(),
+                provider = provider,
+                model = model,
+                source = TokenUsageSource.MEMORY,
+                usage = usage,
+            )
+        }
         val raw = result.message.toText().trim()
         val operations = parseOperations(raw) ?: return
         if (operations.operations.isEmpty()) return
 
-        applyOperations(assistantId, existing, operations)
+        val stats = applyOperations(
+            assistantId = assistantId,
+            conversationId = conversationId.toString(),
+            workspaceId = assistant.workspaceId?.toString(),
+            existing = existing,
+            operations = operations,
+        )
+        if (stats.created == 0 && stats.updated == 0 && stats.archived == 0) return
         memoryRepository.trimMemories(assistantId)
-        Log.i(TAG, "extracted ${operations.operations.size} memory operations for assistant=$assistantId")
+        memoryRepository.recordEvent(
+            assistantId = assistantId,
+            type = MemoryEventType.EXTRACT,
+            summary = "提取 ${stats.created} 新增 · ${stats.updated} 更新 · ${stats.archived} 归档",
+            details = """{"created":${stats.created},"updated":${stats.updated},"archived":${stats.archived},"merged":${stats.merged}}""",
+        )
+        Log.i(TAG, "memory extraction for assistant=$assistantId: $stats")
 
-        // 积累到阈值后自动整理：合并重复内容、修正类别，节约注入预算
-        runCatching { consolidator.autoConsolidateIfNeeded(assistantId, settings) }
-            .onFailure { Log.w(TAG, "auto consolidate failed", it) }
+        if (assistant.memoryAutoOrganize) {
+            runCatching {
+                consolidator.autoOrganizeIfNeeded(
+                    assistantId = assistantId,
+                    settings = settings,
+                    coreBudget = settings.memoryCoreCharBudget,
+                    growthThreshold = settings.memoryOrganizeGrowth,
+                )
+            }.onFailure { Log.w(TAG, "auto organize failed", it) }
+        }
     }
 
     private fun buildExtractionPrompt(
         existing: List<AssistantMemory>,
         recentMessages: List<UIMessage>,
+        template: String,
     ): String {
         val date = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
         val index = existing
-            .sortedByDescending { it.updatedAt }
+            .filter { it.status != MemoryStatus.ARCHIVED }
+            .sortedWith(
+                compareByDescending<AssistantMemory> { it.weight }
+                    .thenByDescending { it.updatedAt }
+            )
             .take(100)
-            .joinToString("\n") { m ->
-                "id=${m.id} | [${m.category}] ${m.content.take(200)}"
+            .joinToString("\n") { memory ->
+                buildString {
+                    append("id=${memory.id} | ${memory.kind} | weight=${memory.weight}")
+                    append(" | ${memory.status} | ${memory.category}")
+                    if (memory.title.isNotBlank()) append(" | ${memory.title.take(60)}")
+                    if (memory.keywords.isNotEmpty()) append(" | kw: ${memory.keywords.take(6).joinToString(",")}")
+                    append("\n  ${memory.content.take(300)}")
+                }
             }
             .ifBlank { "(none)" }
 
-        val conversationText = recentMessages.joinToString("\n\n") { m ->
-            val role = if (m.role == MessageRole.USER) "用户" else "助手"
-            "$role: ${m.summaryAsText(maxLength = 800)}"
+        val conversationText = recentMessages.joinToString("\n\n") { message ->
+            val role = if (message.role == MessageRole.USER) "用户" else "助手"
+            "$role: ${message.summaryAsText(maxLength = 800)}"
         }
 
-        return """
-            You are the memory manager of a personal AI assistant. Extract durable facts about the user from the recent conversation and update the memory store accordingly.
-
-            Today is $date.
-
-            <existing memories>
-            $index
-            </existing memories>
-
-            <recent conversation>
-            $conversationText
-            </recent conversation>
-
-            Categories (choose exactly one per fact):
-            - profile: identity and stable facts about the user (name, occupation, location, relationships)
-            - preference: how the user likes things (communication style, tools, likes/dislikes)
-            - coding: software development knowledge — projects, tech stack, codebase conventions, debugging context
-            - roleplay: roleplay/persona settings, in-character rules, character sheets, worldbuilding
-            - daily: everyday life — schedules, plans, errands, non-work routines
-            - temporary: short-lived context likely to go stale soon (current task state, one-off plans, temporary setups)
-            - other: anything that fits nowhere else
-
-            Instructions:
-            - Extract only facts that stay relevant across future conversations.
-            - Do NOT extract: single-turn task details, chit-chat, the assistant's own replies, or sensitive information (ethnicity, religion, political views, sexual orientation, passwords, credentials).
-            - Write each memory in the language the user mostly uses. Keep each memory concise (1-3 sentences). Time-sensitive facts must contain an explicit date.
-            - "importance" is a number 0.0-1.0: 0.9+ for identity/strong preferences, 0.6-0.8 for ordinary preferences and ongoing projects, 0.2-0.5 for minor notes.
-            - Merge related facts into a single memory instead of creating many tiny ones.
-
-            For every extracted fact choose one operation against the existing memories:
-            - "add": a new fact with no equivalent existing memory
-            - "update": a fact that supersedes or contradicts an existing memory (include its id)
-            - "delete": an existing memory proven false or obsolete by the conversation (include its id)
-            - facts already fully covered by an existing memory should be omitted
-
-            Respond with ONLY a JSON object, no markdown fences, no extra text:
-            {"operations":[{"action":"add","content":"...","category":"profile","importance":0.8},{"action":"update","id":7,"content":"...","category":"preference","importance":0.7},{"action":"delete","id":3}]}
-            If there is nothing worth remembering, respond with {"operations":[]}.
-        """.trimIndent()
+        return template.applyPlaceholders(
+            "date" to date,
+            "existing_memories" to index,
+            "recent_conversation" to conversationText,
+        )
     }
 
     private fun parseOperations(raw: String): MemoryOperations? {
@@ -196,44 +213,80 @@ class MemoryExtractor(
 
     private suspend fun applyOperations(
         assistantId: String,
+        conversationId: String,
+        workspaceId: String?,
         existing: List<AssistantMemory>,
         operations: MemoryOperations,
-    ) {
-        for (op in operations.operations) {
+    ): OperationStats {
+        var created = 0
+        var updated = 0
+        var archived = 0
+        var merged = 0
+        for (op in operations.operations.take(8)) {
             when (op.action) {
-                "add" -> {
+                "create", "add" -> {
                     val content = op.content?.trim()?.takeIf { it.isNotBlank() } ?: continue
-                    memoryRepository.addMemory(
+                    val result = memoryRepository.createMemory(
                         assistantId = assistantId,
                         content = content,
-                        importance = op.importance ?: 0.6f,
+                        title = op.title.orEmpty(),
+                        kind = MemoryKind.normalize(op.kind),
+                        section = MemorySection.normalize(op.section),
                         category = MemoryCategory.normalize(op.category),
+                        keywords = op.keywords.orEmpty(),
+                        weight = op.weight ?: 2,
+                        status = MemoryStatus.normalize(op.status),
+                        sourceConversationId = conversationId,
+                        workspaceId = workspaceId,
                     )
+                    if (result.merged) merged++ else created++
                 }
 
                 "update" -> {
                     val id = op.id ?: continue
-                    val content = op.content?.trim()?.takeIf { it.isNotBlank() } ?: continue
-                    // 只操作当前助手的记忆，防止模型幻觉出的 id 改到其他助手
-                    if (existing.none { it.id == id }) continue
-                    runCatching {
-                        memoryRepository.updateMemory(
-                            id = id,
+                    val current = existing.firstOrNull { it.id == id } ?: continue
+                    val content = op.content?.trim()?.takeIf { it.isNotBlank() } ?: current.content
+                    val keywords = op.keywords?.takeIf { it.isNotEmpty() } ?: current.keywords
+                    val title = op.title?.takeIf { it.isNotBlank() } ?: current.title
+                    val kind = op.kind?.let { MemoryKind.normalize(it) } ?: current.kind
+                    val section = if (kind == MemoryKind.CORE) {
+                        MemorySection.normalize(op.section ?: current.section)
+                    } else ""
+                    val updatedMemory = memoryRepository.updateMemory(
+                        current.copy(
+                            title = title,
                             content = content,
-                            importance = op.importance,
-                            category = op.category,
+                            kind = kind,
+                            section = section,
+                            category = MemoryCategory.normalize(op.category ?: current.category),
+                            keywords = keywords,
+                            weight = (op.weight ?: current.weight).coerceIn(1, 4),
+                            status = MemoryStatus.normalize(op.status ?: current.status),
                         )
-                    }.onFailure { Log.w(TAG, "update memory #$id failed", it) }
+                    )
+                    if (updatedMemory != null) {
+                        updated++
+                        memoryRepository.recordUsage(assistantId, conversationId, listOf(id), "written")
+                    }
                 }
 
-                "delete" -> {
+                "delete", "archive" -> {
                     val id = op.id ?: continue
                     if (existing.none { it.id == id }) continue
-                    memoryRepository.deleteMemory(id)
+                    memoryRepository.archiveMemory(listOf(id))
+                    archived++
                 }
             }
         }
+        return OperationStats(created, updated, archived, merged)
     }
+
+    private data class OperationStats(
+        val created: Int,
+        val updated: Int,
+        val archived: Int,
+        val merged: Int,
+    )
 }
 
 @Serializable
@@ -245,7 +298,13 @@ data class MemoryOperations(
 data class MemoryOperation(
     val action: String = "",
     val id: Int? = null,
+    val title: String? = null,
     val content: String? = null,
-    val importance: Float? = null,
+    val kind: String? = null,
+    val section: String? = null,
     val category: String? = null,
+    val keywords: List<String>? = null,
+    val weight: Int? = null,
+    val status: String? = null,
+    val corrected: Boolean? = null,
 )

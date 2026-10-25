@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import me.yui.yuihub.ui.theme.presets.AutumnThemePreset
 import me.yui.yuihub.ui.theme.presets.BlackThemePreset
 import me.yui.yuihub.ui.theme.presets.ClaudeThemePreset
+import me.yui.yuihub.ui.theme.presets.GlassThemePreset
 import me.yui.yuihub.ui.theme.presets.MinimalThemePreset
 import me.yui.yuihub.ui.theme.presets.OceanThemePreset
 import me.yui.yuihub.ui.theme.presets.SakuraThemePreset
@@ -30,6 +31,7 @@ val PresetThemes by lazy {
         BlackThemePreset,
         MinimalThemePreset,
         ClaudeThemePreset,
+        GlassThemePreset,
     )
 }
 

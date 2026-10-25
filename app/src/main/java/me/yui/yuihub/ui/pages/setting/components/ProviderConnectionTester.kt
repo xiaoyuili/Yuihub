@@ -37,7 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,7 +80,7 @@ fun ProviderConnectionTester(
     var showTestDialog by remember { mutableStateOf(false) }
     val providerManager = koinInject<ProviderManager>()
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
+    val resources = LocalResources.current
 
     IconButton(onClick = { showTestDialog = true }) {
         Icon(HugeIcons.Connect, null)
@@ -219,7 +219,7 @@ fun ProviderConnectionTester(
                                         .filterIsInstance<UIMessagePart.Tool>()
                                         .firstOrNull()
                                     val resultText = if (toolCall != null) {
-                                        context.getString(
+                                        resources.getString(
                                             R.string.setting_provider_page_test_tool_called,
                                             toolCall.toolName,
                                             toolCall.input
@@ -228,7 +228,7 @@ fun ProviderConnectionTester(
                                         val text = message.parts
                                             .filterIsInstance<UIMessagePart.Text>()
                                             .joinToString("") { it.text }
-                                        context.getString(
+                                        resources.getString(
                                             R.string.setting_provider_page_test_tool_not_called,
                                             text
                                         )
@@ -449,6 +449,72 @@ private fun ModelConnectionTestSheet(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * 模型行内的连接测试：点插头图标 → 图标变加载中 → 完成后在图标前方显示延迟（ms）。
+ * 不再弹面板，避免测一个模型要开关一次弹层。
+ */
+@Composable
+fun InlineModelConnectionTest(
+    providerSetting: ProviderSetting,
+    model: Model,
+    modifier: Modifier = Modifier,
+) {
+    val providerManager = koinInject<ProviderManager>()
+    val scope = rememberCoroutineScope()
+    var state by remember(model.id) { mutableStateOf<ModelTestResult?>(null) }
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        when (val result = state) {
+            null, ModelTestResult.Testing -> Unit
+
+            is ModelTestResult.Success -> Text(
+                text = formatTestLatency(result.latencyMs),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.extendColors.green6,
+            )
+
+            ModelTestResult.Timeout -> Text(
+                text = stringResource(R.string.setting_provider_page_test_timeout),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.extendColors.red6,
+            )
+
+            is ModelTestResult.Failure -> Text(
+                text = stringResource(R.string.setting_provider_page_test_failed),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.extendColors.red6,
+            )
+        }
+
+        if (state == ModelTestResult.Testing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                strokeWidth = 2.dp,
+            )
+        } else {
+            IconButton(
+                onClick = {
+                    state = ModelTestResult.Testing
+                    scope.launch {
+                        val provider = providerManager.getProviderByType(providerSetting)
+                        state = runModelConnectionTest(provider, providerSetting, model)
+                    }
+                },
+            ) {
+                Icon(
+                    imageVector = HugeIcons.Connect,
+                    contentDescription = stringResource(R.string.setting_provider_page_test_connection),
+                    modifier = Modifier.size(18.dp),
+                )
             }
         }
     }

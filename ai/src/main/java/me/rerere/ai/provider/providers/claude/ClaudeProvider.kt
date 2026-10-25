@@ -315,7 +315,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .build()
 
         if (Log.isLoggable(TAG, Log.DEBUG)) {
-            Log.d(TAG, "generateText: ${json.encodeToString(requestBody)}")
+            Log.d(TAG, "generateText: request prepared messages=${messages.size}")
         }
 
         val response = client.newCall(request).await()
@@ -372,7 +372,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             .build()
 
         if (Log.isLoggable(TAG, Log.DEBUG)) {
-            Log.d(TAG, "streamText: ${json.encodeToString(requestBody)}")
+            Log.d(TAG, "streamText: request prepared messages=${messages.size}")
         }
 
 
@@ -381,7 +381,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
         fun sendChunks(chunks: Iterable<StreamChunk>) {
             chunks.forEach { chunk ->
                 trySend(chunk).onFailure { e ->
-                    Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
+                    Log.w(TAG, "onEvent: chunk dropped (${e?.javaClass?.simpleName})")
                 }
             }
         }
@@ -394,7 +394,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                 data: String
             ) {
                 if (Log.isLoggable(TAG, Log.DEBUG)) {
-                    Log.d(TAG, "onEvent: type=$type, data=$data")
+                    Log.d(TAG, "onEvent: received chars=${data.length}")
                 }
                 try {
                     val result = decoder.accept(SseEvent(id = id, event = type, data = data))
@@ -411,8 +411,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 var exception = t
 
-                t?.printStackTrace()
-                Log.e(TAG, "onFailure: ${t?.javaClass?.name} ${t?.message} / $response")
+                Log.e(TAG, "onFailure: error=${t?.javaClass?.simpleName}, httpCode=${response?.code}")
 
                 val code = response?.code
                 val retryAfterMs = response?.retryAfterMsOrNull()
@@ -420,12 +419,11 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
-                        Log.i(TAG, "Error response: $bodyElement")
+                        Log.i(TAG, "onFailure: provider error httpCode=$code")
                         exception = bodyElement.parseErrorDetail(code, retryAfterMs)
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
-                    e.printStackTrace()
+                    Log.w(TAG, "onFailure: response parse failed (${e.javaClass.simpleName})")
                 } finally {
                     // t 为 null 且无响应体时不能 close(null)：会把失败伪装成正常结束，静默截断回复
                     close(exception ?: t ?: IOException("SSE stream failed without error detail (HTTP $code)"))
@@ -762,7 +760,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                     put("data", encoded.base64)
                 })
             }.onFailure {
-                Log.w(TAG, "encode image failed: $url", it)
+                Log.w(TAG, "encode image failed: ${it.javaClass.simpleName}")
                 put("type", "text")
                 put("text", "")
             }

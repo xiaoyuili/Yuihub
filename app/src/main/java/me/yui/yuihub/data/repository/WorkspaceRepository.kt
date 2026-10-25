@@ -324,6 +324,55 @@ class WorkspaceRepository(
         manager.rootfsFileSize(workspace.root, path, workspace.bindMounts())
     }
 
+    suspend fun globRootfs(
+        id: String,
+        pattern: String,
+        path: String,
+    ): List<WorkspaceFileEntry> = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        manager.ensureWorkspace(workspace.root)
+        manager.globRootfs(
+            root = workspace.root,
+            pattern = pattern,
+            path = path,
+            extraBindMounts = workspace.bindMounts(),
+        )
+    }
+
+    suspend fun grepRootfs(
+        id: String,
+        query: String,
+        path: String,
+        regex: Boolean,
+        ignoreCase: Boolean,
+        includeGlob: String?,
+    ): List<me.rerere.workspace.WorkspaceSearchMatch> = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        manager.ensureWorkspace(workspace.root)
+        manager.grepRootfs(
+            root = workspace.root,
+            query = query,
+            path = path,
+            regex = regex,
+            ignoreCase = ignoreCase,
+            includeGlob = includeGlob,
+            extraBindMounts = workspace.bindMounts(),
+        )
+    }
+
+    suspend fun rootfsEntry(
+        id: String,
+        path: String,
+    ): WorkspaceFileEntry? = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        manager.ensureWorkspace(workspace.root)
+        manager.rootfsEntry(
+            root = workspace.root,
+            path = path,
+            extraBindMounts = workspace.bindMounts(),
+        )
+    }
+
     /** 按 Rootfs 内绝对路径读取 mtime（毫秒），供写冲突检测；不存在返回 null */
     suspend fun rootfsFileMtime(
         id: String,
@@ -455,9 +504,11 @@ class WorkspaceRepository(
         }
     }
 
-    /** 暴露给交互终端: 与 AI 工具共用同一份 PRoot 参数组装 */
-    fun prootArgs(root: String, cwd: String, mounts: List<WorkspaceMountDir>): List<String> =
-        manager.buildProotArgs(root, cwd, mounts.map { manager.bindMountFor(it) })
+    /** 交互终端固定使用启动时的独立快照；PRoot 不提供强宿主路径隔离。 */
+    suspend fun prootArgs(root: String, cwd: String, mounts: List<WorkspaceMountDir>): List<String> =
+        withContext(Dispatchers.IO) {
+            manager.buildProotArgs(root, cwd, mounts.map { manager.bindMountFor(it) })
+        }
 
     fun globalBindMounts(): List<WorkspaceBindMount> = manager.globalBindMounts
 

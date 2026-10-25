@@ -7,13 +7,17 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
+import me.yui.yuihub.data.ai.prompts.DEFAULT_SKILLS_PROMPT
 import me.yui.yuihub.data.files.SkillFrontmatterParser
 import me.yui.yuihub.data.files.SkillMetadata
 import me.yui.yuihub.data.files.SkillPaths
 
+private const val MAX_INLINE_SKILLS = 24
+
 fun createSkillTools(
     enabledSkills: Set<String>,
     allSkills: List<SkillMetadata>,
+    prompt: String? = DEFAULT_SKILLS_PROMPT,
 ): List<Tool> {
     val available = allSkills.filter { it.name in enabledSkills }
     if (available.isEmpty()) return emptyList()
@@ -26,19 +30,27 @@ fun createSkillTools(
                 Call this tool when the user's request matches one of the available skills.
             """.trimIndent(),
             systemPrompt = { _, _ ->
-                buildString {
-                    appendLine("**Skills**")
-                    appendLine("You have access to the following skills. Use the `use_skill` tool to load a skill's instructions when the user's request matches.")
-                    appendLine(skillManagementHint())
-                    appendLine("<available_skills>")
-                    available.forEach { skill ->
-                        appendLine("  <skill>")
-                        appendLine("    <name>${skill.name}</name>")
-                        appendLine("    <description>${skill.description}</description>")
-                        appendLine("  </skill>")
+                if (prompt == null) {
+                    ""
+                } else {
+                    buildString {
+                        if (prompt.isNotBlank()) appendLine(prompt)
+                        appendLine(skillManagementHint())
+                        appendLine("<available_skills>")
+                        available.take(MAX_INLINE_SKILLS).forEach { skill ->
+                            val description = skill.description.replace("\n", " ").trim()
+                                .let { if (it.length > 120) it.take(120) + "…" else it }
+                            appendLine("  <skill>")
+                            appendLine("    <name>${skill.name}</name>")
+                            appendLine("    <description>$description</description>")
+                            appendLine("  </skill>")
+                        }
+                        if (available.size > MAX_INLINE_SKILLS) {
+                            appendLine("  <more count=\"${available.size - MAX_INLINE_SKILLS}\">use manage_skill action=list</more>")
+                        }
+                        append("</available_skills>")
+                        appendLine()
                     }
-                    append("</available_skills>")
-                    appendLine()
                 }
             },
             parameters = {

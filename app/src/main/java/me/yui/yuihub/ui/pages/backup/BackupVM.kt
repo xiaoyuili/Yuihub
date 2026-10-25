@@ -1,5 +1,6 @@
 package me.yui.yuihub.ui.pages.backup
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -8,11 +9,13 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.SettingsStore
+import me.yui.yuihub.data.sync.BackupInspection
 import me.yui.yuihub.data.sync.BackupItem
+import me.yui.yuihub.data.sync.BackupSizeSummary
+import me.yui.yuihub.data.sync.LocalBackupFile
 import me.yui.yuihub.data.sync.LocalBackupService
 import me.yui.yuihub.data.sync.RikkaHubImporter
 import me.yui.yuihub.worker.AutoBackupScheduler
-import android.content.Context
 import java.io.File
 
 class BackupVM(
@@ -27,51 +30,70 @@ class BackupVM(
         initialValue = Settings.dummy()
     )
 
-    val localBackupItems = MutableStateFlow(BackupItem.entries.toList())
+    val localBackupItems = MutableStateFlow(BackupItem.ALL.toSet())
+    val sizes = MutableStateFlow(BackupSizeSummary())
+    val localFiles = MutableStateFlow<List<LocalBackupFile>>(emptyList())
+
+    init {
+        refreshLocalState()
+    }
 
     fun updateSettings(settings: Settings) {
-        viewModelScope.launch {
-            settingsStore.update(settings)
+        viewModelScope.launch { settingsStore.update(settings) }
+    }
+
+    fun updateLocalBackupItems(items: Collection<BackupItem>) {
+        localBackupItems.value = items.toSet()
+    }
+
+    fun toggleLocalBackupItem(item: BackupItem) {
+        localBackupItems.value = localBackupItems.value.let {
+            if (item in it) it - item else it + item
         }
     }
 
-    fun updateLocalBackupItems(items: List<BackupItem>) {
-        localBackupItems.value = items
+    fun refreshLocalState() {
+        viewModelScope.launch {
+            sizes.value = runCatching { localBackup.calculateSizes() }.getOrDefault(BackupSizeSummary())
+            localFiles.value = runCatching { localBackup.listLocalBackups() }.getOrDefault(emptyList())
+        }
     }
 
     suspend fun exportToFile(): File {
         val file = localBackup.prepareBackupFile(localBackupItems.value)
         recordBackupTime()
+        refreshLocalState()
         return file
     }
 
-    suspend fun restoreFromLocalFile(file: File): RestoreOutcome {
-        // 上游 RikkaHub 的库是 user_version≤25，缺本 fork 的表，直接文件级替换后下次启动
-        // 迁移链会在 30→31 重复添加 workspaces.shell_compatibility_mode 列而失败（表现为
-        // 数据库打不开、工作区无法创建）。检测到上游备份就改走按列名交集的专用导入。
+    suspend fun inspectBackup(file: File): BackupInspection = localBackup.inspectBackup(file)
+
+    suspend fun restoreFromLocalFile(file: File, items: Collection<BackupItem>): RestoreOutcome {
         if (isRikkaHubBackup(file)) {
-            return RestoreOutcome.RikkaHubImported(importRikkaHubBackup(file))
+            return RestoreOutcome.RikkaHubImported(importRikkaHubBackup(file, items))
         }
-        localBackup.restoreFromLocalFile(file, localBackupItems.value)
+        localBackup.restoreFromLocalFile(file, items)
+        refreshLocalState()
         return RestoreOutcome.LocalRestored
     }
 
-    /**
-     * 判断该 zip 是否为 RikkaHub（上游）备份。
-     *
-     * 与本 fork 备份同源、文件名相同，无法靠文件名区分，因此实际判别依据是
-     * 库里的表结构：含 fork 专属表（scheduled_task / token_ledger）才走本地恢复路径。
-     */
+    suspend fun createSafetyBackup(): File {
+        val file = localBackup.createSafetyBackup()
+        refreshLocalState()
+        return file
+    }
+
     suspend fun isRikkaHubBackup(file: File): Boolean = rikkaHubImporter.looksLikeUpstreamBackup(file)
 
-    /** 走 RikkaHub 导入路径（按列名交集搬运），返回导入统计 */
-    suspend fun importRikkaHubBackup(file: File): RikkaHubImporter.ImportResult {
-        val items = localBackupItems.value
+    suspend fun importRikkaHubBackup(
+        file: File,
+        items: Collection<BackupItem> = localBackupItems.value,
+    ): RikkaHubImporter.ImportResult {
         val result = rikkaHubImporter.importFromZip(
             zipFile = file,
             includeDatabase = BackupItem.DATABASE in items,
             includeSettings = BackupItem.SETTINGS in items,
-            includeFiles = BackupItem.FILES in items,
+            includeFiles = items.any { it.isFile },
         )
         recordBackupTime()
         return result
@@ -87,7 +109,6 @@ class BackupVM(
         }
     }
 
-    /** 自动备份开关/间隔变更后，重排下一次调度 */
     fun onAutoBackupConfigChanged() {
         viewModelScope.launch {
             AutoBackupScheduler.enqueueNext(appContext, settingsStore)
@@ -95,11 +116,7 @@ class BackupVM(
     }
 }
 
-/** 本地恢复的结果：常规备份走文件级替换；检测到 RikkaHub 备份则改走专用导入 */
 sealed interface RestoreOutcome {
-    /** 常规本地恢复完成（需要重启应用） */
     data object LocalRestored : RestoreOutcome
-
-    /** 检测到 RikkaHub 备份，已改走按列名交集导入 */
     data class RikkaHubImported(val result: RikkaHubImporter.ImportResult) : RestoreOutcome
 }

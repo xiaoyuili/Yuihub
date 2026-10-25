@@ -50,10 +50,10 @@ fun SettingPreferencesThemePage(vm: SettingVM = koinViewModel()) {
                 navigationIcon = {
                     BackButton()
                 },
-                colors = CustomColors.topBarColors
+                colors = CustomColors.pageTopBarColors
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageBackground
     ) { contentPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),

@@ -1,21 +1,14 @@
 package me.yui.yuihub.ui.pages.assistant.detail
 
-import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.BookOpen01
-import me.rerere.hugeicons.stroke.Brain02
-import me.rerere.hugeicons.stroke.Clock01
-import me.rerere.hugeicons.stroke.Code
-import me.rerere.hugeicons.stroke.Message02
-import me.rerere.hugeicons.stroke.Settings03
-import me.rerere.hugeicons.stroke.Puzzle
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,14 +16,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,29 +39,32 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.ArrowRight01
+import me.rerere.hugeicons.stroke.BookOpen01
+import me.rerere.hugeicons.stroke.Brain02
+import me.rerere.hugeicons.stroke.Clock01
+import me.rerere.hugeicons.stroke.Message02
+import me.rerere.hugeicons.stroke.Puzzle
 import me.yui.yuihub.R
 import me.yui.yuihub.Screen
 import me.yui.yuihub.data.model.Assistant
+import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.UIAvatar
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.hooks.heroAnimation
 import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.ui.theme.EntryAccents
 import me.yui.yuihub.ui.theme.LocalDarkMode
 import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
-// 功能入口图标配色，无对应主题色可用时按页面局部定义；深色模式下自动降透明、提亮
-private val BasicAccent = Color(0xFF2563EB)
-private val PromptAccent = Color(0xFF7A4DF0)
-private val ExtensionsAccent = Color(0xFFD98A0C)
-private val MemoryAccent = Color(0xFF0E9E85)
-private val RequestAccent = Color(0xFFE0455F)
-private val LocalToolsAccent = Color(0xFF5560D8)
-private val ScheduledTasksAccent = Color(0xFF0E8CD9)
 
 @Composable
 fun AssistantDetailPage(id: String) {
@@ -72,151 +75,185 @@ fun AssistantDetailPage(id: String) {
     )
     val assistant by vm.assistant.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
+    var showNameDialog by remember(assistant.id) { mutableStateOf(false) }
+    var nameInput by remember(assistant.id) { mutableStateOf("") }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = assistant.name.ifBlank {
-                            stringResource(R.string.assistant_page_default_assistant)
-                        },
-                        maxLines = 1,
-                    )
+                    Text(stringResource(R.string.assistant_detail_title))
                 },
                 navigationIcon = {
                     BackButton()
                 },
-                colors = CustomColors.topBarColors
+                colors = CustomColors.pageTopBarColors
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageBackground
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = innerPadding + PaddingValues(8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = innerPadding + PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
                 AssistantHeader(
                     assistant = assistant,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                    onAvatarUpdate = { avatar ->
+                        vm.update(
+                            assistant.copy(
+                                avatar = if (avatar == Avatar.Dummy) Avatar.Logo else avatar
+                            )
+                        )
+                    },
+                    onNameClick = {
+                        nameInput = assistant.name
+                        showNameDialog = true
+                    },
                 )
             }
 
             item {
-                Column(
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        AssistantFeatureCard(
-                            title = stringResource(R.string.assistant_page_tab_basic),
-                            description = stringResource(R.string.assistant_detail_basic_desc),
-                            icon = HugeIcons.Settings03,
-                            accent = BasicAccent,
-                            onClick = { navController.navigate(Screen.AssistantBasic(id)) },
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                        )
-                        AssistantFeatureCard(
-                            title = stringResource(R.string.assistant_page_tab_prompt),
-                            description = stringResource(R.string.assistant_detail_prompt_desc),
-                            icon = HugeIcons.Message02,
-                            accent = PromptAccent,
-                            onClick = { navController.navigate(Screen.AssistantPrompt(id)) },
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        AssistantFeatureCard(
-                            title = stringResource(R.string.assistant_page_tab_extensions),
-                            description = stringResource(R.string.assistant_detail_extensions_desc),
-                            icon = HugeIcons.Puzzle,
-                            accent = ExtensionsAccent,
-                            onClick = { navController.navigate(Screen.AssistantInjections(id)) },
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                        )
-                        AssistantFeatureCard(
-                            title = stringResource(R.string.assistant_page_tab_memory),
-                            description = stringResource(R.string.assistant_detail_memory_desc),
-                            icon = HugeIcons.Brain02,
-                            accent = MemoryAccent,
-                            onClick = { navController.navigate(Screen.AssistantMemory(id)) },
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        AssistantFeatureCard(
-                            title = stringResource(R.string.assistant_page_tab_request),
-                            description = stringResource(R.string.assistant_detail_request_desc),
-                            icon = HugeIcons.Code,
-                            accent = RequestAccent,
-                            onClick = { navController.navigate(Screen.AssistantRequest(id)) },
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                        )
-                        AssistantFeatureCard(
-                            title = stringResource(R.string.assistant_page_tab_local_tools),
-                            description = stringResource(R.string.assistant_detail_local_tools_desc),
-                            icon = HugeIcons.BookOpen01,
-                            accent = LocalToolsAccent,
-                            onClick = { navController.navigate(Screen.AssistantLocalTool(id)) },
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                        )
-                    }
-
-                    AssistantFeatureCard(
-                        title = stringResource(R.string.assistant_page_tab_scheduled_tasks),
-                        description = stringResource(R.string.assistant_detail_scheduled_tasks_desc),
-                        icon = HugeIcons.Clock01,
-                        accent = ScheduledTasksAccent,
-                        onClick = { navController.navigate(Screen.AssistantScheduledTasks(id)) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                Text(
+                    text = stringResource(R.string.assistant_detail_section_manage),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 2.dp),
+                )
             }
+
+            item {
+                AssistantEntryCard(
+                    title = stringResource(R.string.assistant_page_tab_prompt),
+                    description = stringResource(R.string.assistant_detail_prompt_desc),
+                    icon = HugeIcons.Message02,
+                    accent = EntryAccents.Violet,
+                    onClick = { navController.navigate(Screen.AssistantPrompt(id)) },
+                )
+            }
+
+            item {
+                AssistantEntryCard(
+                    title = stringResource(R.string.assistant_page_tab_extensions),
+                    description = stringResource(R.string.assistant_detail_extensions_desc),
+                    icon = HugeIcons.Puzzle,
+                    accent = EntryAccents.Amber,
+                    onClick = { navController.navigate(Screen.AssistantInjections(id)) },
+                )
+            }
+
+            item {
+                AssistantEntryCard(
+                    title = stringResource(R.string.assistant_page_tab_memory),
+                    description = stringResource(R.string.assistant_detail_memory_desc),
+                    icon = HugeIcons.Brain02,
+                    accent = EntryAccents.Teal,
+                    onClick = { navController.navigate(Screen.AssistantMemory(id)) },
+                )
+            }
+
         }
+    }
+
+    if (showNameDialog) {
+        AlertDialog(
+            onDismissRequest = { showNameDialog = false },
+            title = { Text(stringResource(R.string.assistant_page_name)) },
+            text = {
+                OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it },
+                    singleLine = true,
+                    placeholder = { Text(stringResource(R.string.assistant_page_name)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.update(assistant.copy(name = nameInput.trim()))
+                        showNameDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.assistant_page_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showNameDialog = false }) {
+                    Text(stringResource(R.string.assistant_page_cancel))
+                }
+            },
+        )
     }
 }
 
 @Composable
-private fun AssistantFeatureCard(
+private fun AssistantHeader(
+    assistant: Assistant,
+    onAvatarUpdate: (Avatar) -> Unit,
+    onNameClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp, bottom = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        UIAvatar(
+            value = assistant.avatar,
+            name = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) },
+            onUpdate = onAvatarUpdate,
+            modifier = Modifier
+                .size(96.dp)
+                .heroAnimation("assistant_${assistant.id}")
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Text(
+            text = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) },
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onNameClick)
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
+    }
+}
+
+@Composable
+private fun AssistantEntryCard(
     title: String,
     description: String,
     icon: ImageVector,
     accent: Color,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val dark = LocalDarkMode.current
-    val iconBackground = accent.copy(alpha = if (dark) 0.22f else 0.14f)
-    val iconTint = if (dark) lerp(accent, Color.White, 0.35f) else accent
+    val iconTint = if (dark) lerp(accent, Color.White, 0.25f) else accent
+    val iconBackground = iconTint.copy(alpha = if (dark) 0.2f else 0.14f)
 
     Card(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
-        colors = CustomColors.cardColorsOnSurfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(13.dp))
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
                     .background(iconBackground),
                 contentAlignment = Alignment.Center,
             ) {
@@ -228,71 +265,34 @@ private fun AssistantFeatureCard(
                 )
             }
 
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = description,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-    }
-}
 
-@Composable
-private fun AssistantHeader(
-    assistant: Assistant,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        colors = CustomColors.cardColorsOnSurfaceContainer,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            UIAvatar(
-                value = assistant.avatar,
-                name = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) },
-                onUpdate = null,
-                modifier = Modifier
-                    .size(72.dp)
-                    .heroAnimation("assistant_${assistant.id}")
+            Icon(
+                imageVector = HugeIcons.ArrowRight01,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp),
             )
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) },
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                if (assistant.systemPrompt.isNotBlank()) {
-                    Text(
-                        text = assistant.systemPrompt.take(100) + if (assistant.systemPrompt.length > 100) "..." else "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
         }
     }
 }

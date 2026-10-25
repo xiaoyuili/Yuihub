@@ -43,7 +43,11 @@ class JavascriptToolTest {
 
     @Test(timeout = 20_000)
     fun `bounds logs and output`() = runBlocking {
-        val logs = evaluate("for (let i = 0; i < 10000; i++) console.log('1234567890'); 1")
+        val logs = evaluate(
+            "for (let i = 0; i < 10000; i++) console.log('1234567890'); 1",
+            timeoutMillis = 10_000,
+        )
+        assertTrue(logs.toString(), !logs.containsKey("error"))
         assertTrue(logs["logs"]!!.jsonPrimitive.content.length < 66_000)
         assertTrue(logs["logs"]!!.jsonPrimitive.content.endsWith("[Logs truncated]"))
         assertTrue(evaluate("'x'.repeat(2 * 1024 * 1024)").containsKey("error"))

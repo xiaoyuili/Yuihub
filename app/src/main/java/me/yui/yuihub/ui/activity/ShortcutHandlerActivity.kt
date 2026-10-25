@@ -9,6 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import me.yui.yuihub.BuildConfig
 import me.yui.yuihub.RouteActivity
+import me.yui.yuihub.StartupState
+import me.yui.yuihub.YuiHubApp
 import java.io.File
 
 class ShortcutHandlerActivity : ComponentActivity() {
@@ -37,6 +39,11 @@ class ShortcutHandlerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if ((application as YuiHubApp).startupState.value != StartupState.Ready) {
+            startActivity(Intent(this, RouteActivity::class.java))
+            finish()
+            return
+        }
         requestPermissionLauncher.launch(Manifest.permission.CAMERA)
     }
 

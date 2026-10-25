@@ -11,8 +11,6 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
-    alias(libs.plugins.google.services)
-    alias(libs.plugins.firebase.crashlytics)
     alias(libs.plugins.baselineprofile)
 }
 
@@ -27,8 +25,8 @@ android {
         applicationId = "me.yui.yuihub"
         minSdk = 26
         targetSdk = 37
-        versionCode = 232
-        versionName = "2.5.8"
+        versionCode = 300
+        versionName = "3.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -77,7 +75,8 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
+            isShrinkResources = true
             optimization {
                 enable = true
             }
@@ -95,6 +94,10 @@ android {
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")
         }
     }
+    lint {
+        abortOnError = true
+        checkReleaseBuilds = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -110,6 +113,7 @@ android {
         // 动态生成 LocaleConfig 的任务 (generateDebugLocaleConfig) 在 AGP 9.3 下每次构建都重跑 (约 2.3s),
         // 改为静态资源: 需要增删语言时同步更新 app/src/main/res/xml/locale_config.xml 并把此开关改回 true
         generateLocaleConfig = false
+        localeFilters += listOf("en", "zh")
     }
     packaging {
         jniLibs {
@@ -141,11 +145,6 @@ composeCompiler {
 tasks.register("buildAll") {
     dependsOn("assembleRelease", "bundleRelease")
     description = "Build both APK and AAB"
-}
-
-// 提速：release 构建跳过 lintVital 静态检查（约 1-2 分钟）
-tasks.matching { it.name.startsWith("lintVital") }.configureEach {
-    enabled = false
 }
 
 ksp {
@@ -194,11 +193,6 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.navigation3)
     implementation(libs.androidx.material3.adaptive.navigation3)
 
-    // Firebase
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.analytics)
-    implementation(libs.firebase.crashlytics)
-
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
@@ -225,8 +219,6 @@ dependencies {
     // okhttp
     implementation(libs.okhttp)
     implementation(libs.okhttp.sse)
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.serialization.json)
 
     // ktor client
     implementation(libs.ktor.client.core)
@@ -235,8 +227,6 @@ dependencies {
     implementation(libs.ktor.serialization.kotlinx.json)
     implementation(libs.ktor.http.cio)
 
-    // ucrop
-    implementation(libs.ucrop)
 
     // pebble (template engine)
     implementation(libs.pebble)
@@ -277,8 +267,6 @@ dependencies {
     // Reorderable (https://github.com/Calvin-LL/Reorderable/)
     implementation(libs.reorderable)
 
-    // lucide icons
-    implementation(libs.lucide.icons)
     implementation(libs.huge.icons)
 
     // image viewer

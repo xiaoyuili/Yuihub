@@ -8,7 +8,10 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.util.InstantSerializer
+import me.yui.yuihub.data.ai.prompts.COMPACTION_CHECKPOINT_PREAMBLE
 import me.yui.yuihub.data.ai.prompts.buildCompactionCheckpointText
+import me.yui.yuihub.data.ai.prompts.isMemorySnapshot
+import me.yui.yuihub.data.ai.tools.local.LocalToolOption
 import me.yui.yuihub.data.datastore.DEFAULT_ASSISTANT_ID
 import java.time.Instant
 import kotlin.uuid.Uuid
@@ -28,6 +31,19 @@ data class CompressionSummary(
     val messageCount: Int = 0,
     // 压缩边界：被压缩范围内的最后一个节点 id；请求只发送该节点之后的内容
     val boundaryNodeId: Uuid? = null,
+    // 该段起始节点，便于恢复和展示
+    val startNodeId: Uuid? = null,
+    // 1 = 原始段摘要；2/3 = 由旧摘要合并出的高层摘要
+    val tier: Int = 1,
+    // 已被更高层摘要取代的段不再进入请求窗口
+    val active: Boolean = true,
+    // 本条高层摘要覆盖的子摘要
+    val parentSummaryIds: List<Uuid> = emptyList(),
+    // 压缩前原文/摘要的本地估算 token，用于展示节省量
+    val originalTokens: Int = 0,
+    val summaryTokens: Int = 0,
+    // 本次压缩实际耗时（毫秒）
+    val durationMs: Long = 0,
     // 手动压缩（/压缩）：只缩减发送上下文，不在聊天页隐藏旧消息/渲染流程行
     val manual: Boolean = false,
     @Serializable(with = InstantSerializer::class)
@@ -48,12 +64,18 @@ data class Conversation(
     val customSystemPrompt: String? = null,
     val modeInjectionIds: Set<Uuid> = emptySet(),
     val lorebookIds: Set<Uuid> = emptySet(),
+    // null = 继承助手；非 null = 当前对话覆盖
+    val enabledSkillsOverride: Set<String>? = null,
+    val mcpServersOverride: Set<Uuid>? = null,
+    val localToolsOverride: List<LocalToolOption>? = null,
     // Absolute path inside the workspace rootfs
     val workspaceCwd: String? = null,
     // 所属文件夹（助手内分组），null 表示未归入任何文件夹
     val folderId: Uuid? = null,
     // 父会话 id（子代理会话的归属），null 表示普通会话
     val parentConversationId: Uuid? = null,
+    /** 子代理会话绑定的角色；追问时据此继续使用该角色的模型/推理配置 */
+    val subagentPersonaId: Uuid? = null,
     @Transient
     val newConversation: Boolean = false,
     // 自动压缩产生的历史摘要（按时间序递增，最新在后）
@@ -78,36 +100,53 @@ data class Conversation(
     }
 
     /**
-     * 当前生效的压缩检查点；边界节点不存在（被 regenerate 截断/分支切换删除）时失效，
-     * 回退全量发送。
+     * 当前生效的压缩段；边界节点不存在（被 regenerate 截断/分支切换删除）时失效。
+     * 多段摘要按创建时间排序，最后一个决定请求窗口的原文起点。
      */
-    fun activeCompression(): CompressionSummary? {
-        val checkpoint = compressionSummaries.lastOrNull() ?: return null
-        val boundaryId = checkpoint.boundaryNodeId ?: return null
-        return if (messageNodes.any { it.id == boundaryId }) checkpoint else null
+    fun activeCompressions(): List<CompressionSummary> {
+        val indexById = messageNodes.mapIndexed { index, node -> node.id to index }.toMap()
+        return compressionSummaries
+            .filter { it.active && it.boundaryNodeId != null && it.boundaryNodeId in indexById }
+            .sortedBy { indexById[it.boundaryNodeId] ?: Int.MAX_VALUE }
     }
 
     /**
-     * 界面侧生效的压缩检查点：手动压缩只缩减发送上下文，不在聊天页隐藏旧消息、
+     * 界面侧生效的压缩段：手动压缩只缩减发送上下文，不在聊天页隐藏旧消息、
      * 也不渲染「上下文压缩」流程行（用户要求手动压缩后对话全部保持可见）。
      */
-    fun uiCompression(): CompressionSummary? =
-        activeCompression()?.takeIf { !it.manual }
+    fun uiCompressions(): List<CompressionSummary> = activeCompressions().filterNot { it.manual }
+
+    fun activeCompression(): CompressionSummary? = activeCompressions().lastOrNull()
+
+    fun uiCompression(): CompressionSummary? = uiCompressions().lastOrNull()
 
     /**
-     * 请求发送窗口（缓存分段：检查点是新段起点，边界前的旧前缀保留在轨迹中但不发送）：
-     * [检查点合成消息] + 边界节点之后的全部消息；无有效检查点时返回全量。
+     * 请求发送窗口（缓存分段）：
+     * [首条用户消息锚点] + [所有有效段摘要] + 最新边界之后的全部消息。
      */
-    fun requestWindowMessages(): List<UIMessage> {
-        val checkpoint = activeCompression() ?: return currentMessages
-        val boundaryIndex = messageNodes.indexOfFirst { it.id == checkpoint.boundaryNodeId }
+    fun requestWindowMessages(checkpointPreamble: String = COMPACTION_CHECKPOINT_PREAMBLE): List<UIMessage> {
+        val checkpoints = activeCompressions()
+        if (checkpoints.isEmpty()) return currentMessages
+        val boundaryIndex = messageNodes.indexOfFirst { it.id == checkpoints.last().boundaryNodeId }
         if (boundaryIndex < 0) return currentMessages
-        val checkpointMessage = UIMessage(
-            role = MessageRole.USER,
-            parts = listOf(UIMessagePart.Text(buildCompactionCheckpointText(checkpoint.content))),
-            isSynthetic = true,
-        )
-        return listOf(checkpointMessage) + messageNodes.drop(boundaryIndex + 1).map { it.messages[it.selectIndex] }
+        val summaryMessages = checkpoints.map { checkpoint ->
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text(buildCompactionCheckpointText(checkpoint.content, checkpointPreamble))),
+                isSynthetic = true,
+            )
+        }
+        // 首条用户请求是任务锚点，压缩后仍保留原文，避免摘要逐轮重写导致目标漂移。
+        val firstUserIndex = messageNodes.indexOfFirst {
+            !it.currentMessage.isMemorySnapshot() && it.currentMessage.role == MessageRole.USER
+        }
+        val anchorMessages = if (firstUserIndex in 0..boundaryIndex) {
+            listOf(messageNodes[firstUserIndex].currentMessage.copy(isSynthetic = true))
+        } else {
+            emptyList()
+        }
+        return anchorMessages + summaryMessages +
+            messageNodes.drop(boundaryIndex + 1).map { it.messages[it.selectIndex] }
     }
 
     /**
@@ -121,38 +160,53 @@ data class Conversation(
         return messageNodes.drop(boundaryIndex + 1)
     }
 
-    fun updateCurrentMessages(messages: List<UIMessage>): Conversation {
-        val newNodes = this.messageNodes.toMutableList()
+    fun compressionNodes(keepCount: Int): List<MessageNode> = windowNodes().dropLast(keepCount)
 
-        messages.forEachIndexed { index, message ->
-            val node = newNodes
-                .getOrElse(index) { message.toMessageNode() }
+    fun updateCurrentMessages(
+        messages: List<UIMessage>,
+        responseNodeId: Uuid? = null,
+    ): Conversation {
+        val newNodes = messageNodes.toMutableList()
+        val nodeByMessageId = newNodes.flatMapIndexed { index, node ->
+            node.messages.map { it.id to index }
+        }.toMap().toMutableMap()
+        var responseNodeUsed = false
+        var responseCursor = -1
 
-            val newMessages = node.messages.toMutableList()
-            var newMessageIndex = node.selectIndex
-            if (newMessages.any { it.id == message.id }) {
-                newMessages[newMessages.indexOfFirst { it.id == message.id }] = message
+        messages.filterNot { it.isSynthetic }.forEach { message ->
+            val existingIndex = nodeByMessageId[message.id]
+            if (existingIndex != null) {
+                val node = newNodes[existingIndex]
+                newNodes[existingIndex] = node.copy(
+                    messages = node.messages.map { if (it.id == message.id) message else it }
+                )
+                if (node.id == responseNodeId) responseNodeUsed = true
+                if (responseNodeUsed) responseCursor = existingIndex
             } else {
-                newMessages.add(message)
-                newMessageIndex = newMessages.lastIndex
-            }
-
-            val newNode = node.copy(
-                messages = newMessages,
-                selectIndex = newMessageIndex
-            )
-
-            // 更新newNodes
-            if (index > newNodes.lastIndex) {
-                newNodes.add(newNode)
-            } else {
-                newNodes[index] = newNode
+                val responseIndex = if (!responseNodeUsed && message.role == MessageRole.ASSISTANT) {
+                    newNodes.indexOfFirst { it.id == responseNodeId }
+                } else {
+                    -1
+                }
+                if (responseIndex >= 0) {
+                    val node = newNodes[responseIndex]
+                    newNodes[responseIndex] = node.copy(
+                        messages = node.messages + message,
+                        selectIndex = node.messages.size,
+                    )
+                    nodeByMessageId[message.id] = responseIndex
+                    responseNodeUsed = true
+                    responseCursor = responseIndex
+                } else {
+                    val insertIndex = if (responseNodeUsed && responseCursor >= 0) responseCursor + 1 else newNodes.size
+                    nodeByMessageId.replaceAll { _, index -> if (index >= insertIndex) index + 1 else index }
+                    newNodes.add(insertIndex, message.toMessageNode())
+                    nodeByMessageId[message.id] = insertIndex
+                    if (responseNodeUsed) responseCursor = insertIndex
+                }
             }
         }
-
-        return this.copy(
-            messageNodes = newNodes
-        )
+        return copy(messageNodes = newNodes)
     }
 
     companion object {

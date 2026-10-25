@@ -12,6 +12,7 @@ import kotlinx.serialization.json.put
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
+import me.yui.yuihub.data.ai.prompts.DEFAULT_SCHEDULED_TASK_PROMPT
 import me.yui.yuihub.data.db.entity.ScheduleType
 import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
 import me.yui.yuihub.data.repository.ScheduledTaskRepository
@@ -41,6 +42,7 @@ fun createScheduledTaskTools(
     assistantId: Uuid,
     /** 立即试跑回调：交给 ChatService 走它自己的调度入口（与 UI 的「立即运行」同一条路径） */
     onRunNow: (ScheduledTaskEntity) -> Unit,
+    prompt: String = DEFAULT_SCHEDULED_TASK_PROMPT,
 ): List<Tool> = listOf(
     Tool(
         name = SCHEDULED_TASK_TOOL_NAME,
@@ -113,12 +115,7 @@ fun createScheduledTaskTools(
                 required = listOf("action"),
             )
         },
-        systemPrompt = { _, _ ->
-            """
-            You can manage this assistant's scheduled tasks with `$SCHEDULED_TASK_TOOL_NAME`
-            (list / create / update / delete / set_enabled / run_now). Only this assistant's tasks are visible and editable.
-            """.trimIndent()
-        },
+        systemPrompt = { _, _ -> prompt },
         execute = { args ->
             val obj = args.jsonObject
             val action = obj["action"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()

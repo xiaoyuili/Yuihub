@@ -5,6 +5,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
 
 class WorkspaceManager(
     private val baseDir: File,
@@ -16,6 +17,8 @@ class WorkspaceManager(
     val globalBindMounts: List<WorkspaceBindMount> get() = bindMounts
 
     private val fileSystem = WorkspaceFileSystem(config)
+    private val snapshots = ReadOnlyMountSnapshots()
+    private val executionLocks = ConcurrentHashMap<String, Any>()
 
     // 按 target 长度降序, 保证 /a/b 优先于 /a 匹配
     private val sortedBindMounts = mergeBindMounts(bindMounts, emptyList())
@@ -64,8 +67,9 @@ class WorkspaceManager(
     /**
      * 组装 PRoot 的挂载参数（`-r` / `-w` / `-b`）。
      *
-     * AI 工具走的 [ProotShellRunner] 与交互终端都调用这里, 避免两处各自维护挂载表
-     * 导致「工具能看到的目录终端里看不到」。
+     * 交互终端与 [ProotShellRunner] 使用同样的快照策略，避免只读原件进入执行挂载表。
+     * 每次调用为终端创建独立只读快照；
+     * 终端存续期间固定使用该版本，原件更新后需要新开终端才能看到。
      */
     fun buildProotArgs(
         root: String,
@@ -85,7 +89,11 @@ class WorkspaceManager(
             "-b",
             "${filesDir(root).absolutePath}:$ROOTFS_WORKSPACE_DIR",
         )
-        mergeBindMounts(bindMounts, extraBindMounts).forEach { mount ->
+        snapshots.prepare(
+            mergeBindMounts(bindMounts, extraBindMounts),
+            File(workspaceDir(root), ReadOnlyMountSnapshots.DIRECTORY),
+            reuseUnchanged = false,
+        ).forEach { mount ->
             if (mount.source.exists()) {
                 args += "-b"
                 args += mount.prootBindSpec()
@@ -315,6 +323,53 @@ class WorkspaceManager(
     ): List<WorkspaceSearchMatch> =
         fileSystem.grep(filesDir(root), query, path, regex, ignoreCase, includeGlob)
 
+    fun globRootfs(
+        root: String,
+        pattern: String,
+        path: String,
+        extraBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): List<WorkspaceFileEntry> {
+        val location = resolveRootfsPath(root, path, extraBindMounts)
+        return fileSystem.glob(location.rootDir, pattern, location.relativePath)
+    }
+
+    fun grepRootfs(
+        root: String,
+        query: String,
+        path: String,
+        regex: Boolean,
+        ignoreCase: Boolean,
+        includeGlob: String?,
+        extraBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): List<WorkspaceSearchMatch> {
+        val location = resolveRootfsPath(root, path, extraBindMounts)
+        return fileSystem.grep(
+            root = location.rootDir,
+            query = query,
+            path = location.relativePath,
+            regex = regex,
+            ignoreCase = ignoreCase,
+            includeGlob = includeGlob,
+        )
+    }
+
+    fun rootfsEntry(
+        root: String,
+        path: String,
+        extraBindMounts: List<WorkspaceBindMount> = emptyList(),
+    ): WorkspaceFileEntry? {
+        val location = resolveRootfsPath(root, path, extraBindMounts)
+        val file = fileSystem.resolve(location.rootDir, location.relativePath)
+        if (!file.exists()) return null
+        return WorkspaceFileEntry(
+            path = path.trimEnd('/').ifBlank { "/" },
+            name = file.name,
+            isDirectory = file.isDirectory,
+            sizeBytes = if (file.isFile) file.length() else 0L,
+            updatedAt = file.lastModified(),
+        )
+    }
+
     fun executeCommand(
         root: String,
         command: String,
@@ -323,13 +378,18 @@ class WorkspaceManager(
         stdin: ByteArray? = null,
         extraBindMounts: List<WorkspaceBindMount> = emptyList(),
         shellCompatibilityMode: Boolean = false,
-    ): WorkspaceCommandResult {
+    ): WorkspaceCommandResult = synchronized(executionLocks.getOrPut(root) { Any() }) {
         require(command.isNotBlank()) { "Command is required" }
         val workingDir = fileSystem.resolve(filesDir(root), cwd)
         require(workingDir.exists()) { "Working directory does not exist: $cwd" }
         require(workingDir.isDirectory) { "Working path is not a directory: $cwd" }
 
-        return shellRunner.execute(
+        val executionMounts = snapshots.prepare(
+            mergeBindMounts(bindMounts, extraBindMounts),
+            File(workspaceDir(root), ReadOnlyMountSnapshots.DIRECTORY),
+            reuseUnchanged = !shellCompatibilityMode,
+        )
+        shellRunner.execute(
             WorkspaceShellContext(
                 root = root,
                 command = command,
@@ -340,10 +400,10 @@ class WorkspaceManager(
                 workingDir = workingDir,
                 timeoutMillis = timeoutMillis,
                 stdin = stdin,
-                bindMounts = mergeBindMounts(bindMounts, extraBindMounts),
+                bindMounts = executionMounts,
                 shellCompatibilityMode = shellCompatibilityMode,
                 // /tool_outputs 挂载源用作截断落盘目录（与 bindMounts 同源，无挂载时为 null）
-                spillDir = mergeBindMounts(bindMounts, extraBindMounts)
+                spillDir = executionMounts
                     .firstOrNull { it.target.trimEnd('/') == "/tool_outputs" }
                     ?.source,
             )

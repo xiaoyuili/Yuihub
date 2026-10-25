@@ -1,42 +1,44 @@
 package me.yui.yuihub.ui.pages.assistant.detail
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.TextButton
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.hugeicons.stroke.Book01
+import me.rerere.hugeicons.stroke.Clock01
 import me.rerere.hugeicons.stroke.MagicWand01
 import me.rerere.hugeicons.stroke.McpServer
 import me.rerere.hugeicons.stroke.Puzzle
+import me.rerere.hugeicons.stroke.Tools
 import me.yui.yuihub.R
 import me.yui.yuihub.Screen
-import me.yui.yuihub.ui.components.ai.ExtensionEmptyState
-import me.yui.yuihub.ui.components.ai.LorebooksContent
-import me.yui.yuihub.ui.components.ai.McpPicker
-import me.yui.yuihub.ui.components.ai.ModeInjectionsContent
-import me.yui.yuihub.ui.components.ai.SkillsContent
+import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
+import me.yui.yuihub.data.repository.ScheduledTaskRepository
 import me.yui.yuihub.ui.components.nav.BackButton
-import me.yui.yuihub.ui.components.nav.FloatingBottomBar
-import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
-import me.yui.yuihub.ui.components.nav.FloatingBottomBarTab
+import me.yui.yuihub.ui.components.ui.CardGroup
 import me.yui.yuihub.ui.context.LocalNavController
+import me.yui.yuihub.ui.pages.extensions.LocalToolEntries
+import me.yui.yuihub.ui.pages.setting.SettingIcon
 import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.ui.theme.EntryAccents
+import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import org.koin.core.parameter.parametersOf
 
 @Composable
@@ -46,173 +48,104 @@ fun AssistantExtensionsPage(id: String) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val skills by vm.skills.collectAsStateWithLifecycle()
     val mcpServerConfigs by vm.mcpServerConfigs.collectAsStateWithLifecycle()
+    val taskRepository: ScheduledTaskRepository = koinInject()
+    val allTasks by taskRepository.tasksFlow.collectAsStateWithLifecycle(initialValue = emptyList())
+    val tasks = allTasks.filter { it.assistantId == assistant.id.toString() }
     val navController = LocalNavController.current
-    val pagerState = rememberPagerState { 4 }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.assistant_extensions_page_title)) },
+                title = {
+                    Text(
+                        text = stringResource(R.string.assistant_extensions_page_title),
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        ),
+                    )
+                },
                 navigationIcon = { BackButton() },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize()) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-                    .consumeWindowInsets(innerPadding),
-            ) { page ->
-                when (page) {
-                    0 -> {
-                        if (settings.modeInjections.isEmpty()) {
-                            ExtensionEmptyState(
-                                message = stringResource(R.string.assistant_extensions_page_empty_mode_injections),
-                                buttonText = stringResource(R.string.assistant_extensions_page_goto_mode_injections),
-                                onAction = { navController.navigate(Screen.ModeInjections) },
-                            )
-                        } else {
-                            Column(
-                                modifier = Modifier.padding(bottom = FloatingBottomBarDefaults.ContentBottom),
-                            ) {
-                                ModeInjectionsContent(
-                                    modifier = Modifier.weight(1f),
-                                    modeInjections = settings.modeInjections,
-                                    selectedIds = assistant.modeInjectionIds,
-                                    onToggle = { injId, checked ->
-                                        val newIds = if (checked) assistant.modeInjectionIds + injId
-                                        else assistant.modeInjectionIds - injId
-                                        vm.update(assistant.copy(modeInjectionIds = newIds))
-                                    },
-                                )
-                                TextButton(
-                                    onClick = { navController.navigate(Screen.ModeInjections) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(stringResource(R.string.assistant_extensions_page_goto_mode_injections))
-                                }
-                            }
-                        }
-                    }
-
-                    1 -> {
-                        if (settings.lorebooks.isEmpty()) {
-                            ExtensionEmptyState(
-                                message = stringResource(R.string.assistant_extensions_page_empty_lorebooks),
-                                buttonText = stringResource(R.string.assistant_extensions_page_goto_lorebooks),
-                                onAction = { navController.navigate(Screen.Lorebooks) },
-                            )
-                        } else {
-                            Column(
-                                modifier = Modifier.padding(bottom = FloatingBottomBarDefaults.ContentBottom),
-                            ) {
-                                LorebooksContent(
-                                    modifier = Modifier.weight(1f),
-                                    lorebooks = settings.lorebooks,
-                                    selectedIds = assistant.lorebookIds,
-                                    onToggle = { injId, checked ->
-                                        val newIds = if (checked) assistant.lorebookIds + injId
-                                        else assistant.lorebookIds - injId
-                                        vm.update(assistant.copy(lorebookIds = newIds))
-                                    },
-                                )
-                                TextButton(
-                                    onClick = { navController.navigate(Screen.Lorebooks) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(stringResource(R.string.assistant_extensions_page_goto_lorebooks))
-                                }
-                            }
-                        }
-                    }
-
-                    2 -> {
-                        if (skills.isEmpty()) {
-                            ExtensionEmptyState(
-                                message = stringResource(R.string.assistant_extensions_page_empty_skills),
-                                buttonText = stringResource(R.string.assistant_extensions_page_goto_extensions),
-                                onAction = { navController.navigate(Screen.Skills) },
-                            )
-                        } else {
-                            Column(
-                                modifier = Modifier.padding(bottom = FloatingBottomBarDefaults.ContentBottom),
-                            ) {
-                                SkillsContent(
-                                    modifier = Modifier.weight(1f),
-                                    skills = skills,
-                                    enabledSkills = assistant.enabledSkills,
-                                    onToggle = { name, checked ->
-                                        val newSkills = if (checked) assistant.enabledSkills + name
-                                        else assistant.enabledSkills - name
-                                        vm.update(assistant.copy(enabledSkills = newSkills))
-                                    },
-                                )
-                                TextButton(
-                                    onClick = { navController.navigate(Screen.Skills) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(stringResource(R.string.assistant_extensions_page_goto_extensions))
-                                }
-                            }
-                        }
-                    }
-
-                    3 -> {
-                        if (mcpServerConfigs.isEmpty()) {
-                            ExtensionEmptyState(
-                                message = stringResource(R.string.assistant_extensions_page_empty_mcp),
-                                buttonText = stringResource(R.string.assistant_extensions_page_goto_mcp),
-                                onAction = { navController.navigate(Screen.SettingMcp) },
-                            )
-                        } else {
-                            Column(
-                                modifier = Modifier.padding(bottom = FloatingBottomBarDefaults.ContentBottom),
-                            ) {
-                                McpPicker(
-                                    modifier = Modifier.weight(1f),
-                                    assistant = assistant,
-                                    servers = mcpServerConfigs,
-                                    onUpdateAssistant = { vm.update(it) },
-                                )
-                                TextButton(
-                                    onClick = { navController.navigate(Screen.SettingMcp) },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(stringResource(R.string.assistant_extensions_page_goto_mcp))
-                                }
-                            }
-                        }
-                    }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = innerPadding + PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            item {
+                CardGroup(title = { Text(stringResource(R.string.extensions_page_section_prompt)) }) {
+                    item(
+                        onClick = { navController.navigate(Screen.AssistantExtensionSection(id, "injections")) },
+                        leadingContent = { SettingIcon(HugeIcons.MagicWand01, EntryAccents.Rose) },
+                        headlineContent = { Text(stringResource(R.string.extensions_page_mode_injection)) },
+                        supportingContent = { CountText(assistant.modeInjectionIds.size, settings.modeInjections.size) },
+                        trailingContent = { Chevron() },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.AssistantExtensionSection(id, "lorebooks")) },
+                        leadingContent = { SettingIcon(HugeIcons.Book01, EntryAccents.Amber) },
+                        headlineContent = { Text(stringResource(R.string.extensions_page_lorebook)) },
+                        supportingContent = { CountText(assistant.lorebookIds.size, settings.lorebooks.size) },
+                        trailingContent = { Chevron() },
+                    )
                 }
             }
-            FloatingBottomBar(
-                pagerState = pagerState,
-                tabs = listOf(
-                    FloatingBottomBarTab(
-                        icon = HugeIcons.MagicWand01,
-                        label = stringResource(R.string.assistant_extensions_page_tab_mode_injections),
-                    ),
-                    FloatingBottomBarTab(
-                        icon = HugeIcons.Book01,
-                        label = stringResource(R.string.assistant_extensions_page_tab_lorebooks),
-                    ),
-                    FloatingBottomBarTab(
-                        icon = HugeIcons.Puzzle,
-                        label = stringResource(R.string.assistant_extensions_page_tab_skills),
-                    ),
-                    FloatingBottomBarTab(
-                        icon = HugeIcons.McpServer,
-                        label = stringResource(R.string.assistant_page_tab_mcp),
-                    ),
-                ),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = innerPadding.calculateBottomPadding()),
-            )
+
+            item {
+                CardGroup(title = { Text(stringResource(R.string.extensions_page_section_agent)) }) {
+                    item(
+                        onClick = { navController.navigate(Screen.AssistantExtensionSection(id, "skills")) },
+                        leadingContent = { SettingIcon(HugeIcons.Puzzle, EntryAccents.Violet) },
+                        headlineContent = { Text(stringResource(R.string.extensions_page_agent_skills)) },
+                        supportingContent = { CountText(assistant.enabledSkills.size, skills.size) },
+                        trailingContent = { Chevron() },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.AssistantExtensionSection(id, "mcp")) },
+                        leadingContent = { SettingIcon(HugeIcons.McpServer, EntryAccents.Cyan) },
+                        headlineContent = { Text(stringResource(R.string.setting_page_mcp)) },
+                        supportingContent = { CountText(assistant.mcpServers.size, mcpServerConfigs.size) },
+                        trailingContent = { Chevron() },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.AssistantLocalTool(id)) },
+                        leadingContent = { SettingIcon(HugeIcons.Tools, EntryAccents.Green) },
+                        headlineContent = { Text(stringResource(R.string.assistant_page_tab_local_tools)) },
+                        supportingContent = { CountText(assistant.localTools.size, LocalToolEntries.size) },
+                        trailingContent = { Chevron() },
+                    )
+                }
+            }
+
+            item {
+                CardGroup(title = { Text(stringResource(R.string.extensions_page_section_automation)) }) {
+                    item(
+                        onClick = { navController.navigate(Screen.AssistantScheduledTasks(id)) },
+                        leadingContent = { SettingIcon(HugeIcons.Clock01, EntryAccents.Indigo) },
+                        headlineContent = { Text(stringResource(R.string.assistant_page_tab_scheduled_tasks)) },
+                        supportingContent = { CountText(tasks.count { it.enabled }, tasks.size) },
+                        trailingContent = { Chevron() },
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun CountText(enabled: Int, total: Int) {
+    Text("$enabled/$total")
+}
+
+@Composable
+private fun Chevron() {
+    Icon(
+        imageVector = HugeIcons.ArrowRight01,
+        contentDescription = null,
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }

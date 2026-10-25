@@ -3,42 +3,40 @@ package me.yui.yuihub.data.sync
 import android.content.Context
 import android.util.Log
 import io.requery.android.database.sqlite.SQLiteDatabase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import me.yui.yuihub.data.db.AppDatabase
-import me.yui.yuihub.data.files.FileFolders
-import me.yui.yuihub.data.files.SkillPaths
+import me.yui.yuihub.BuildConfig
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.datastore.migration.SettingsJsonMigrator
+import me.yui.yuihub.data.db.AppDatabase
+import me.yui.yuihub.data.files.FileFolders
+import me.yui.yuihub.data.files.SkillPaths
 import me.yui.yuihub.utils.fileSizeToString
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
+import java.io.IOException
+import java.io.InputStream
+import java.security.MessageDigest
 import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 private const val TAG = "LocalBackupService"
 
-enum class BackupItem {
-    DATABASE,
-    FILES,
-    SETTINGS,
-}
-
 /**
- * FILES 备份覆盖的 filesDir 子目录（与 [LocalBackupService.writeFileEntry] 的前缀分派保持一致）。
+ * FILES 备份覆盖的 filesDir 子目录。新增用户数据目录时必须同步加到这里，
+ * BackupCoverageTest 会断言两者不得漂移。
  *
- * 新增一类用户数据目录（FileFolders 里再加常量）时必须同步加到这里，
- * BackupCoverageTest 会断言两者不得漂移，避免「新增目录忘入备份」这类静默丢数据。
- *
- * 有意不纳入：
- * - `workspaces/`：含 rootfs 与容器临时文件，体积可达数百 MB，属于可重建的运行环境
- * - `databases/`、`shared_prefs/`、`cache/`、`files/`：非用户资产
+ * 有意不纳入：workspaces/（rootfs 与容器临时文件，体积大且可重建）、
+ * databases/、shared_prefs/、cache/、files/ 本身。
  */
 val BACKED_UP_FILE_FOLDERS: List<String> = listOf(
     FileFolders.UPLOAD,
@@ -48,12 +46,13 @@ val BACKED_UP_FILE_FOLDERS: List<String> = listOf(
     FileFolders.IMAGES,
 )
 
+private const val SAFETY_DIR = "safety_backup"
+private const val MAX_SAFETY_BACKUPS = 3
+private val RECURSIVE_FOLDERS = setOf(FileFolders.SKILLS, FileFolders.TOOL_OUTPUTS)
+
 /**
- * 本地备份：将选中的内容打成 zip（导出到本地文件 / 从本地文件恢复）。
- *
- * SETTINGS 对应 settings.json——供应商、MCP、技能启用、模型参数等。
- * DATABASE 对应 Room 数据库（聊天记录、记忆、token 账本、定时任务等）。
- * FILES 对应上传附件、技能、字体、工具输出、生成图片。
+ * 本地备份：分类打包、清单、预览、校验与暂存恢复。
+ * 工作区文件不参与；数据库是原子单元（对话/助手/记忆/收藏/任务/统计）。
  */
 class LocalBackupService(
     private val settingsStore: SettingsStore,
@@ -61,426 +60,512 @@ class LocalBackupService(
     private val context: Context,
     private val database: AppDatabase,
 ) {
-    suspend fun prepareBackupFile(items: List<BackupItem>): File = withContext(Dispatchers.IO) {
-        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
-        val backupFile = File(context.cacheDir, "backup_$timestamp.zip")
+    suspend fun prepareBackupFile(items: Collection<BackupItem>): File = withContext(Dispatchers.IO) {
+        require(items.isNotEmpty()) { "Select at least one backup item" }
+        val settings = settingsStore.settingsFlowRaw.first()
+        val backupFile = File.createTempFile("backup_", ".zip", context.cacheDir)
+        val timestamp = backupFile.nameWithoutExtension
+        try {
+            var databaseBytes = 0L
+            var databaseHash = ""
+            var databaseVersion = 0
+            var counts: Map<String, Int> = emptyMap()
+            val settingsText = json.encodeToString(backupSettings(settings))
+            var fileCount = 0
+            var fileBytes = 0L
 
-        if (backupFile.exists()) {
-            backupFile.delete()
-        }
-
-        ZipOutputStream(FileOutputStream(backupFile)).use { zipOut ->
-            if (items.contains(BackupItem.SETTINGS)) {
-                addVirtualFileToZip(
-                    zipOut = zipOut,
-                    name = "settings.json",
-                    content = json.encodeToString(settingsStore.settingsFlow.value)
-                )
-            }
-
-            if (items.contains(BackupItem.DATABASE)) {
-                // VACUUM INTO 在单个读事务里导出，得到包含已提交 WAL 内容的一致快照；
-                // 比「checkpoint + 拷贝文件」更稳（拷贝期间写入不会被看到，且不会拷到半页）。
-                val snapshot = File(context.cacheDir, "backup_snapshot_${timestamp}.db")
-                if (snapshot.exists()) snapshot.delete()
-                try {
-                    runCatching {
+            ZipOutputStream(FileOutputStream(backupFile)).use { zipOut ->
+                if (BackupItem.SETTINGS in items) {
+                    addVirtualFileToZip(zipOut, "settings.json", settingsText)
+                }
+                if (BackupItem.DATABASE in items) {
+                    val snapshot = File(context.cacheDir, "backup_snapshot_${timestamp}.db")
+                    if (snapshot.exists()) snapshot.delete()
+                    try {
                         database.openHelper.writableDatabase.execSQL(
                             "VACUUM main INTO ?",
                             arrayOf(snapshot.absolutePath),
                         )
-                    }.onFailure {
-                        Log.w(TAG, "prepareBackupFile: VACUUM INTO failed, falling back to file copy", it)
-                    }
-
-                    if (snapshot.exists() && snapshot.length() > 0) {
+                        check(snapshot.isFile && snapshot.length() > 0) { "Database snapshot is empty" }
+                        databaseVersion = readDatabaseVersion(snapshot)
+                        counts = readDatabaseCounts(snapshot)
+                        databaseBytes = snapshot.length()
+                        databaseHash = sha256(snapshot)
                         addFileToZip(zipOut, snapshot, DATABASE_NAME)
-                    } else {
-                        // 回退路径：老设备/异常情况下仍保底可备份
-                        runCatching {
-                            database.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)")
-                                .use { it.moveToFirst() }
-                        }
-                        val dbFile = context.getDatabasePath(DATABASE_NAME)
-                        if (dbFile.exists()) {
-                            addFileToZip(zipOut, dbFile, DATABASE_NAME)
-                        }
+                    } finally {
+                        snapshot.delete()
                     }
-                } finally {
-                    snapshot.delete()
                 }
-
-                // 只保留主库：快照是自包含的（WAL 内容已合并），无需再带 sidecar
-            }
-
-            if (items.contains(BackupItem.FILES)) {
-                // 目录清单以 BACKED_UP_FILE_FOLDERS 为准（有 BackupCoverageTest 防止与 FileFolders 漂移）：
-                // 递归与否按目录内容形态决定，技能/工具输出含子目录，其余为一级平铺。
-                val recursiveFolders = setOf(FileFolders.SKILLS, FileFolders.TOOL_OUTPUTS)
-                BACKED_UP_FILE_FOLDERS.forEach { folderName ->
-                    addDirectoryToZip(
+                selectedFileFolders(items).forEach { folderName ->
+                    val added = addDirectoryToZip(
                         zipOut = zipOut,
                         folderName = folderName,
-                        recursive = folderName in recursiveFolders,
+                        recursive = folderName in RECURSIVE_FOLDERS,
                     )
+                    fileCount += added.first
+                    fileBytes += added.second
+                }
+
+                val manifest = BackupManifest(
+                    appVersion = BuildConfig.VERSION_NAME,
+                    databaseVersion = databaseVersion,
+                    createdAt = System.currentTimeMillis(),
+                    items = items.map { it.name },
+                    databaseBytes = databaseBytes,
+                    settingsBytes = settingsText.toByteArray(Charsets.UTF_8).size.toLong(),
+                    fileCount = fileCount,
+                    fileBytes = fileBytes,
+                    counts = counts,
+                    databaseSha256 = databaseHash,
+                    settingsSha256 = if (BackupItem.SETTINGS in items) settingsText.sha256() else "",
+                )
+                addVirtualFileToZip(
+                    zipOut,
+                    BackupManifest.ENTRY_NAME,
+                    json.encodeToString(manifest),
+                )
+            }
+
+            Log.i(
+                TAG,
+                "prepareBackupFile: ${backupFile.name} (${backupFile.length().fileSizeToString()}) items=${items.map { it.name }}",
+            )
+            backupFile
+        } catch (e: Throwable) {
+            backupFile.delete()
+            throw e
+        }
+    }
+
+    /** 自动/安全备份：除工作区外的全部内容。 */
+    suspend fun createSafetyBackup(): File = withContext(Dispatchers.IO) {
+        val dir = File(context.filesDir, SAFETY_DIR).apply { mkdirs() }
+        val target = File(dir, "yuihub_safety_${System.currentTimeMillis()}.zip")
+        val partial = File(dir, "${target.name}.partial")
+        val prepared = prepareBackupFile(BackupItem.ALL)
+        try {
+            prepared.inputStream().use { input ->
+                FileOutputStream(partial).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                    }
+                    output.fd.sync()
                 }
             }
-        }
-
-        Log.i(
-            TAG,
-            "prepareBackupFile: Created backup file ${backupFile.name} (${backupFile.length().fileSizeToString()})"
-        )
-        backupFile
-    }
-
-    suspend fun restoreFromLocalFile(file: File, items: List<BackupItem>) = withContext(Dispatchers.IO) {
-        Log.i(TAG, "restoreFromLocalFile: Starting restore from ${file.absolutePath}")
-
-        if (!file.exists()) {
-            throw Exception("Backup file does not exist")
-        }
-
-        if (!file.canRead()) {
-            throw Exception("Cannot read backup file")
-        }
-
-        try {
-            restoreFromBackupFile(file, items)
-            Log.i(TAG, "restoreFromLocalFile: Restore completed successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "restoreFromLocalFile: Failed to restore from local file", e)
-            throw Exception("Restore failed: ${e.message}")
+            check(partial.renameTo(target)) { "Cannot publish safety backup" }
+            listLocalBackups()
+                .filter { it.kind == LocalBackupFile.Kind.SAFETY }
+                .sortedByDescending { it.createdAt }
+                .drop(MAX_SAFETY_BACKUPS)
+                .forEach { it.file.delete() }
+            Log.i(TAG, "createSafetyBackup: ${target.name} (${target.length().fileSizeToString()})")
+            target
+        } finally {
+            prepared.delete()
+            partial.delete()
         }
     }
 
-    private suspend fun restoreFromBackupFile(backupFile: File, items: List<BackupItem>) =
-        withContext(Dispatchers.IO) {
-            Log.i(TAG, "restoreFromBackupFile: Starting restore from ${backupFile.absolutePath}")
+    fun listLocalBackups(): List<LocalBackupFile> {
+        val autoDir = File(context.filesDir, "auto_backup")
+        val safetyDir = File(context.filesDir, SAFETY_DIR)
+        return buildList {
+            autoDir.listFiles().orEmpty()
+                .filter { it.isFile && it.name.endsWith(".zip") }
+                .forEach { add(LocalBackupFile(it, LocalBackupFile.Kind.AUTO, it.lastModified())) }
+            safetyDir.listFiles().orEmpty()
+                .filter { it.isFile && it.name.endsWith(".zip") }
+                .forEach { add(LocalBackupFile(it, LocalBackupFile.Kind.SAFETY, it.lastModified())) }
+        }.sortedByDescending { it.createdAt }
+    }
 
-            // 数据库先解到暂存目录：直接覆盖真实库文件时，一旦中途失败（低内存被杀、
-            // 用户强杀）留下的是半截库且无法回滚。先解到 ${cacheDir} 校验通过再原子替换。
-            val stagedDatabase = if (items.contains(BackupItem.DATABASE)) {
-                File(context.cacheDir, "restore_staged_$DATABASE_NAME")
-            } else null
-
-            // Room 连接全程持有 db 文件: 不先关库, 恢复后的文件会被旧连接的 WAL
-            // 状态覆盖回去, 轻则数据回退重则库损坏。关库后旧查询会失败, 因此恢复
-            // 完成后必须重启应用才能继续使用。
-            val needRestart = items.contains(BackupItem.DATABASE)
-            if (needRestart) {
-                Log.w(TAG, "restoreFromBackupFile: closing database for file restore")
-                database.close()
-            }
-
-            try {
-                ZipInputStream(FileInputStream(backupFile)).use { zipIn ->
-                    var entry: ZipEntry?
-                    while (zipIn.nextEntry.also { entry = it } != null) {
-                        entry?.let { zipEntry ->
-                            when (zipEntry.name) {
-                                "settings.json" -> {
-                                    if (items.contains(BackupItem.SETTINGS)) {
-                                        val settingsJson = zipIn.readBytes().toString(Charsets.UTF_8)
-                                        Log.i(TAG, "restoreFromBackupFile: Restoring settings")
-                                        try {
-                                            val migratedJson = SettingsJsonMigrator.migrate(settingsJson)
-                                            val settings = json.decodeFromString<Settings>(migratedJson)
-                                            settingsStore.update(settings)
-                                            Log.i(TAG, "restoreFromBackupFile: Settings restored successfully")
-                                        } catch (e: Exception) {
-                                            Log.e(TAG, "restoreFromBackupFile: Failed to restore settings", e)
-                                            throw Exception("Failed to restore settings: ${e.message}")
-                                        }
-                                    }
-                                }
-
-                                // 老版本备份可能同时含 -wal/-shm：统一收到暂存目录附近，
-                                // 稍后由完整性校验决定是否采用，绝不直接落进 databases/
-                                DATABASE_NAME, "$DATABASE_NAME-wal", "$DATABASE_NAME-shm" -> {
-                                    if (items.contains(BackupItem.DATABASE)) {
-                                        val target = when (zipEntry.name) {
-                                            DATABASE_NAME -> stagedDatabase
-                                            "$DATABASE_NAME-wal" ->
-                                                File(context.cacheDir, "restore_staged_$DATABASE_NAME-wal")
-
-                                            else ->
-                                                File(context.cacheDir, "restore_staged_$DATABASE_NAME-shm")
-                                        } ?: return@let
-                                        target.parentFile?.mkdirs()
-                                        FileOutputStream(target).use { outputStream ->
-                                            zipIn.copyTo(outputStream)
-                                        }
-                                        Log.i(TAG, "restoreFromBackupFile: Staged ${zipEntry.name} (${target.length()} bytes)")
-                                    }
-                                }
-
-                                else -> if (items.contains(BackupItem.FILES)) {
-                                    restoreFileEntry(zipIn, zipEntry.name)
-                                } else {
-                                    Log.i(TAG, "restoreFromBackupFile: Skipping entry ${zipEntry.name}")
-                                }
+    suspend fun inspectBackup(file: File): BackupInspection = withContext(Dispatchers.IO) {
+        check(file.isFile && file.length() > 0) { "Backup file is missing or empty" }
+        var manifest: BackupManifest? = null
+        val present = linkedSetOf<BackupItem>()
+        var fileCount = 0
+        var fileBytes = 0L
+        val itemBytes = linkedMapOf<BackupItem, Long>()
+        val seen = hashSetOf<String>()
+        ZipFile(file).use { zip ->
+            zip.entries().asSequence().forEach { entry ->
+                currentCoroutineContext().ensureActive()
+                check(seen.add(entry.name)) { "Duplicate backup entry: ${entry.name}" }
+                check(seen.size <= 100_000) { "Too many backup entries" }
+                when {
+                    entry.isDirectory -> Unit
+                    entry.name == BackupManifest.ENTRY_NAME -> {
+                        check(entry.size in 1..SETTINGS_LIMIT) { "Backup manifest is too large" }
+                        val text = zip.getInputStream(entry).bufferedReader().use { it.readText() }
+                        manifest = runCatching { json.decodeFromString<BackupManifest>(text) }.getOrNull()
+                        manifest?.let {
+                            check(it.formatVersion <= BackupManifest.FORMAT_VERSION) {
+                                "Backup format is newer than this app"
                             }
-
-                            zipIn.closeEntry()
+                        }
+                    }
+                    entry.name == "settings.json" -> present += BackupItem.SETTINGS
+                    entry.name == DATABASE_NAME -> present += BackupItem.DATABASE
+                    else -> {
+                        BackupItem.forFolder(entry.name.substringBefore('/'))?.let { item ->
+                            present += item
+                        }
+                        if (entry.name.substringBefore('/') in BACKED_UP_FILE_FOLDERS) {
+                            fileCount++
+                            fileBytes += entry.size.coerceAtLeast(0)
+                            BackupItem.forFolder(entry.name.substringBefore('/'))?.let { item ->
+                                itemBytes[item] = (itemBytes[item] ?: 0L) + entry.size.coerceAtLeast(0)
+                            }
                         }
                     }
                 }
+            }
+        }
+        BackupInspection(
+            file = file,
+            archiveBytes = file.length(),
+            manifest = manifest,
+            presentItems = present,
+            fileCount = fileCount,
+            fileBytes = fileBytes,
+            createdAt = manifest?.createdAt?.takeIf { it > 0 } ?: file.lastModified(),
+            counts = manifest?.counts.orEmpty(),
+            itemBytes = itemBytes,
+        )
+    }
 
-                // 暂存的库：先回放 WAL（老格式备份才带），再校验，通过后登记为待安装。
-                // 顺序很重要：只读打开带 WAL 的库读不到 WAL 里的最新页，
-                // 先校验会验到一份过时快照，且可能因缺 -shm 而打不开。
-                if (stagedDatabase != null) {
+    suspend fun calculateSizes(): BackupSizeSummary = withContext(Dispatchers.IO) {
+        val dbFile = context.getDatabasePath(DATABASE_NAME)
+        val dbBytes = listOf(dbFile, File("${dbFile.path}-wal"), File("${dbFile.path}-shm"))
+            .filter { it.isFile }
+            .sumOf { it.length() }
+        val settingsBytes = runCatching {
+            json.encodeToString(backupSettings(settingsStore.settingsFlowRaw.first()))
+                .toByteArray(Charsets.UTF_8).size.toLong()
+        }.getOrDefault(0L)
+        val files = BackupItem.FILE_ITEMS.associateWith { item ->
+            val root = File(context.filesDir, item.folder!!)
+            if (!root.isDirectory) 0L else root.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+        }
+        BackupSizeSummary(databaseBytes = dbBytes, settingsBytes = settingsBytes, fileBytes = files)
+    }
+
+    suspend fun restoreFromLocalFile(file: File, items: Collection<BackupItem>) = withContext(Dispatchers.IO) {
+        Log.i(TAG, "restoreFromLocalFile: ${file.absolutePath} items=${items.map { it.name }}")
+        check(file.exists()) { "Backup file does not exist" }
+        check(file.canRead()) { "Cannot read backup file" }
+        check(items.isNotEmpty()) { "Select at least one backup item" }
+        if (items.any { it == BackupItem.DATABASE || it == BackupItem.SETTINGS }) {
+            runCatching { createSafetyBackup() }
+                .onFailure { Log.w(TAG, "safety backup failed; continuing restore", it) }
+        }
+        try {
+            restoreFromBackupFile(file, items)
+            Log.i(TAG, "restoreFromLocalFile: staged successfully")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "restoreFromLocalFile: failed", e)
+            throw IOException("Restore failed: ${e.message}", e)
+        }
+    }
+
+    private suspend fun restoreFromBackupFile(backupFile: File, items: Collection<BackupItem>) =
+        withContext(Dispatchers.IO) {
+            check(!PendingRestoreStore.hasPending(context.filesDir)) {
+                "A restore is already pending; restart the app first"
+            }
+            ZipFile(backupFile).use { }
+            val staging = File.createTempFile("restore_", "", context.cacheDir).also {
+                check(it.delete() && it.mkdir()) { "Cannot create restore staging directory" }
+            }
+            val stagedDatabase = File(staging, DATABASE_NAME)
+            var restoredSettings: Settings? = null
+            var restoredSettingsHash = ""
+            val stagedFiles = linkedMapOf<File, File>()
+            val targets = hashSetOf<File>()
+            val seen = hashSetOf<String>()
+            val selectedFolders = selectedFileFolders(items)
+            val budget = RestoreByteBudget()
+            try {
+                var manifest: BackupManifest? = null
+                ZipInputStream(FileInputStream(backupFile)).use { zip ->
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val entry = zip.nextEntry ?: break
+                        check(seen.add(entry.name)) { "Duplicate backup entry: ${entry.name}" }
+                        check(seen.size <= 100_000) { "Too many backup entries" }
+                        val limit = if (entry.name == "settings.json") SETTINGS_LIMIT else ENTRY_LIMIT
+                        val jobContext = currentCoroutineContext()
+                        val input = budget.entry(zip, limit) { jobContext.ensureActive() }
+                        when {
+                            entry.isDirectory -> Unit
+                            entry.name == BackupManifest.ENTRY_NAME -> {
+                                val text = input.readBytes().toString(Charsets.UTF_8)
+                                manifest = runCatching {
+                                    json.decodeFromString<BackupManifest>(text)
+                                }.getOrNull()
+                                manifest?.let {
+                                    check(it.formatVersion <= BackupManifest.FORMAT_VERSION) {
+                                        "Backup format is newer than this app"
+                                    }
+                                }
+                            }
+                            entry.name == "settings.json" && BackupItem.SETTINGS in items -> {
+                                val text = input.readBytes().toString(Charsets.UTF_8)
+                                restoredSettingsHash = text.sha256()
+                                restoredSettings = json.decodeFromString<Settings>(
+                                    SettingsJsonMigrator.migrate(text)
+                                )
+                            }
+                            entry.name in listOf(DATABASE_NAME, "$DATABASE_NAME-wal", "$DATABASE_NAME-shm") &&
+                                BackupItem.DATABASE in items -> {
+                                File(staging, entry.name).outputStream().use { input.copyTo(it) }
+                            }
+                            BackupItem.forFolder(entry.name.substringBefore('/'))?.folder in selectedFolders -> {
+                                val target = fileEntryTarget(entry.name, items)
+                                if (target != null) {
+                                    check(targets.add(target)) { "Duplicate backup file: ${entry.name}" }
+                                    val staged = File(staging, "attachment_${stagedFiles.size}")
+                                    staged.outputStream().use { input.copyTo(it) }
+                                    stagedFiles[staged] = target
+                                }
+                            }
+                        }
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        while (input.read(buffer) != -1) Unit
+                        zip.closeEntry()
+                    }
+                }
+                if (BackupItem.SETTINGS in items) {
+                    check(restoredSettings != null) { "Backup settings are missing" }
+                    val expected = manifest?.settingsSha256.orEmpty()
+                    if (expected.isNotBlank()) {
+                        check(restoredSettingsHash == expected) { "Backup settings checksum mismatch" }
+                    }
+                }
+                if (BackupItem.DATABASE in items) {
+                    check(stagedDatabase.isFile && stagedDatabase.length() > 0) {
+                        "Backup database is missing or empty"
+                    }
                     checkpointStagedWal(stagedDatabase)
                     validateStagedDatabase(stagedDatabase)
-                    // 先把暂存库落到**持久目录**并标记：万一安装阶段被杀，
-                    // 下次启动能补完（见 PendingRestoreStore.applyIfPending）。
-                    // 否则用户面对的是半途而废的数据库。
-                    val staged = PendingRestoreStore.stage(context.filesDir, stagedDatabase)
-                    if (!staged) {
-                        throw Exception("Could not stage the restored database")
+                    val expected = manifest?.databaseSha256.orEmpty()
+                    if (expected.isNotBlank()) {
+                        check(sha256(stagedDatabase) == expected) { "Backup database checksum mismatch" }
                     }
-                    installStagedDatabase(stagedDatabase)
-                    // 安装成功，清除待办标记
-                    PendingRestoreStore.clear(context.filesDir)
                 }
+                val jobContext = currentCoroutineContext()
+                PendingRestoreStore.stage(
+                    filesDir = context.filesDir,
+                    staged = stagedDatabase.takeIf { BackupItem.DATABASE in items },
+                    settings = restoredSettings?.let { json.encodeToString(it) },
+                    attachments = stagedFiles,
+                ) { jobContext.ensureActive() }
             } finally {
-                // cache 里的解包暂存一律清理；持久目录的待办由 applyIfPending 负责
-                listOf(DATABASE_NAME, "$DATABASE_NAME-wal", "$DATABASE_NAME-shm").forEach { name ->
-                    File(context.cacheDir, "restore_staged_$name").delete()
-                }
+                staging.deleteRecursively()
             }
-
-            Log.i(TAG, "restoreFromBackupFile: Restore completed successfully")
         }
 
-    /**
-     * 回放暂存库旁的 WAL（只有老格式备份会带）。
-     * 不回放就校验/安装，会拿到一份不含最新事务的快照。
-     */
     private fun checkpointStagedWal(staged: File) {
-        val stagedWal = File(context.cacheDir, "restore_staged_$DATABASE_NAME-wal")
-        val stagedShm = File(context.cacheDir, "restore_staged_$DATABASE_NAME-shm")
+        val stagedWal = File(staged.parentFile, "${staged.name}-wal")
+        val stagedShm = File(staged.parentFile, "${staged.name}-shm")
         if (!stagedWal.exists() || stagedWal.length() == 0L) {
-            // 无 WAL / 空 WAL：清掉可能的 -shm，避免它影响后续打开
             stagedShm.delete()
             return
         }
-        SQLiteDatabase.openDatabase(
-            staged.absolutePath,
-            null,
-            SQLiteDatabase.OPEN_READWRITE,
-        ).use { db ->
-            db.query("PRAGMA wal_checkpoint(TRUNCATE)").use { it.moveToFirst() }
+        SQLiteDatabase.openDatabase(staged.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            db.query("PRAGMA wal_checkpoint(TRUNCATE)").use {
+                check(it.moveToFirst() && it.getInt(0) == 0) { "Cannot checkpoint backup WAL" }
+            }
         }
-        Log.i(TAG, "checkpointStagedWal: replayed WAL into staged database")
     }
 
-    /**
-     * 校验暂存的数据库：非空、能被 SQLite 打开、`PRAGMA integrity_check` 通过。
-     *
-     * 调用前 WAL 已被回放（见 [checkpointStagedWal]），因此这里校验的就是最终内容。
-     */
     private fun validateStagedDatabase(staged: File) {
         if (!staged.exists() || staged.length() == 0L) {
             throw Exception("Backup database is missing or empty")
         }
-
-        // 用只读方式打开做完整性检查：这里只验证，不修改暂存文件。
-        // 与全库打开时同用 requery 实现：混用 framework / requery 两套 SQLite
-        // 在 WAL 模式下可能对同一文件产生不兼容的 sidecar 状态。
-        // 注意：裸连接没有注册 libsimple tokenizer，全库 integrity_check 会在
-        // message_fts 上抛错，必须走逐表校验（跳过 FTS 虚拟表）。
-        val error = SQLiteDatabase.openDatabase(
-            staged.absolutePath,
-            null,
-            SQLiteDatabase.OPEN_READONLY,
-        ).use { db ->
-            DbIntegrityChecker.check(db)
-        }
-        if (error != null) {
-            throw Exception("Backup database could not be validated: $error")
-        }
-        Log.i(TAG, "validateStagedDatabase: integrity check passed")
-    }
-
-    /**
-     * 把校验通过的暂存库原子替换到 databases/。
-     *
-     * 关键点：**必须先删掉旧的 -wal / -shm**。若旧库遗留的 WAL 被新库重放，
-     * 会把上一份数据库的页写进新库，轻则数据错乱重则损坏。
-     */
-    private fun installStagedDatabase(staged: File) {
-        val dbFile = context.getDatabasePath(DATABASE_NAME)
-        dbFile.parentFile?.mkdirs()
-        Log.i(TAG, "installStagedDatabase: installing ${staged.absolutePath} -> ${dbFile.absolutePath}")
-
-        // 旧 sidecar 必须先清：残留 WAL 会被新库重放
-        listOf("-wal", "-shm").forEach { suffix ->
-            val sidecar = File(dbFile.parentFile, DATABASE_NAME + suffix)
-            if (sidecar.exists() && !sidecar.delete()) {
-                throw Exception("Could not remove stale database sidecar: ${sidecar.name}")
+        SQLiteDatabase.openDatabase(staged.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            val version = readDatabaseVersion(db)
+            check(version in 1..AppDatabase.DATABASE_VERSION) {
+                "Backup database is from a newer app version (db=$version, current=${AppDatabase.DATABASE_VERSION})"
             }
+            val error = DbIntegrityChecker.check(db)
+            check(error == null) { "Backup database could not be validated: $error" }
         }
-
-        // 同目录 rename 才是原子的；跨越 cache -> databases 用 copy + rename
-        val tempInPlace = File(dbFile.parentFile, "$DATABASE_NAME.restoring")
-        FileInputStream(staged).use { input ->
-            FileOutputStream(tempInPlace).use { output -> input.copyTo(output) }
-        }
-        if (!tempInPlace.renameTo(dbFile)) {
-            tempInPlace.delete()
-            throw Exception("Could not install the restored database")
-        }
-        Log.i(TAG, "installStagedDatabase: installed (${dbFile.length()} bytes)")
+        Log.i(TAG, "validateStagedDatabase: passed")
     }
 
-    /**
-     * 恢复 FILES 类条目：按一级目录前缀分派。
-     * 所有分支都做 canonicalPath 边界检查，拒绝 zip 条目里的路径穿越。
-     */
-    private fun restoreFileEntry(zipIn: ZipInputStream, entryName: String) {
-        runCatching {
-            writeFileEntry(entryName, zipIn.readBytes())
-        }.onFailure {
-            Log.e(TAG, "restoreFileEntry: failed for $entryName", it)
-        }
-    }
+    private fun readDatabaseVersion(file: File): Int =
+        SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { readDatabaseVersion(it) }
 
-    private fun addFileToZip(zipOut: ZipOutputStream, file: File, entryName: String) {
+    private fun readDatabaseVersion(db: SQLiteDatabase): Int =
+        db.query("PRAGMA user_version").use { if (it.moveToFirst()) it.getInt(0) else 0 }
+
+    private fun readDatabaseCounts(file: File): Map<String, Int> = runCatching {
+        SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+            listOf(
+                "conversations" to "ConversationEntity",
+                "message_nodes" to "MessageNodeEntity",
+                "memories" to "MemoryEntity",
+                "favorites" to "FavoriteEntity",
+                "scheduled_tasks" to "ScheduledTaskEntity",
+                "token_usage" to "TokenUsageEventEntity",
+            ).mapNotNull { (label, table) ->
+                runCatching {
+                    db.query("SELECT COUNT(*) FROM $table").use {
+                        if (it.moveToFirst()) label to it.getInt(0) else null
+                    }
+                }.getOrNull()
+            }.toMap()
+        }
+    }.getOrDefault(emptyMap())
+
+    private suspend fun addFileToZip(zipOut: ZipOutputStream, file: File, entryName: String) {
         FileInputStream(file).use { fis ->
-            val zipEntry = ZipEntry(entryName)
-            zipOut.putNextEntry(zipEntry)
-            fis.copyTo(zipOut)
+            zipOut.putNextEntry(ZipEntry(entryName))
+            val jobContext = currentCoroutineContext()
+            RestoreByteBudget(Long.MAX_VALUE)
+                .entry(fis, Long.MAX_VALUE) { jobContext.ensureActive() }
+                .copyTo(zipOut)
             zipOut.closeEntry()
-            Log.d(TAG, "addFileToZip: Added $entryName (${file.length()} bytes) to zip")
         }
     }
 
-    /** 按目录打包；[recursive] 决定是否含子目录（技能/工具输出需要，其余为一级平铺） */
-    private fun addDirectoryToZip(
+    /** 按目录打包，返回 (文件数, 字节数)。 */
+    private suspend fun addDirectoryToZip(
         zipOut: ZipOutputStream,
         folderName: String,
         recursive: Boolean,
-    ) {
+    ): Pair<Int, Long> {
         val directory = File(context.filesDir, folderName)
-        if (!directory.exists() || !directory.isDirectory) {
-            Log.w(TAG, "addDirectoryToZip: $folderName does not exist or is not a directory")
-            return
-        }
-        Log.i(TAG, "addDirectoryToZip: Backing up $folderName from ${directory.absolutePath}")
-
+        if (!directory.isDirectory) return 0 to 0L
         val files = if (recursive) {
             directory.walkTopDown().filter { it.isFile }.toList()
         } else {
             directory.listFiles().orEmpty().filter { it.isFile }
         }
+        var bytes = 0L
         files.forEach { file ->
+            currentCoroutineContext().ensureActive()
             val relativePath = file.relativeTo(directory).invariantSeparatorsPath
             addFileToZip(zipOut, file, "$folderName/$relativePath")
+            bytes += file.length()
         }
+        return files.size to bytes
     }
 
-    /** target 的规范化路径是否落在 root 目录内（root 自身不算） */
     private fun isInside(root: File, target: File): Boolean {
         val rootPath = root.canonicalPath
         val targetPath = target.canonicalPath
         return targetPath != rootPath && targetPath.startsWith(rootPath + File.separator)
     }
 
-    /**
-     * 把单个文件条目写进 filesDir 下对应目录（供 RikkaHub 导入复用）。
-     *
-     * 与恢复流程共用同一套前缀分派与路径校验，不重复实现。
-     * 路径非法/前缀未知时静默跳过（记日志）。
-     */
-    fun writeFileEntry(entryName: String, bytes: ByteArray) {
-        runCatching {
-            when {
-                entryName.startsWith("${FileFolders.UPLOAD}/") ->
-                    writeFlatBytes(entryName, bytes, FileFolders.UPLOAD)
-
-                entryName.startsWith("${FileFolders.SKILLS}/") ->
-                    writeSkillBytes(entryName, bytes)
-
-                entryName.startsWith("${FileFolders.FONTS}/") ->
-                    writeFlatBytes(entryName, bytes, FileFolders.FONTS)
-
-                entryName.startsWith("${FileFolders.TOOL_OUTPUTS}/") ->
-                    writeNestedBytes(entryName, bytes, FileFolders.TOOL_OUTPUTS)
-
-                entryName.startsWith("${FileFolders.IMAGES}/") ->
-                    writeFlatBytes(entryName, bytes, FileFolders.IMAGES)
-
-                else -> Log.i(TAG, "writeFileEntry: Skipping entry $entryName")
+    suspend fun writeFileEntry(entryName: String, staged: File) {
+        val target = fileEntryTarget(entryName, BackupItem.ALL) ?: return
+        check(target.parentFile!!.isDirectory || target.parentFile!!.mkdirs()) { "Cannot create file directory" }
+        val temp = File.createTempFile("restore_", ".tmp", target.parentFile)
+        try {
+            val jobContext = currentCoroutineContext()
+            staged.inputStream().use { input ->
+                temp.outputStream().use { output ->
+                    RestoreByteBudget().entry(input) { jobContext.ensureActive() }.copyTo(output)
+                }
             }
-        }.onFailure {
-            Log.e(TAG, "writeFileEntry: failed for $entryName", it)
+            currentCoroutineContext().ensureActive()
+            check(temp.renameTo(target)) { "Cannot install restored file: $entryName" }
+        } finally {
+            temp.delete()
         }
     }
 
-    private fun writeFlatBytes(entryName: String, bytes: ByteArray, folderName: String) {
-        val fileName = entryName.substringAfter("$folderName/")
-        if (fileName.isBlank() || fileName.contains('/')) {
-            Log.w(TAG, "writeFlatBytes: Rejected nested or empty name $entryName")
-            return
+    private fun fileEntryTarget(entryName: String, items: Collection<BackupItem>): File? {
+        val folderName = entryName.substringBefore('/')
+        val item = BackupItem.forFolder(folderName) ?: return null
+        if (item !in items) return null
+        val relative = entryName.substringAfter('/', "")
+        require(relative.isNotBlank() && '\\' !in relative) { "Invalid backup path: $entryName" }
+        val root = File(context.filesDir, folderName)
+        val target = if (folderName == FileFolders.SKILLS) {
+            val skill = SkillPaths.resolveSkillDir(root, relative.substringBefore('/'))
+                ?: error("Invalid skill directory: $entryName")
+            require('/' in relative) { "Invalid skill entry: $entryName" }
+            SkillPaths.resolveSkillFile(skill, relative.substringAfter('/'))
+                ?: error("Invalid skill path: $entryName")
+        } else {
+            require(folderName == FileFolders.TOOL_OUTPUTS || '/' !in relative) {
+                "Invalid nested backup path: $entryName"
+            }
+            File(root, relative)
         }
-        val folder = File(context.filesDir, folderName).apply { mkdirs() }
-        val targetFile = File(folder, fileName)
-        if (!isInside(folder, targetFile)) {
-            Log.w(TAG, "writeFlatBytes: Rejected path escape $entryName")
-            return
-        }
-        targetFile.outputStream().use { it.write(bytes) }
-        Log.i(TAG, "writeFlatBytes: wrote $entryName (${bytes.size} bytes)")
-    }
-
-    private fun writeNestedBytes(entryName: String, bytes: ByteArray, folderName: String) {
-        val relativePath = entryName.substringAfter("$folderName/")
-        if (relativePath.isBlank()) {
-            Log.w(TAG, "writeNestedBytes: Invalid entry $entryName")
-            return
-        }
-        val root = File(context.filesDir, folderName).apply { mkdirs() }
-        val targetFile = File(root, relativePath)
-        if (!isInside(root, targetFile)) {
-            Log.w(TAG, "writeNestedBytes: Rejected path escape $entryName")
-            return
-        }
-        targetFile.parentFile?.mkdirs()
-        targetFile.outputStream().use { it.write(bytes) }
-        Log.i(TAG, "writeNestedBytes: wrote $entryName (${bytes.size} bytes)")
-    }
-
-    private fun writeSkillBytes(entryName: String, bytes: ByteArray) {
-        val relativePath = entryName.substringAfter("${FileFolders.SKILLS}/")
-        val skillName = relativePath.substringBefore('/', missingDelimiterValue = "")
-        val skillRelativePath = relativePath.substringAfter('/', missingDelimiterValue = "")
-        if (skillName.isBlank() || skillRelativePath.isBlank()) {
-            Log.w(TAG, "writeSkillBytes: Invalid skill entry $entryName")
-            return
-        }
-        val skillsRoot = File(context.filesDir, FileFolders.SKILLS).apply { mkdirs() }
-        val skillDir = SkillPaths.resolveSkillDir(skillsRoot, skillName)
-            ?: error("Invalid skill directory: $entryName")
-        val targetFile = SkillPaths.resolveSkillFile(skillDir, skillRelativePath)
-            ?: error("Invalid skill file path: $entryName")
-        skillDir.mkdirs()
-        targetFile.parentFile?.mkdirs()
-        targetFile.outputStream().use { it.write(bytes) }
-        Log.i(TAG, "writeSkillBytes: wrote $entryName (${bytes.size} bytes)")
+        require(isInside(root, target)) { "Backup path escapes directory: $entryName" }
+        return target.canonicalFile
     }
 
     private fun addVirtualFileToZip(zipOut: ZipOutputStream, name: String, content: String) {
-        val zipEntry = ZipEntry(name)
-        zipOut.putNextEntry(zipEntry)
-        zipOut.write(content.toByteArray())
+        zipOut.putNextEntry(ZipEntry(name))
+        zipOut.write(content.toByteArray(Charsets.UTF_8))
         zipOut.closeEntry()
-        Log.i(TAG, "addVirtualFileToZip: $name (${content.length} bytes)")
+    }
+
+    private fun selectedFileFolders(items: Collection<BackupItem>): List<String> =
+        items.mapNotNull { it.folder }
+
+    /** 设置 JSON 只保留可序列化字段；与旧备份格式一致。 */
+    private fun backupSettings(settings: Settings): Settings = settings
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     companion object {
-        /** 数据库文件名（与 Room databaseBuilder 里的一致） */
         const val DATABASE_NAME = "rikka_hub"
     }
+}
+
+private fun String.sha256(): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    return digest.digest(toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+}
+
+internal const val ENTRY_LIMIT = 2L * 1024 * 1024 * 1024
+internal const val SETTINGS_LIMIT = 16L * 1024 * 1024
+internal const val TOTAL_LIMIT = 8L * 1024 * 1024 * 1024
+
+internal class RestoreByteBudget(private val totalLimit: Long = TOTAL_LIMIT) {
+    private var total = 0L
+
+    fun entry(input: InputStream, limit: Long = ENTRY_LIMIT, checkActive: () -> Unit = {}): InputStream =
+        object : InputStream() {
+            private var count = 0L
+
+            override fun read(): Int {
+                val buffer = ByteArray(1)
+                return if (read(buffer, 0, 1) == -1) -1 else buffer[0].toInt() and 0xff
+            }
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                checkActive()
+                val read = input.read(buffer, offset, length)
+                if (read > 0) {
+                    count += read
+                    total += read
+                    if (count > limit || total > totalLimit) throw IOException("Backup exceeds extraction limit")
+                }
+                return read
+            }
+        }
 }

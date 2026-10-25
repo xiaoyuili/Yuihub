@@ -163,10 +163,10 @@ fun WorkspaceWebViewerPage(
                         }
                     }
                 },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         WebView(
             state = state,
@@ -191,7 +191,7 @@ private fun AddressBar(
     Surface(
         modifier = modifier.height(44.dp),
         shape = RoundedCornerShape(50),
-        color = CustomColors.listItemColors.containerColor,
+        color = CustomColors.groupedCardSurface,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(

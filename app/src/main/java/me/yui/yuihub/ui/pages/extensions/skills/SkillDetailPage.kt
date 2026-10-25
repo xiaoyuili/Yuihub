@@ -46,17 +46,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import me.yui.yuihub.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.composables.icons.lucide.ChevronDown
-import com.composables.icons.lucide.ChevronRight
-import com.composables.icons.lucide.FilePen
-import com.composables.icons.lucide.FileText
-import com.composables.icons.lucide.Folder
-import com.composables.icons.lucide.FolderOpen
-import com.composables.icons.lucide.Lucide
-import com.composables.icons.lucide.Plus
-import com.composables.icons.lucide.Trash2
+import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.ArrowDown01
+import me.rerere.hugeicons.stroke.ArrowRight01
+import me.rerere.hugeicons.stroke.Delete02
+import me.rerere.hugeicons.stroke.File02
+import me.rerere.hugeicons.stroke.FileEdit
+import me.rerere.hugeicons.stroke.Folder01
+import me.rerere.hugeicons.stroke.FolderOpen
+import me.rerere.hugeicons.stroke.PlusSign
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.RikkaConfirmDialog
+import me.yui.yuihub.ui.components.ui.RikkaFormDialog
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
@@ -90,7 +91,7 @@ fun SkillDetailPage(skillName: String) {
             TopAppBar(
                 title = { Text(skillName) },
                 navigationIcon = { BackButton() },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
         floatingActionButton = {
@@ -100,11 +101,11 @@ fun SkillDetailPage(skillName: String) {
                 exit = fadeOut() + scaleOut(),
             ) {
                 FloatingActionButton(onClick = { showAddDialog = true }) {
-                    Icon(Lucide.Plus, contentDescription = null)
+                    Icon(HugeIcons.PlusSign, contentDescription = null)
                 }
             }
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -210,7 +211,7 @@ private fun FileItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Lucide.FileText,
+                imageVector = HugeIcons.File02,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
                 tint = MaterialTheme.colorScheme.primary,
@@ -230,7 +231,7 @@ private fun FileItem(
             )
             IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
                 Icon(
-                    imageVector = Lucide.FilePen,
+                    imageVector = HugeIcons.FileEdit,
                     contentDescription = stringResource(R.string.edit),
                     modifier = Modifier.size(16.dp),
                 )
@@ -238,7 +239,7 @@ private fun FileItem(
             if (skillFile.relativePath != "SKILL.md") {
                 IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                     Icon(
-                        imageVector = Lucide.Trash2,
+                        imageVector = HugeIcons.Delete02,
                         contentDescription = stringResource(R.string.delete),
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.error,
@@ -272,13 +273,13 @@ private fun DirItem(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Icon(
-                    imageVector = if (expanded) Lucide.ChevronDown else Lucide.ChevronRight,
+                    imageVector = if (expanded) HugeIcons.ArrowDown01 else HugeIcons.ArrowRight01,
                     contentDescription = null,
                     modifier = Modifier.size(14.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Icon(
-                    imageVector = if (expanded) Lucide.FolderOpen else Lucide.Folder,
+                    imageVector = if (expanded) HugeIcons.FolderOpen else HugeIcons.Folder01,
                     contentDescription = null,
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.tertiary,
@@ -314,27 +315,24 @@ private fun EditFileDialog(
 ) {
     var content by rememberSaveable(skillFile.relativePath) { mutableStateOf(initialContent) }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(skillFile.relativePath, fontFamily = FontFamily.Monospace) },
-        text = {
-            OutlinedTextField(
-                value = content,
-                onValueChange = { content = it },
-                label = { Text(stringResource(R.string.skill_detail_page_content)) },
-                minLines = 10,
-                maxLines = 20,
-                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                modifier = Modifier.fillMaxWidth(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(content) }) { Text(stringResource(R.string.skill_detail_page_save)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-    )
+    RikkaFormDialog(
+        title = stringResource(R.string.skill_detail_page_content),
+        subtitle = skillFile.relativePath,
+        confirmText = stringResource(R.string.skill_detail_page_save),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = { onConfirm(content) },
+        onDismiss = onDismiss,
+    ) {
+        OutlinedTextField(
+            value = content,
+            onValueChange = { content = it },
+            label = { Text(stringResource(R.string.skill_detail_page_content)) },
+            minLines = 10,
+            maxLines = 20,
+            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }
 
 @Composable
@@ -346,49 +344,41 @@ private fun AddFileDialog(
     var content by rememberSaveable { mutableStateOf("") }
     val fileNameError = fileName.isNotBlank() && (fileName.contains('\\'))
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.skill_detail_page_new_file)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    value = fileName,
-                    onValueChange = { fileName = it },
-                    label = { Text(stringResource(R.string.skill_detail_page_file_name)) },
-                    placeholder = { Text("examples/basic.md", fontFamily = FontFamily.Monospace) },
-                    supportingText = {
-                        if (fileNameError) Text(
-                            stringResource(R.string.skill_detail_page_file_name_invalid),
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    },
-                    isError = fileNameError,
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = content,
-                    onValueChange = { content = it },
-                    label = { Text(stringResource(R.string.skill_detail_page_content)) },
-                    minLines = 6,
-                    maxLines = 14,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(fileName.trim(), content) },
-                enabled = fileName.isNotBlank() && !fileNameError,
-            ) {
-                Text(stringResource(R.string.skill_detail_page_create))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-    )
+    RikkaFormDialog(
+        title = stringResource(R.string.skill_detail_page_new_file),
+        confirmText = stringResource(R.string.skill_detail_page_create),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = { onConfirm(fileName.trim(), content) },
+        onDismiss = onDismiss,
+        confirmEnabled = fileName.isNotBlank() && !fileNameError,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(
+                value = fileName,
+                onValueChange = { fileName = it },
+                label = { Text(stringResource(R.string.skill_detail_page_file_name)) },
+                placeholder = { Text("examples/basic.md", fontFamily = FontFamily.Monospace) },
+                supportingText = {
+                    if (fileNameError) Text(
+                        stringResource(R.string.skill_detail_page_file_name_invalid),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                },
+                isError = fileNameError,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = content,
+                onValueChange = { content = it },
+                label = { Text(stringResource(R.string.skill_detail_page_content)) },
+                minLines = 6,
+                maxLines = 14,
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+    }
 }

@@ -2,6 +2,7 @@ package me.yui.yuihub.worker
 
 import android.content.Context
 import android.util.Log
+import androidx.work.Operation
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
@@ -27,19 +28,29 @@ object ScheduledTaskScheduler {
     private fun workName(taskId: String) = "scheduled_task_$taskId"
 
     /** 重新计算并应用所有启用任务的调度（新增/编辑/启停后调用） */
-    suspend fun rescheduleAll(context: Context, repository: ScheduledTaskRepository) {
+    suspend fun rescheduleAll(
+        context: Context,
+        repository: ScheduledTaskRepository,
+        keepExisting: Boolean = false,
+    ) {
         val tasks = repository.getAllEnabled()
         tasks.forEach { task ->
             val next = repository.nextTriggerAt(task) ?: run {
                 Log.i(TAG, "rescheduleAll: task ${task.id} has no next trigger, skip")
                 return@forEach
             }
-            enqueueAt(context, task.id, next)
+            enqueueAt(context, task.id, next, keepExisting = keepExisting)
         }
     }
 
     /** 按指定时刻入队（同任务重复调用会覆盖旧请求） */
-    fun enqueueAt(context: Context, taskId: String, triggerAtMillis: Long) {
+    fun enqueueAt(
+        context: Context,
+        taskId: String,
+        triggerAtMillis: Long,
+        afterSuccess: Boolean = false,
+        keepExisting: Boolean = false,
+    ): Operation {
         val delayMs = (triggerAtMillis - System.currentTimeMillis()).coerceAtLeast(0L)
         val request = OneTimeWorkRequestBuilder<ScheduledTaskWorker>()
             .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
@@ -49,12 +60,16 @@ object ScheduledTaskScheduler {
                 Constraints.Builder().build()
             )
             .build()
-        runCatching {
-            WorkManager.getInstance(context)
-                .enqueueUniqueWork(workName(taskId), ExistingWorkPolicy.REPLACE, request)
-        }.onFailure {
-            Log.e(TAG, "enqueueAt failed for task $taskId", it)
-        }
+        return WorkManager.getInstance(context)
+            .enqueueUniqueWork(
+                workName(taskId),
+                when {
+                    afterSuccess -> ExistingWorkPolicy.APPEND_OR_REPLACE
+                    keepExisting -> ExistingWorkPolicy.KEEP
+                    else -> ExistingWorkPolicy.REPLACE
+                },
+                request,
+            )
     }
 
     /** 取消任务调度 */

@@ -7,7 +7,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,14 +25,12 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowDpSize
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
@@ -71,14 +71,19 @@ import me.rerere.hugeicons.stroke.LeftToRightListBullet
 import me.rerere.hugeicons.stroke.Menu03
 import me.rerere.hugeicons.stroke.MessageAdd01
 import me.yui.yuihub.R
+import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.ui.theme.LocalGlassTheme
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.findProvider
 import me.yui.yuihub.data.datastore.getCurrentAssistant
 import me.yui.yuihub.data.datastore.getCurrentChatModel
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.model.Assistant
+import me.yui.yuihub.data.model.CompressionSummary
 import me.yui.yuihub.data.model.Conversation
+import me.yui.yuihub.data.repository.TokenUsageRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
+import me.yui.yuihub.data.db.dao.TokenUsageTotals
 import me.yui.yuihub.service.ChatError
 import me.yui.yuihub.ui.components.ai.ChatAttachmentPickerActions
 import me.yui.yuihub.ui.components.ai.ChatInput
@@ -124,8 +129,13 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     val setting by vm.settings.collectAsStateWithLifecycle()
     val conversation by vm.conversation.collectAsStateWithLifecycle()
     val loadingJob by vm.conversationJob.collectAsStateWithLifecycle()
+    val compressionInProgress by vm.compressionInProgress.collectAsStateWithLifecycle()
     val processingStatus by vm.processingStatus.collectAsStateWithLifecycle()
     val currentChatModel by vm.currentChatModel.collectAsStateWithLifecycle()
+    val tokenUsageRepository: TokenUsageRepository = koinInject()
+    val conversationTotals by remember(conversation.id) {
+        tokenUsageRepository.conversationTotals(conversation.id.toString())
+    }.collectAsStateWithLifecycle(initialValue = TokenUsageTotals())
     val enableWebSearch by vm.enableWebSearch.collectAsStateWithLifecycle()
     val errors by vm.errors.collectAsStateWithLifecycle()
 
@@ -245,6 +255,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                     chatListState = chatListState,
                     enableWebSearch = enableWebSearch,
                     currentChatModel = currentChatModel,
+                    conversationTotals = conversationTotals,
+                    compressionInProgress = compressionInProgress,
                     bigScreen = true,
                     errors = errors,
                     onDismissError = { vm.dismissError(it) },
@@ -280,6 +292,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                     chatListState = chatListState,
                     enableWebSearch = enableWebSearch,
                     currentChatModel = currentChatModel,
+                    conversationTotals = conversationTotals,
+                    compressionInProgress = compressionInProgress,
                     bigScreen = false,
                     errors = errors,
                     onDismissError = { vm.dismissError(it) },
@@ -305,19 +319,17 @@ private fun ChatPageContent(
     chatListState: LazyListState,
     enableWebSearch: Boolean,
     currentChatModel: Model?,
+    conversationTotals: TokenUsageTotals,
+    compressionInProgress: Boolean,
     errors: List<ChatError>,
     onDismissError: (Uuid) -> Unit,
     onClearAllErrors: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
+    val requestBreakdown by vm.requestBreakdown.collectAsStateWithLifecycle(initialValue = null)
     // 手动压缩（/压缩）结果弹窗：收集本会话摘要，收到即弹出，关闭后置空
-    var manualCompressionContent by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(vm) {
-        vm.manualCompressionResult.collect { content ->
-            if (content != null) manualCompressionContent = content
-        }
-    }
+    var compressionDialogSummary by remember { mutableStateOf<CompressionSummary?>(null) }
     val manualCompressionInProgress by vm.manualCompressionInProgress.collectAsStateWithLifecycle()
     val enableSearchMsg = stringResource(R.string.web_search_enabled)
     val disableSearchMsg = stringResource(R.string.web_search_disabled)
@@ -375,6 +387,7 @@ private fun ChatPageContent(
         findActivePlan(conversation.currentMessages)
     }
     val hazeState = rememberHazeState()
+    val compressionHazeState = rememberHazeState()
     val assistant = setting.getCurrentAssistant()
     var showFilesSheet by remember { mutableStateOf(false) }
     var showSearchSheet by remember { mutableStateOf(false) }
@@ -405,11 +418,118 @@ private fun ChatPageContent(
     }
 
 
+    val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
+    val chatInputContent: @Composable (Modifier) -> Unit = { inputModifier ->
+                    ChatInput(
+                        modifier = inputModifier,
+                        state = inputState,
+                        loading = loadingJob != null,
+                        settings = setting,
+                        hazeState = hazeState,
+                        isListScrolling = isListScrolling,
+                        completionProviders = completionProviders,
+                        // 侧滑页打开时键盘由页内搜索框触发，主输入框不应随之被顶起
+                        resizeForIme = !drawerOpen,
+                        onCancelClick = {
+                            vm.stopGeneration()
+                        },
+                        messageQueue = messageQueue,
+                        planTodos = planTodos,
+                        onRemoveQueuedMessage = vm::removeQueuedMessage,
+                        onBeginEditQueuedMessage = vm::beginEditQueuedMessage,
+                        onFinishEditQueuedMessage = vm::finishEditQueuedMessage,
+                        onResumeMessageQueue = vm::resumeMessageQueue,
+                        onCompressCommand = { vm.compressManually() },
+                        onSendClick = {
+                            if (currentChatModel == null) {
+                                toaster.show("请先选择模型", type = ToastType.Error)
+                                return@ChatInput
+                            }
+                            if (inputState.isEditing()) {
+                                vm.handleMessageEdit(
+                                    parts = inputState.getContents(),
+                                    messageId = inputState.editingMessage!!,
+                                )
+                            } else {
+                                vm.handleMessageSend(inputState.getContents())
+                                scope.launch {
+                                    delay(100.milliseconds)
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                            }
+                            inputState.clearInput()
+                        },
+                        onLongSendClick = {
+                            if (inputState.isEditing()) {
+                                vm.handleMessageEdit(
+                                    parts = inputState.getContents(),
+                                    messageId = inputState.editingMessage!!,
+                                )
+                            } else {
+                                vm.handleMessageSend(content = inputState.getContents(), answer = false)
+                                scope.launch {
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                            }
+                            inputState.clearInput()
+                        },
+                        onUpdateChatModel = {
+                            vm.setChatModel(assistant = setting.getCurrentAssistant(), model = it)
+                        },
+                        onUpdateAssistant = {
+                            vm.updateSettings(
+                                setting.copy(
+                                    assistants = setting.assistants.map { assistant ->
+                                        if (assistant.id == it.id) {
+                                            it
+                                        } else {
+                                            assistant
+                                        }
+                                    }
+                                )
+                            )
+                        },
+                        onMoreClick = {
+                            showFilesSheet = true
+                        },
+                        contextUsage = run {
+                            // 与自动压缩触发判断同源：发送窗口占用（检查点 + 边界后原文）。
+                            // estimateWindowTokens 是全消息 O(n) 扫描，流式期间每 chunk 都重组，
+                            // 必须按消息树内容缓存，否则每帧都重算全文。
+                            val estimated = remember(conversation.messageNodes, currentChatModel) {
+                                conversation.estimateWindowTokens(currentChatModel)
+                            }
+                            val lastAssistantUsage = remember(conversation.messageNodes) {
+                                conversation.currentMessages
+                                    .lastOrNull { it.role == MessageRole.ASSISTANT }
+                                    ?.usage
+                            }
+                            ContextUsage(
+                                usedTokens = estimated,
+                                windowTokens = currentChatModel?.effectiveContextLength()
+                                    ?: DEFAULT_CONTEXT_LENGTH,
+                                conversationPromptTokens = conversationTotals.promptTokens,
+                                conversationCompletionTokens = conversationTotals.completionTokens,
+                                conversationCachedTokens = conversationTotals.cachedTokens,
+                                conversationRequests = conversationTotals.requests,
+                                breakdown = requestBreakdown,
+                                lastPromptTokens = lastAssistantUsage?.promptTokens ?: 0,
+                                lastCachedTokens = lastAssistantUsage?.cachedTokens ?: 0,
+                            )
+                        },
+                    )
+    }
+
     Surface(
         color = MaterialTheme.colorScheme.background,
         modifier = Modifier.fillMaxSize()
     ) {
-        AssistantBackground(setting = setting, modifier = Modifier.hazeSource(hazeState))
+        AssistantBackground(
+            setting = setting,
+            modifier = Modifier
+                .hazeSource(hazeState)
+                .hazeSource(compressionHazeState),
+        )
         Scaffold(
             topBar = {
                 TopBar(
@@ -429,105 +549,25 @@ private fun ChatPageContent(
                     },
                 )
             },
-            bottomBar = {
-                val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
-                ChatInput(
-                    state = inputState,
-                    loading = loadingJob != null,
-                    settings = setting,
-                    hazeState = hazeState,
-                    isListScrolling = isListScrolling,
-                    completionProviders = completionProviders,
-                    // 侧滑页打开时键盘由页内搜索框触发，主输入框不应随之被顶起
-                    resizeForIme = !drawerOpen,
-                    onCancelClick = {
-                        vm.stopGeneration()
-                    },
-                    messageQueue = messageQueue,
-                    planTodos = planTodos,
-                    manualCompressionInProgress = manualCompressionInProgress,
-                    onRemoveQueuedMessage = vm::removeQueuedMessage,
-                    onBeginEditQueuedMessage = vm::beginEditQueuedMessage,
-                    onFinishEditQueuedMessage = vm::finishEditQueuedMessage,
-                    onResumeMessageQueue = vm::resumeMessageQueue,
-                    onSendClick = {
-                        if (currentChatModel == null) {
-                            toaster.show("请先选择模型", type = ToastType.Error)
-                            return@ChatInput
-                        }
-                        if (inputState.isEditing()) {
-                            vm.handleMessageEdit(
-                                parts = inputState.getContents(),
-                                messageId = inputState.editingMessage!!,
-                            )
-                        } else {
-                            vm.handleMessageSend(inputState.getContents())
-                            scope.launch {
-                                delay(100.milliseconds)
-                                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                            }
-                        }
-                        inputState.clearInput()
-                    },
-                    onLongSendClick = {
-                        if (inputState.isEditing()) {
-                            vm.handleMessageEdit(
-                                parts = inputState.getContents(),
-                                messageId = inputState.editingMessage!!,
-                            )
-                        } else {
-                            vm.handleMessageSend(content = inputState.getContents(), answer = false)
-                            scope.launch {
-                                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                            }
-                        }
-                        inputState.clearInput()
-                    },
-                    onUpdateChatModel = {
-                        vm.setChatModel(assistant = setting.getCurrentAssistant(), model = it)
-                    },
-                    onUpdateAssistant = {
-                        vm.updateSettings(
-                            setting.copy(
-                                assistants = setting.assistants.map { assistant ->
-                                    if (assistant.id == it.id) {
-                                        it
-                                    } else {
-                                        assistant
-                                    }
-                                }
-                            )
-                        )
-                    },
-                    onMoreClick = {
-                        showFilesSheet = true
-                    },
-                    contextUsage = run {
-                        // 与自动压缩触发判断同源：发送窗口占用（检查点 + 边界后原文）。
-                        // estimateWindowTokens 是全消息 O(n) 扫描，流式期间每 chunk 都重组，
-                        // 必须按消息树内容缓存，否则每帧都重算全文。
-                        val estimated = remember(conversation.messageNodes, currentChatModel) {
-                            conversation.estimateWindowTokens(currentChatModel)
-                        }
-                        ContextUsage(
-                            usedTokens = estimated,
-                            windowTokens = currentChatModel?.effectiveContextLength()
-                                ?: DEFAULT_CONTEXT_LENGTH,
-                        )
-                    },
-                )
-            },
             containerColor = Color.Transparent,
         ) { innerPadding ->
+            Box(modifier = Modifier.fillMaxSize()) {
             ChatList(
-                innerPadding = innerPadding,
+                innerPadding = PaddingValues(
+                    top = innerPadding.calculateTopPadding(),
+                    bottom = innerPadding.calculateBottomPadding() + 200.dp,
+                ),
                 conversation = conversation,
                 state = chatListState,
                 loading = loadingJob != null,
+                compressionInProgress = compressionInProgress,
+                manualCompressionInProgress = manualCompressionInProgress,
+                onCompressionClick = { compressionDialogSummary = it },
                 processingStatus = processingStatus,
                 previewMode = previewMode,
                 settings = setting,
                 hazeState = hazeState,
+                compressionHazeState = compressionHazeState,
                 errors = errors,
                 onDismissError = onDismissError,
                 onClearAllErrors = onClearAllErrors,
@@ -537,12 +577,6 @@ private fun ChatPageContent(
                 onEdit = {
                     inputState.editingMessage = it.id
                     inputState.setContents(it.parts)
-                },
-                onForkMessage = {
-                    scope.launch {
-                        val fork = vm.forkMessage(message = it)
-                        navigateToChatPage(navController, chatId = fork.id)
-                    }
                 },
                 onDelete = {
                     if (loadingJob != null) {
@@ -592,6 +626,8 @@ private fun ChatPageContent(
                 },
                 onEditUserNickname = { showNicknameDialog = true },
             )
+            chatInputContent(Modifier.align(Alignment.BottomCenter).fillMaxWidth())
+            }
         }
     }
 
@@ -661,10 +697,10 @@ private fun ChatPageContent(
         }
     }
 
-    manualCompressionContent?.let { content ->
+    compressionDialogSummary?.let { summary ->
         ManualCompressionDialog(
-            content = content,
-            onDismiss = { manualCompressionContent = null },
+            summary = summary,
+            onDismiss = { compressionDialogSummary = null },
         )
     }
 }
@@ -688,14 +724,19 @@ private fun ChatFilesPickerSheet(
         onDismiss()
     }
 
-    val filesSheetState = rememberBottomSheetState(
-        initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-    )
+    val filesSheetState = me.yui.yuihub.ui.components.ui.rememberGuardedModalBottomSheetState()
+    val glassTheme = LocalGlassTheme.current
     ModalBottomSheet(
         sheetState = filesSheetState,
         onDismissRequest = { dismissAll() },
+        containerColor = if (glassTheme) {
+            CustomColors.glassSheetSurface
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        tonalElevation = 0.dp,
     ) {
+        BackHandler { dismissAll() }
         FilesPicker(
             conversation = conversation,
             state = inputState,

@@ -5,12 +5,19 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
+import androidx.work.Configuration
+import androidx.work.WorkManager
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.ComposeFoundationFlags
 import androidx.compose.runtime.Composer
 import androidx.compose.runtime.tooling.ComposeStackTraceMode
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +37,7 @@ import me.yui.yuihub.di.repositoryModule
 import me.yui.yuihub.di.viewModelModule
 import me.yui.yuihub.data.files.FilesManager
 import me.yui.yuihub.data.datastore.SettingsStore
+import me.yui.yuihub.data.db.AppDatabase
 import me.yui.yuihub.service.KeepAliveService
 import me.yui.yuihub.utils.SystemPermissions
 import me.yui.yuihub.utils.CrashHandler
@@ -45,7 +53,6 @@ import me.yui.yuihub.utils.StartupTracer
 import org.koin.android.ext.android.get
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
-import org.koin.androidx.workmanager.koin.workManagerFactory
 import org.koin.core.context.startKoin
 
 private const val TAG = "YuiHubApp"
@@ -57,23 +64,82 @@ const val KEEP_AWAKE_NOTIFICATION_CHANNEL_ID = "keep_awake"
 /** 定时任务完成通知（悬浮提醒，类似聊天软件收到好友消息） */
 const val AUTOMATION_NOTIFICATION_CHANNEL_ID = "automation_completed"
 
+sealed interface StartupState {
+    data object Restoring : StartupState
+    data object Ready : StartupState
+    data class Failed(val message: String, val canRetry: Boolean = true) : StartupState
+}
+
 class YuiHubApp : Application() {
+    private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val _startupState = MutableStateFlow<StartupState>(StartupState.Restoring)
+    val startupState = _startupState.asStateFlow()
+    private var startupRunning = false
+
     override fun onCreate() {
         super.onCreate()
         StartupTracer.begin()
+        // Workers may be launched by SystemJobService before the UI; they await startupState before resolving Koin.
+        WorkManager.initialize(this, Configuration.Builder().build())
 
-        // 补完上次被中断的数据库恢复。必须在 startKoin 之前：
-        // 一旦 Koin 建起 AppDatabase，它就会持有旧文件，此时再替换会引发不确定状态。
-        PendingRestoreStore.applyIfPending(
-            filesDir = filesDir,
-            databaseFile = getDatabasePath("rikka_hub"),
-        )
+        if (PendingRestoreStore.hasPending(filesDir)) {
+            retryPendingRestore()
+        } else {
+            runCatching { PendingRestoreStore.rollbackIfUnconfirmed(this, getDatabasePath("rikka_hub")) }
+                .onFailure { Log.e(TAG, "restore rollback failed", it) }
+            initializeAndPublish()
+        }
+    }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        me.rerere.ai.util.clearMediaEncodingCache()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        me.rerere.ai.util.clearMediaEncodingCache()
+    }
+
+    private fun initializeAndPublish() {
+        try {
+            initializeDependencies()
+            _startupState.value = StartupState.Ready
+        } catch (e: Exception) {
+            Log.e(TAG, "Dependency initialization failed", e)
+            _startupState.value = StartupState.Failed(e.message ?: "初始化失败", canRetry = false)
+        }
+    }
+
+    suspend fun awaitStartup(): Boolean = startupState.first { it != StartupState.Restoring } == StartupState.Ready
+
+    fun retryPendingRestore() {
+        if (startupRunning || _startupState.value == StartupState.Ready) return
+        startupRunning = true
+        _startupState.value = StartupState.Restoring
+        startupScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    PendingRestoreStore.applyIfPending(this@YuiHubApp, getDatabasePath("rikka_hub"))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Pending restore failed; database consumers remain stopped", e)
+                _startupState.value = StartupState.Failed(e.message ?: "无法安装待恢复数据库")
+                return@launch
+            } finally {
+                startupRunning = false
+            }
+            initializeAndPublish()
+        }
+    }
+
+    private fun initializeDependencies() {
         startKoin {
             // Koin 解析日志全量输出会拖慢冷启动; 出问题时改回 androidLogger() 排查
             androidLogger(level = org.koin.core.logger.Level.ERROR)
             androidContext(this@YuiHubApp)
-            workManagerFactory()
             modules(appModule, viewModelModule, dataSourceModule, repositoryModule)
         }
         StartupTracer.mark("Koin启动")
@@ -117,13 +183,29 @@ class YuiHubApp : Application() {
         // 重建自动备份调度
         rescheduleAutoBackup()
 
-        // 预热模型目录（models.dev），供添加模型时自动填充元数据
+        // 预温模型目录（models.dev），供添加模型时自动填充元数据
         preloadModelCatalog()
+
+        // 恢复已应用：等 Room 真正打开（含迁移）成功后再确认，失败则下次启动回滚
+        confirmRestoreAfterDatabaseOpen()
 
         // Increment launch count
         incrementLaunchCount()
 
         // Composer.setDiagnosticStackTraceMode(ComposeStackTraceMode.Auto)
+    }
+
+    private fun confirmRestoreAfterDatabaseOpen() {
+        if (!PendingRestoreStore.hasApplied(filesDir)) return
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching {
+                get<AppDatabase>().openHelper.writableDatabase.query("SELECT 1").use { }
+            }.onSuccess {
+                PendingRestoreStore.confirmApplied(filesDir)
+            }.onFailure {
+                Log.e(TAG, "restored database failed to open; will roll back on next launch", it)
+            }
+        }
     }
 
     private fun incrementLaunchCount() {
@@ -145,7 +227,7 @@ class YuiHubApp : Application() {
         get<AppScope>().launch(Dispatchers.IO) {
             runCatching {
                 val repository = get<ScheduledTaskRepository>()
-                ScheduledTaskScheduler.rescheduleAll(this@YuiHubApp, repository)
+                ScheduledTaskScheduler.rescheduleAll(this@YuiHubApp, repository, keepExisting = true)
             }.onFailure {
                 Log.e(TAG, "rescheduleAutomationTasks failed", it)
             }
@@ -156,7 +238,7 @@ class YuiHubApp : Application() {
     private fun rescheduleAutoBackup() {
         get<AppScope>().launch(Dispatchers.IO) {
             runCatching {
-                AutoBackupScheduler.enqueueNext(this@YuiHubApp, get<SettingsStore>())
+                AutoBackupScheduler.enqueueNext(this@YuiHubApp, get<SettingsStore>(), keepExisting = true)
             }.onFailure {
                 Log.e(TAG, "rescheduleAutoBackup failed", it)
             }

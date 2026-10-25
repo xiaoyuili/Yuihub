@@ -2,6 +2,8 @@ package me.yui.yuihub.worker
 
 import android.content.Context
 import android.util.Log
+import androidx.work.await
+import kotlinx.coroutines.flow.first
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -28,10 +30,15 @@ object AutoBackupScheduler {
     const val BACKUP_DIR = "auto_backup"
 
     /** 重新安排下一次自动备份（开关/间隔变更、App 启动、每次跑完后调用） */
-    suspend fun enqueueNext(context: Context, settingsStore: SettingsStore) {
-        val config = settingsStore.settingsFlow.value.backupReminderConfig
+    suspend fun enqueueNext(
+        context: Context,
+        settingsStore: SettingsStore,
+        afterSuccess: Boolean = false,
+        keepExisting: Boolean = false,
+    ) {
+        val config = settingsStore.settingsFlowRaw.first().backupReminderConfig
         if (!config.autoBackupEnabled) {
-            cancel(context)
+            if (!afterSuccess) cancel(context)
             return
         }
 
@@ -41,17 +48,21 @@ object AutoBackupScheduler {
         // 首次启用：从现在起算一个完整间隔，避免立刻触发一次
         val next = if (last <= 0) now + intervalMs else (last + intervalMs).coerceAtLeast(now + MIN_DELAY_MS)
 
-        runCatching {
-            val request = OneTimeWorkRequestBuilder<AutoBackupWorker>()
-                .setInitialDelay((next - now).coerceAtLeast(0L), TimeUnit.MILLISECONDS)
-                .setConstraints(Constraints.Builder().build())
-                .build()
-            WorkManager.getInstance(context)
-                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
-            Log.i(TAG, "enqueueNext: scheduled in ${(next - now) / 60_000} min")
-        }.onFailure {
-            Log.e(TAG, "enqueueNext failed", it)
-        }
+        val request = OneTimeWorkRequestBuilder<AutoBackupWorker>()
+            .setInitialDelay((next - now).coerceAtLeast(0L), TimeUnit.MILLISECONDS)
+            .setConstraints(Constraints.Builder().build())
+            .build()
+        WorkManager.getInstance(context)
+            .enqueueUniqueWork(
+                WORK_NAME,
+                when {
+                    afterSuccess -> ExistingWorkPolicy.APPEND_OR_REPLACE
+                    keepExisting -> ExistingWorkPolicy.KEEP
+                    else -> ExistingWorkPolicy.REPLACE
+                },
+                request,
+            ).await()
+        Log.i(TAG, "enqueueNext: scheduled in ${(next - now) / 60_000} min")
     }
 
     fun cancel(context: Context) {

@@ -1,6 +1,11 @@
 package me.yui.yuihub.data.ai.tools
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.jsonObject
@@ -19,11 +24,16 @@ import me.rerere.workspace.MAX_OUTPUT_CHARS
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
 import me.rerere.workspace.WorkspaceManager
+import me.rerere.workspace.WorkspaceMountDir
 import org.koin.java.KoinJavaComponent.getKoin
+import kotlinx.coroutines.sync.withLock
 import java.io.ByteArrayOutputStream
 
 private const val SHELL_TIMEOUT_MAX_SECONDS = 600L
-private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
+internal const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
+private const val READ_DEFAULT_LIMIT = 200
+private const val READ_MAX_LIMIT = 2000
+private const val READ_FILES_MAX = 16
 
 val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
     "workspace_read_file" to false,
@@ -36,23 +46,52 @@ val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
 fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean =
     overrides[name] ?: WorkspaceToolDefaultApprovals[name] ?: false
 
-suspend fun createWorkspaceTools(
+internal suspend fun createWorkspaceTools(
     workspaceId: String?,
     workspaceRepository: WorkspaceRepository,
     cwd: String? = null,
-): List<Tool> {
-    if (workspaceId.isNullOrBlank()) return emptyList()
-    val approvalOverrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
+): AgentToolSet {
+    if (workspaceId.isNullOrBlank()) return AgentToolSet.Empty
+    val workspace = workspaceRepository.getById(workspaceId)
+    val approvalOverrides = workspace?.toolApprovalOverrides().orEmpty()
     fun needsApproval(name: String) = resolveWorkspaceToolApproval(name, approvalOverrides)
+    // 用户自己挂载的目录：读写挂载算可写安全区（不再强制审批），只读挂载在工具层拒绝写入
+    val mountDirs = workspace?.mountDirList().orEmpty()
+    fun WorkspaceMountDir.normalizedTarget(): String = target.trimEnd('/').ifBlank { "/" }
+    val writableRoots = (
+        WRITABLE_ROOT_PREFIXES + mountDirs.filterNot { it.readOnly }.map { it.normalizedTarget() }
+        ).distinct()
+    val readOnlyRoots = (
+        READ_ONLY_ROOT_PREFIXES + mountDirs.filter { it.readOnly }.map { it.normalizedTarget() }
+        ).distinct()
 
     val shellCwd = cwd?.removePrefix("/workspace/")?.removePrefix("/workspace")
+    val readCache = WorkspaceReadCache()
+    val readFiles = createReadFilesTool(workspaceId, ::needsApproval, workspaceRepository, readCache)
+    val glob = createWorkspaceGlobTool(workspaceId, workspaceRepository)
+    val grep = createWorkspaceGrepTool(workspaceId, workspaceRepository)
+    val stat = createWorkspaceStatTool(workspaceId, workspaceRepository)
+    val readResult = createWorkspaceReadResultTool(workspaceId, workspaceRepository, readCache)
+    val activation = WorkspaceToolActivation(
+        mapOf(
+            "workspace_read_files" to { readFiles },
+            "workspace_glob" to { glob },
+            "workspace_grep" to { grep },
+            "workspace_stat" to { stat },
+            "workspace_read_result" to { readResult },
+        )
+    )
 
-    return listOf(
-        createReadFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createEditFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createPresentFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd),
+    return AgentToolSet(
+        tools = listOf(
+            createReadFileTool(workspaceId, ::needsApproval, workspaceRepository, readCache),
+            createWorkspaceLoadToolsTool(activation),
+            createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository, readCache, writableRoots, readOnlyRoots),
+            createEditFileTool(workspaceId, ::needsApproval, workspaceRepository, readCache, writableRoots, readOnlyRoots),
+            createPresentFileTool(workspaceId, ::needsApproval, workspaceRepository),
+            createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd, readCache),
+        ),
+        extraTools = { activation.activeTools() },
     )
 }
 
@@ -67,25 +106,36 @@ private fun createReadFileTool(
     workspaceId: String,
     needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
+    readCache: WorkspaceReadCache,
 ) = Tool(
     name = "workspace_read_file",
     description = """
-        Read a file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
-        Use /workspace for the workspace files area.
-        Supports UTF-8 text files and image files (png, jpg, jpeg, gif, webp, bmp, svg, heic, heif, avif, ico).
-        Non-UTF-8 binary files are rejected with BINARY_CONTENT — handle them via workspace_shell (od/hexdump/base64) instead.
+        Read a bounded range of a UTF-8 file from the workspace Rootfs. Paths must be absolute inside Rootfs.
+        Use /workspace for the workspace files area. offset is 1-based; limit defaults to $READ_DEFAULT_LIMIT and is capped at $READ_MAX_LIMIT.
+        Text output is numbered as `N|content`; do not copy the `N|` prefix back when editing.
+        Returns revision, totalLines, complete, and nextOffset; use nextOffset to continue reading.
+        Image files are returned as image parts. Non-UTF-8 binary files are rejected; use workspace_shell (od/hexdump/base64).
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
                 putPathProperty(required = true)
+                put("offset", buildJsonObject {
+                    put("type", "integer")
+                    put("description", "1-based start line. Defaults to 1.")
+                })
+                put("limit", buildJsonObject {
+                    put("type", "integer")
+                    put("description", "Maximum lines to return. Defaults to $READ_DEFAULT_LIMIT, max $READ_MAX_LIMIT.")
+                })
             },
             required = listOf("path"),
         )
     },
     needsApproval = { needsApproval("workspace_read_file") },
     execute = {
-        val path = it.jsonObject.absolutePath("path")
+        val params = it.jsonObject
+        val path = params.absolutePath("path")
         // P2-3: /upload 无上传时挂载源目录可能为空（RepositoryModule 已 mkdirs，但旧版残留可能缺失），
         // 给出明确语义而不是裸 NOT_FOUND，避免模型把它当异常反复排查
         if (path == "/upload" || path.startsWith("/upload/")) {
@@ -104,24 +154,91 @@ private fun createReadFileTool(
         if (path.isImagePath()) {
             workspaceRepository.readImageInRootfs(workspaceId, path)
         } else {
-            val text = workspaceRepository.readTextInRootfs(workspaceId, path)
-            if (text.contains('\uFFFD')) {
-                // ISSUE-08: toString(UTF-8) 是有损解码，非 UTF-8 字节静默变 U+FFFD 会把损坏内容当原文写回；
-                // 真实文本里出现 U+FFFD 的概率极低，检测到就按二进制拒绝，引导走 shell
-                error(
-                    "BINARY_CONTENT: $path is not valid UTF-8 text (lossy decode would corrupt it). " +
-                        "Use workspace_shell (od/hexdump/base64) for binary files."
-                )
-            }
-            listOf(
-                UIMessagePart.Text(
-                    buildJsonObject {
-                        put("path", path)
-                        put("text", text)
-                    }.toString()
-                )
+            val offset = params.int("offset")?.coerceAtLeast(1) ?: 1
+            val limit = (params.int("limit") ?: READ_DEFAULT_LIMIT).coerceIn(1, READ_MAX_LIMIT)
+            val payload = workspaceRepository.readTextPayload(
+                workspaceId = workspaceId,
+                path = path,
+                offset = offset,
+                limit = limit,
+                cache = readCache,
             )
+            listOf(UIMessagePart.Text(payload.toString()))
         }
+    },
+)
+
+private fun createReadFilesTool(
+    workspaceId: String,
+    needsApproval: (String) -> Boolean,
+    workspaceRepository: WorkspaceRepository,
+    readCache: WorkspaceReadCache,
+) = Tool(
+    name = "workspace_read_files",
+    description = """
+        Read bounded ranges from up to $READ_FILES_MAX UTF-8 files in one call.
+        Each item accepts path, offset (1-based, default 1), and limit (default $READ_DEFAULT_LIMIT, max $READ_MAX_LIMIT).
+        One failed item does not fail the others. Returns {items:[...]} with the same fields as workspace_read_file.
+    """.trimIndent().replace("\n", " "),
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("files", buildJsonObject {
+                    put("type", "array")
+                    put("maxItems", READ_FILES_MAX)
+                    put("items", buildJsonObject {
+                        put("type", "object")
+                        put("properties", buildJsonObject {
+                            putPathProperty(required = true)
+                            put("offset", buildJsonObject {
+                                put("type", "integer")
+                                put("description", "1-based start line. Defaults to 1.")
+                            })
+                            put("limit", buildJsonObject {
+                                put("type", "integer")
+                                put("description", "Maximum lines. Defaults to $READ_DEFAULT_LIMIT, max $READ_MAX_LIMIT.")
+                            })
+                        })
+                        put("required", buildJsonArray { add(JsonPrimitive("path")) })
+                    })
+                })
+            },
+            required = listOf("files"),
+        )
+    },
+    needsApproval = { needsApproval("workspace_read_file") },
+    execute = {
+        val files = it.jsonObject["files"]?.jsonArray
+            ?: error("files is required")
+        require(files.size in 1..READ_FILES_MAX) {
+            "files must contain 1..$READ_FILES_MAX items"
+        }
+        val items = buildJsonArray {
+            files.forEach { element ->
+                val item = runCatching {
+                    val obj = element.jsonObject
+                    val path = obj.absolutePath("path")
+                    require(!path.isImagePath()) {
+                        "Image files are not supported by workspace_read_files; use workspace_read_file"
+                    }
+                    workspaceRepository.readTextPayload(
+                        workspaceId = workspaceId,
+                        path = path,
+                        offset = obj.int("offset")?.coerceAtLeast(1) ?: 1,
+                        limit = (obj.int("limit") ?: READ_DEFAULT_LIMIT).coerceIn(1, READ_MAX_LIMIT),
+                        cache = readCache,
+                        recordCache = false,
+                    )
+                }.getOrElse { error ->
+                    buildJsonObject {
+                        put("path", runCatching { element.jsonObject.string("path") }.getOrNull() ?: "")
+                        put("error", error.message ?: error::class.simpleName ?: "read failed")
+                    }
+                }
+                add(item)
+            }
+        }
+        listOf(UIMessagePart.Text(buildJsonObject { put("items", items) }.toString()))
     },
 )
 
@@ -129,13 +246,17 @@ private fun createWriteFileTool(
     workspaceId: String,
     needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
+    readCache: WorkspaceReadCache,
+    writableRoots: List<String> = WRITABLE_ROOT_PREFIXES,
+    readOnlyRoots: List<String> = READ_ONLY_ROOT_PREFIXES,
 ) = Tool(
     name = "workspace_write_file",
     description = """
         Write a UTF-8 text file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
         Use /workspace for the workspace files area.
-        Concurrency guard: if the file changed on disk since the mtime you pass in `expectedMtimeMs` (e.g. another session wrote it),
-        the write is rejected with WRITE_CONFLICT unless you set force=true; pass force=true to overwrite deliberately.
+        Concurrency guard: pass expectedRevision from a prior read (preferred) and/or expectedMtimeMs.
+        If the file changed meanwhile, the write is rejected with REVISION_CONFLICT / WRITE_CONFLICT and nothing is written.
+        force=true deliberately bypasses these checks.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
@@ -149,6 +270,10 @@ private fun createWriteFileTool(
                     put("type", "boolean")
                     put("description", "Whether to overwrite an existing file. Defaults to true.")
                 })
+                put("expectedRevision", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Optional SHA-256 revision returned by workspace_read_file. The write is rejected if the current file revision differs.")
+                })
                 put("expectedMtimeMs", buildJsonObject {
                     put("type", "integer")
                     put("description", "Optional: mtime (ms) you believe the file currently has (from a previous read/write result). Write is rejected if it changed meanwhile.")
@@ -161,33 +286,55 @@ private fun createWriteFileTool(
             required = listOf("path", "text"),
         )
     },
-    needsApproval = { needsApproval("workspace_write_file") || it.pathOutsideWritableRoots("path") },
+    needsApproval = {
+        // 只读挂载必然报错，不必先让用户审批
+        !it.pathInReadOnlyRoots("path", readOnlyRoots) &&
+            (needsApproval("workspace_write_file") || it.pathOutsideWritableRoots("path", writableRoots))
+    },
     execute = {
         val params = it.jsonObject
         val path = params.absolutePath("path")
-        rejectReadOnlyPath(path)
+        rejectReadOnlyPath(path, readOnlyRoots)
         val text = params.string("text")
             ?: error("text is required (parameters: path, text, overwrite, expectedMtimeMs, force; the content parameter is named 'text')")
         val overwrite = params["overwrite"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: true
+        val expectedRevision = params.string("expectedRevision")
         val expectedMtime = params["expectedMtimeMs"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
         val force = params["force"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
 
-        // P1-3 写冲突检测：调用方给了 expectedMtimeMs 且磁盘文件比它新 → 说明有其它会话写过；
-        // 未显式 force 时拒绝并给出双方时间戳，避免并发双写静默 last-writer-wins
-        if (expectedMtime != null) {
-            val currentMtime = runCatching {
-                workspaceRepository.rootfsFileMtime(workspaceId, path)
-            }.getOrNull()
-            if (currentMtime != null && currentMtime > expectedMtime) {
-                error(
-                    "WRITE_CONFLICT: $path was modified by another session (disk mtime=$currentMtime, your expectedMtimeMs=$expectedMtime). " +
-                        "Re-read the file and merge, or pass force=true to overwrite deliberately."
-                )
+        val entry = readCache.mutex(path).withLock {
+            if (!force && expectedRevision != null) {
+                val currentRevision = workspaceRepository.currentRevisionOrNull(workspaceId, path)
+                if (currentRevision != expectedRevision) {
+                    error(
+                        "REVISION_CONFLICT: $path was modified by another session " +
+                            "(current=${currentRevision ?: "missing"}, expected=$expectedRevision). " +
+                            "Re-read the file and merge, or pass force=true to overwrite deliberately."
+                    )
+                }
             }
+            // P1-3 写冲突检测：调用方给了 expectedMtimeMs 且磁盘文件比它新 → 说明有其它会话写过；
+            // 未显式 force 时拒绝并给出双方时间戳，避免并发双写静默 last-writer-wins
+            if (!force && expectedMtime != null) {
+                val currentMtime = runCatching {
+                    workspaceRepository.rootfsFileMtime(workspaceId, path)
+                }.getOrNull()
+                if (currentMtime != null && currentMtime > expectedMtime) {
+                    error(
+                        "WRITE_CONFLICT: $path was modified by another session (disk mtime=$currentMtime, your expectedMtimeMs=$expectedMtime). " +
+                            "Re-read the file and merge, or pass force=true to overwrite deliberately."
+                    )
+                }
+            }
+            workspaceRepository.writeTextInRootfs(workspaceId, path, text, overwrite)
         }
-
-        val entry = workspaceRepository.writeTextInRootfs(workspaceId, path, text, overwrite)
-        listOf(UIMessagePart.Text(entry.toJson().toString()))
+        readCache.invalidate(path)
+        val revision = text.toByteArray(Charsets.UTF_8).sha256Hex()
+        val payload = buildJsonObject {
+            entry.toJson().forEach { (key, value) -> put(key, value) }
+            put("revision", revision)
+        }
+        listOf(UIMessagePart.Text(payload.toString()))
     },
 )
 
@@ -195,71 +342,150 @@ private fun createEditFileTool(
     workspaceId: String,
     needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
+    readCache: WorkspaceReadCache,
+    writableRoots: List<String> = WRITABLE_ROOT_PREFIXES,
+    readOnlyRoots: List<String> = READ_ONLY_ROOT_PREFIXES,
 ) = Tool(
     name = "workspace_edit_file",
     description = """
-        Edit a UTF-8 text file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
-        Use /workspace for the workspace files area.
-        Provide old_text and new_text. By default old_text must occur exactly once; set replace_all=true to replace every occurrence.
-        If no exact match is found, whitespace-tolerant line matching is attempted automatically; the replacement may then be re-indented to the matched block's whitespace and is flagged with indentationWarning.
+        Edit a UTF-8 file in the workspace Rootfs with one atomic write. Paths must be absolute inside Rootfs.
+        Prefer `edits: [{old_text,new_text}]` for multiple independent changes; they are applied in order to one snapshot.
+        Legacy `old_text`/`new_text`/`replace_all` is still accepted. Each old_text must match exactly once unless replace_all=true.
+        If no exact match is found, whitespace-tolerant line matching is attempted and may re-indent the replacement.
+        Pass expectedRevision from workspace_read_file to reject concurrent edits (REVISION_CONFLICT, no file changes).
+        Do not include the `N|` line-number prefix from read output in old_text.
     """.trimIndent().replace("\n", " "),
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
                 putPathProperty(required = true)
+                put("edits", buildJsonObject {
+                    put("type", "array")
+                    put("maxItems", 32)
+                    put("items", buildJsonObject {
+                        put("type", "object")
+                        put("properties", buildJsonObject {
+                            put("old_text", buildJsonObject {
+                                put("type", "string")
+                                put("description", "Exact text to replace; must be unique in the current file")
+                            })
+                            put("new_text", buildJsonObject {
+                                put("type", "string")
+                                put("description", "Replacement text; empty string deletes")
+                            })
+                        })
+                        put("required", buildJsonArray { add(JsonPrimitive("old_text")); add(JsonPrimitive("new_text")) })
+                    })
+                })
                 put("old_text", buildJsonObject {
                     put("type", "string")
-                    put("description", "Exact text to replace")
+                    put("description", "Legacy single edit: exact text to replace")
                 })
                 put("new_text", buildJsonObject {
                     put("type", "string")
-                    put("description", "Replacement text")
+                    put("description", "Legacy single edit: replacement text")
                 })
                 put("replace_all", buildJsonObject {
                     put("type", "boolean")
-                    put("description", "Whether to replace every occurrence. Defaults to false.")
+                    put("description", "Legacy single edit: replace every occurrence. Defaults to false.")
+                })
+                put("expectedRevision", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Optional SHA-256 revision from workspace_read_file")
                 })
             },
-            required = listOf("path", "old_text", "new_text"),
+            required = listOf("path"),
         )
     },
-    needsApproval = { needsApproval("workspace_edit_file") || it.pathOutsideWritableRoots("path") },
+    needsApproval = {
+        // 只读挂载必然报错，不必先让用户审批
+        !it.pathInReadOnlyRoots("path", readOnlyRoots) &&
+            (needsApproval("workspace_edit_file") || it.pathOutsideWritableRoots("path", writableRoots))
+    },
     execute = {
         val params = it.jsonObject
         val path = params.absolutePath("path")
-        rejectReadOnlyPath(path)
-        val oldText = params.string("old_text")
-            ?: error("old_text is required (parameters: path, old_text, new_text, replace_all)")
-        val newText = params.string("new_text")
-            ?: error("new_text is required (parameters: path, old_text, new_text, replace_all)")
-        val replaceAll = params["replace_all"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
-        require(oldText.isNotEmpty()) { "old_text must not be empty" }
-
-        val original = workspaceRepository.readTextInRootfs(workspaceId, path)
-        // 逐级尝试 exact -> line_trimmed -> block_anchor 替换器, 见 TextReplacers.kt
-        val result = try {
-            replaceText(original, oldText, newText, replaceAll)
-        } catch (e: IllegalArgumentException) {
-            error("${e.message} (path: $path)")
+        rejectReadOnlyPath(path, readOnlyRoots)
+        val legacyOld = params.string("old_text")
+        val legacyNew = params.string("new_text")
+        val edits = params["edits"]?.jsonArray?.map { element ->
+            val obj = element.jsonObject
+            val oldText = obj.string("old_text") ?: error("edits[].old_text is required")
+            val newText = obj.string("new_text") ?: error("edits[].new_text is required")
+            require(oldText.isNotEmpty()) { "edits[].old_text must not be empty" }
+            oldText to newText
+        }.orEmpty()
+        val editList = when {
+            edits.isNotEmpty() && (legacyOld != null || legacyNew != null) ->
+                error("Use either edits[] or legacy old_text/new_text, not both")
+            edits.isNotEmpty() -> edits
+            legacyOld != null || legacyNew != null -> {
+                val oldText = legacyOld ?: error("old_text is required with new_text")
+                val newText = legacyNew ?: error("new_text is required with old_text")
+                require(oldText.isNotEmpty()) { "old_text must not be empty" }
+                listOf(oldText to newText)
+            }
+            else -> error("edits[] or old_text/new_text is required")
         }
-        val entry = workspaceRepository.writeTextInRootfs(workspaceId, path, result.updated, overwrite = true)
-        val diff = generateUnifiedDiff(original, result.updated, entry.path)
+        require(editList.size <= 32) { "edits supports at most 32 entries" }
+        val replaceAll = params["replace_all"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull() ?: false
+        val expectedRevision = params.string("expectedRevision")
+
+        val written = readCache.mutex(path).withLock {
+            val snapshot = workspaceRepository.readTextSnapshot(workspaceId, path)
+            if (expectedRevision != null && snapshot.revision != expectedRevision) {
+                error(
+                    "REVISION_CONFLICT: $path was modified by another session " +
+                        "(current=${snapshot.revision}, expected=$expectedRevision). Re-read and merge."
+                )
+            }
+            var current = snapshot.text
+            val strategies = linkedSetOf<String>()
+            var replacements = 0
+            var indentationAdjusted = false
+            editList.forEach { (oldText, newText) ->
+                val result = try {
+                    replaceText(current, oldText, newText, replaceAll && editList.size == 1)
+                } catch (e: IllegalArgumentException) {
+                    error("${e.message} (path: $path)")
+                }
+                current = result.updated
+                strategies += result.strategy
+                replacements += result.replacements
+                indentationAdjusted = indentationAdjusted || result.indentationAdjusted
+            }
+            val entry = workspaceRepository.writeTextInRootfs(workspaceId, path, current, overwrite = true)
+            EditWritten(
+                original = snapshot.text,
+                updated = current,
+                entry = entry,
+                replacements = replacements,
+                strategies = strategies,
+                indentationAdjusted = indentationAdjusted,
+            )
+        }
+        readCache.invalidate(path)
+        val revision = written.updated.toByteArray(Charsets.UTF_8).sha256Hex()
+        val diff = generateUnifiedDiff(written.original, written.updated, written.entry.path)
         listOf(
             UIMessagePart.Text(
                 text = buildJsonObject {
-                    put("path", entry.path)
-                    put("replacements", result.replacements)
-                    if (result.strategy != ExactReplacer.name) put("matchStrategy", result.strategy)
-                    // ISSUE-01: 宽松匹配策略重排过缩进时显式告知，避免静默改坏缩进敏感文件
-                    if (result.indentationAdjusted) {
+                    put("path", written.entry.path)
+                    put("edits", editList.size)
+                    put("replacements", written.replacements)
+                    if (written.strategies != setOf(ExactReplacer.name)) {
+                        put("matchStrategies", buildJsonArray { written.strategies.forEach { add(JsonPrimitive(it)) } })
+                    }
+                    if (written.indentationAdjusted) {
                         put(
                             "indentationWarning",
                             "old_text indentation did not match the file, so the replacement was re-indented " +
                                 "to the matched block's original leading whitespace. Re-read the file to verify indentation."
                         )
                     }
-                    put("sizeBytes", entry.sizeBytes)
-                    put("updatedAt", entry.updatedAt)
+                    put("sizeBytes", written.entry.sizeBytes)
+                    put("updatedAt", written.entry.updatedAt)
+                    put("revision", revision)
                 }.toString(),
                 // diff 存入 metadata 供 UI 渲染 diff view, 不会随工具结果发送给 API
                 metadata = diff?.let { d -> DiffMetadata(diff = d).toMetadata() },
@@ -268,10 +494,15 @@ private fun createEditFileTool(
     },
 )
 
-/**
- * 发送文件给用户: 校验文件存在后, 输出 JSON 由聊天界面渲染为可见的文件卡片,
- * 用户可对其打开/导出/分享。
- */
+private data class EditWritten(
+    val original: String,
+    val updated: String,
+    val entry: WorkspaceFileEntry,
+    val replacements: Int,
+    val strategies: Set<String>,
+    val indentationAdjusted: Boolean,
+)
+
 private fun createPresentFileTool(
     workspaceId: String,
     needsApproval: (String) -> Boolean,
@@ -321,6 +552,7 @@ private fun createShellTool(
     needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
     defaultCwd: String? = null,
+    readCache: WorkspaceReadCache? = null,
 ) = Tool(
     name = "workspace_shell",
     description = buildString {
@@ -330,6 +562,7 @@ private fun createShellTool(
             append("The default working directory is stated in the <workspace> prompt. ")
         }
         append("Each call runs the command in a subshell: no state (variables, functions, cd) persists between calls — pass absolute paths or the `cwd` parameter instead of relying on `cd` or exported variables. ")
+        append("For long or quote-heavy scripts, write the script to a file first and pass script_path instead of command; this avoids JSON escaping failures. ")
         append("Output is capped: if truncated, re-run with head/tail/grep to fetch only the needed part; large installs (apt/npm/pip) need a larger timeout (300-600). ")
         append("Requires Rootfs to be installed and ready.")
         appendLine()
@@ -344,6 +577,10 @@ private fun createShellTool(
                 put("command", buildJsonObject {
                     put("type", "string")
                     put("description", "Shell command to run")
+                })
+                put("script_path", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Optional path to a script file; executed as bash <script_path>. Use instead of command for long scripts.")
                 })
                 put("cwd", buildJsonObject {
                     put("type", "string")
@@ -360,20 +597,27 @@ private fun createShellTool(
                     )
                 })
             },
-            required = listOf("command"),
+            required = emptyList(),
         )
     },
     needsApproval = { needsApproval("workspace_shell") },
     execute = {
         val params = it.jsonObject
-        val command = params.string("command") ?: error("command is required")
+        val command = params.string("command")?.takeIf { it.isNotBlank() }
+        val scriptPath = params.string("script_path")?.takeIf { it.isNotBlank() }
+        require((command == null) xor (scriptPath == null)) {
+            "Provide exactly one of command or script_path"
+        }
+        val effectiveCommand = command ?: "bash -- ${scriptPath!!.shellQuote()}"
         val cwd = (params.string("cwd") ?: defaultCwd.orEmpty())
             .removePrefix("/workspace/").removePrefix("/workspace")
         val timeoutMillis = params.string("timeout")?.toLongOrNull()
             ?.coerceIn(1L, SHELL_TIMEOUT_MAX_SECONDS)
             ?.times(1_000L)
             ?: WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS
-        val result = workspaceRepository.executeCommand(workspaceId, command, cwd, timeoutMillis)
+        val result = workspaceRepository.executeCommand(workspaceId, effectiveCommand, cwd, timeoutMillis)
+        // shell 可能改任意文件，直接放弃本生成内的读取去重证据，避免返回已过期的“未变化”
+        readCache?.clearAll()
         listOf(
             UIMessagePart.Text(
                 buildJsonObject {
@@ -387,11 +631,14 @@ private fun createShellTool(
                         )
                         val spill = result.spillFile
                         if (spill != null) {
+                            val resultId = spill.name.substringBeforeLast('.')
+                            put("resultId", resultId)
                             put("fullOutputPath", "/tool_outputs/${spill.name}")
                             put(
                                 "truncatedHint",
                                 "Output exceeded ${MAX_OUTPUT_CHARS / 1024}K chars; the COMPLETE output is saved to " +
-                                    "/tool_outputs/${spill.name} — read it with workspace_read_file or grep/sed it. " +
+                                    "/tool_outputs/${spill.name} — use workspace_read_result(resultId=\"$resultId\") " +
+                                    "(call workspace_load_tools first if needed) or read the path in ranges. " +
                                     "For future commands prefer pipes like `cmd 2>&1 | tail -c 4000`, `| head -50` or `| grep keyword`."
                             )
                         } else {
@@ -420,19 +667,14 @@ private fun createShellTool(
     },
 )
 
-private fun kotlinx.serialization.json.JsonObject.string(name: String): String? =
+internal fun kotlinx.serialization.json.JsonObject.string(name: String): String? =
     this[name]?.jsonPrimitive?.contentOrNull
-
-private suspend fun WorkspaceRepository.readTextInRootfs(
-    workspaceId: String,
-    path: String,
-): String = readRootfsBuffer(workspaceId, path).toString(Charsets.UTF_8.name())
 
 /**
  * 按 Rootfs 内绝对路径读入内存。路径映射交给 WorkspaceManager, 由它统一处理
  * /workspace、bind mount 与 Rootfs 内部路径。
  */
-private suspend fun WorkspaceRepository.readRootfsBuffer(
+internal suspend fun WorkspaceRepository.readRootfsBuffer(
     workspaceId: String,
     path: String,
 ): ByteArrayOutputStream {
@@ -579,7 +821,61 @@ private fun String.parseRootfsEntries(): List<WorkspaceFileEntry> {
     }
 }
 
-private fun kotlinx.serialization.json.JsonObject.absolutePath(name: String): String {
+internal suspend fun WorkspaceRepository.readTextPayload(
+    workspaceId: String,
+    path: String,
+    offset: Int,
+    limit: Int,
+    cache: WorkspaceReadCache,
+    recordCache: Boolean = true,
+): JsonObject {
+    val snapshot = readTextSnapshot(workspaceId, path)
+    val total = snapshot.lines.size
+    val startIndex = (offset - 1).coerceIn(0, total)
+    val requestedEnd = (startIndex + limit).coerceAtMost(total)
+    val textBuilder = StringBuilder()
+    var renderedEnd = startIndex
+    while (renderedEnd < requestedEnd) {
+        val line = "${renderedEnd + 1}|${snapshot.lines[renderedEnd]}"
+        if (textBuilder.isNotEmpty() &&
+            textBuilder.length + 1 + line.length > WORKSPACE_READ_CACHE_MAX_CHARS
+        ) {
+            break
+        }
+        if (textBuilder.isNotEmpty()) textBuilder.append('\n')
+        textBuilder.append(line)
+        renderedEnd++
+    }
+    val numbered = textBuilder.toString()
+    val truncatedByBudget = renderedEnd < requestedEnd
+    val key = readCacheKey(path, offset, limit, snapshot.revision)
+    val unchanged = cache.isUnchanged(key)
+    if (recordCache && !unchanged && numbered.length <= WORKSPACE_READ_CACHE_MAX_CHARS) {
+        cache.record(key)
+    }
+    return buildJsonObject {
+        put("path", path)
+        put("startLine", if (startIndex >= total) total else startIndex + 1)
+        put("endLine", renderedEnd)
+        put("totalLines", total)
+        put("sizeBytes", snapshot.sizeBytes)
+        put("revision", snapshot.revision)
+        put("format", "numbered-lines")
+        put("complete", renderedEnd >= total)
+        put("pageComplete", !truncatedByBudget)
+        put("scanComplete", true)
+        put("truncated", truncatedByBudget)
+        if (renderedEnd < total) put("nextOffset", renderedEnd + 1)
+        if (unchanged) {
+            put("unchanged", true)
+            put("note", "Content for this exact path/range/revision was already returned in this generation; no body repeated.")
+        } else {
+            put("text", numbered)
+        }
+    }
+}
+
+internal fun kotlinx.serialization.json.JsonObject.absolutePath(name: String): String {
     val path = string(name)?.replace('\\', '/')?.trim() ?: error("$name is required")
     require(path.isNotBlank()) { "$name is required" }
     require(path.startsWith("/")) { "$name must be an absolute path inside Rootfs" }
@@ -593,30 +889,43 @@ private val WRITABLE_ROOT_PREFIXES = listOf("/workspace", "/tmp", "/skills")
 // 平台只读区（PRoot 的 -b 无只读能力，靠工具层拒绝写入；见 WorkspaceBindMount.readOnly 注释）
 private val READ_ONLY_ROOT_PREFIXES = listOf("/upload")
 
-internal fun String.isInReadOnlyRoot(): Boolean {
+internal fun String.isInReadOnlyRoot(readOnlyRoots: List<String> = READ_ONLY_ROOT_PREFIXES): Boolean {
     val normalized = trimEnd('/').ifBlank { "/" }
-    return READ_ONLY_ROOT_PREFIXES.any { prefix ->
+    return readOnlyRoots.any { prefix ->
         normalized == prefix || normalized.startsWith("$prefix/")
     }
 }
 
-internal fun rejectReadOnlyPath(path: String) {
-    if (path.isInReadOnlyRoot()) {
+internal fun rejectReadOnlyPath(path: String, readOnlyRoots: List<String> = READ_ONLY_ROOT_PREFIXES) {
+    if (path.isInReadOnlyRoot(readOnlyRoots)) {
         error(
-            "READ_ONLY: $path is under a read-only mount (/upload holds user-uploaded originals). " +
+            "READ_ONLY: $path is under a read-only mount. " +
                 "Copy it into /workspace first, then modify the copy."
         )
     }
 }
 
-private fun kotlinx.serialization.json.JsonElement.pathOutsideWritableRoots(name: String): Boolean =
+private fun kotlinx.serialization.json.JsonElement.pathOutsideWritableRoots(
+    name: String,
+    writableRoots: List<String> = WRITABLE_ROOT_PREFIXES,
+): Boolean =
     runCatching {
-        jsonObject.absolutePath(name).isOutsideWritableRoots()
+        jsonObject.absolutePath(name).isOutsideWritableRoots(writableRoots)
     }.getOrDefault(true)
 
-internal fun String.isOutsideWritableRoots(): Boolean {
+private fun kotlinx.serialization.json.JsonElement.pathInReadOnlyRoots(
+    name: String,
+    readOnlyRoots: List<String>,
+): Boolean =
+    runCatching {
+        jsonObject.absolutePath(name).isInReadOnlyRoot(readOnlyRoots)
+    }.getOrDefault(false)
+
+internal fun String.isOutsideWritableRoots(
+    writableRoots: List<String> = WRITABLE_ROOT_PREFIXES,
+): Boolean {
     val normalized = trimEnd('/').ifBlank { "/" }
-    return WRITABLE_ROOT_PREFIXES.none { prefix ->
+    return writableRoots.none { prefix ->
         normalized == prefix || normalized.startsWith("$prefix/")
     }
 }
@@ -629,7 +938,7 @@ private fun String.shellQuote(): String =
 
 private fun Boolean.shellFlag(): Int = if (this) 1 else 0
 
-private fun JsonObjectBuilder.putPathProperty(required: Boolean) {
+internal fun JsonObjectBuilder.putPathProperty(required: Boolean) {
     put("path", buildJsonObject {
         put("type", "string")
         put(

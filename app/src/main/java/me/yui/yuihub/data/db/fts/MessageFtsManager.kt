@@ -8,7 +8,6 @@ import me.rerere.ai.ui.UIMessagePart
 import me.yui.yuihub.data.ai.prompts.isMemorySnapshot
 import me.yui.yuihub.data.db.AppDatabase
 import me.yui.yuihub.data.model.Conversation
-import me.yui.yuihub.data.model.MessageNode
 import java.time.Instant
 
 data class MessageSearchResult(
@@ -29,22 +28,14 @@ enum class MessageSearchSort(val orderBy: String) {
 private const val TAG = "MessageFtsManager"
 
 /**
- * jieba 词典就绪标志: 词典在 DB onOpen 后异步加载(避免拖慢冷启动),
- * 就绪前 FTS 写入/查询都会失败。这里用进程级标志兑底:
- * - 未就绪时 indexConversation 跳过(下次保存会重新索引), search 返回空结果
- * - 词典就绪后自动恢复
+ * 全文搜索：simple 扩展负责英文/数字的分词与 simple_query，
+ * 中文由查询侧拆成单字并用 NEAR 限定相邻，不再依赖 jieba 词典。
  */
-object JiebaDictState {
-    @Volatile
-    var dictReady: Boolean = false
-}
-
 class MessageFtsManager(private val database: AppDatabase) {
 
     private val db get() = database.openHelper.writableDatabase
 
     suspend fun indexConversation(conversation: Conversation) = withContext(Dispatchers.IO) {
-        if (!JiebaDictState.dictReady) return@withContext
         val conversationId = conversation.id.toString()
         db.execSQL("DELETE FROM message_fts WHERE conversation_id = ?", arrayOf(conversationId))
         conversation.messageNodes.forEach { node ->
@@ -81,30 +72,32 @@ class MessageFtsManager(private val database: AppDatabase) {
         keyword: String,
         sort: MessageSearchSort = MessageSearchSort.RELEVANCE,
         assistantId: String? = null,
+        conversationId: String? = null,
     ): List<MessageSearchResult> = withContext(Dispatchers.IO) {
-        if (!JiebaDictState.dictReady) return@withContext emptyList()
+        val matchQuery = buildFtsMatchQuery(keyword, ::simpleQuery) ?: return@withContext emptyList()
         val results = mutableListOf<MessageSearchResult>()
-        val assistantFilter = if (assistantId.isNullOrBlank()) {
-            ""
-        } else {
-            "AND conversation_id IN (SELECT id FROM ConversationEntity WHERE assistant_id = ?)"
+        val filters = mutableListOf<String>()
+        val args = mutableListOf(matchQuery)
+        if (!assistantId.isNullOrBlank()) {
+            filters += "AND conversation_id IN (SELECT id FROM ConversationEntity WHERE assistant_id = ?)"
+            args += assistantId
         }
-        val args = if (assistantId.isNullOrBlank()) {
-            arrayOf(keyword)
-        } else {
-            arrayOf(keyword, assistantId)
+        if (!conversationId.isNullOrBlank()) {
+            filters += "AND conversation_id = ?"
+            args += conversationId
         }
+        val conversationFilter = filters.joinToString("\n")
         val cursor = db.query(
             """
             SELECT node_id, message_id, conversation_id, title, update_at,
                    simple_snippet(message_fts, 0, '[', ']', '...', 30) AS snippet
             FROM message_fts
-            WHERE text MATCH jieba_query(?)
-            $assistantFilter
+            WHERE text MATCH ?
+            $conversationFilter
             ORDER BY ${sort.orderBy}
             LIMIT 50
             """.trimIndent(),
-            args
+            args.toTypedArray()
         )
         Log.i(TAG, "search: $keyword")
         cursor.use {
@@ -123,9 +116,50 @@ class MessageFtsManager(private val database: AppDatabase) {
         }
         results
     }
+
+    // simple_query 支持拼音、首字母和前缀匹配
+    private fun simpleQuery(text: String): String =
+        db.query("SELECT simple_query(?)", arrayOf(text)).use {
+            if (it.moveToFirst()) it.getString(0).orEmpty() else ""
+        }
 }
 
+private val QUERY_RUN = Regex("[A-Za-z0-9]+|[^\\sA-Za-z0-9]+")
+
+// 中文各字之间最多允许夹几个额外的字（如标点、“的”），再大容易把散落的字也算命中
+private const val CJK_NEAR_SLACK = 2
+
+/**
+ * 把搜索词拼成 FTS5 查询，各段 AND 连接：
+ * 英文/数字交给 [asciiQuery]（simple_query）；中文等连续片段拆成单字用 NEAR 限定相邻。
+ */
+internal fun buildFtsMatchQuery(keyword: String, asciiQuery: (String) -> String): String? {
+    val terms = QUERY_RUN.findAll(keyword).mapNotNull { match ->
+        val text = match.value
+        val term = if (text.first().isAsciiLetterOrDigit()) asciiQuery(text) else nearQuery(text)
+        term.takeIf { it.isNotBlank() }
+    }.toList()
+    return terms.takeIf { it.isNotEmpty() }?.joinToString(" AND ")
+}
+
+private fun nearQuery(text: String): String {
+    val chars = text.codePoints().toArray().map {
+        "\"${String(Character.toChars(it)).replace("\"", "\"\"")}\""
+    }
+    if (chars.size == 1) return chars.single()
+    return "NEAR(${chars.joinToString(" ")}, ${chars.size - 2 + CJK_NEAR_SLACK})"
+}
+
+private fun Char.isAsciiLetterOrDigit(): Boolean =
+    this in 'a'..'z' || this in 'A'..'Z' || this in '0'..'9'
+
 private fun UIMessage.extractFtsText(): String =
-    parts.filterIsInstance<UIMessagePart.Text>()
-        .joinToString("\n") { it.text }
-        .take(10_000)
+    parts.flatMap { part ->
+        when (part) {
+            is UIMessagePart.Text -> listOf(part.text)
+            is UIMessagePart.Tool -> part.output
+                .filterIsInstance<UIMessagePart.Text>()
+                .map { it.text }
+            else -> emptyList()
+        }
+    }.joinToString("\n").take(10_000)

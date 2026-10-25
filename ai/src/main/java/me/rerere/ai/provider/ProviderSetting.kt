@@ -69,6 +69,8 @@ sealed class ProviderSetting {
         var useResponseApi: Boolean = false,
         var responsesPath: String = "/responses",
         var includeHistoryReasoning: Boolean = true,
+        /** 自定义接口：允许手填 /v1 之后的 completions 路径（仍走 OpenAI 兼容请求） */
+        var customApiType: Boolean = false,
     ) : ProviderSetting() {
         override fun addModel(model: Model): ProviderSetting {
             return copy(models = models + model)

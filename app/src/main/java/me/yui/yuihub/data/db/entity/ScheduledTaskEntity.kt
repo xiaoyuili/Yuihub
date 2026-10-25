@@ -16,6 +16,7 @@ import androidx.room.PrimaryKey
     tableName = "scheduled_task",
     indices = [
         Index(value = ["assistant_id"]),
+        Index(value = ["conversation_id"]),
         Index(value = ["enabled"]),
     ],
 )
@@ -28,6 +29,9 @@ data class ScheduledTaskEntity(
     val prompt: String,
     @ColumnInfo("assistant_id")
     val assistantId: String,
+    /** 从某个对话创建的归属会话；空串表示助手级任务 */
+    @ColumnInfo("conversation_id", defaultValue = "''")
+    val conversationId: String = "",
     /** ONCE / DAILY / INTERVAL */
     @ColumnInfo("schedule_type", defaultValue = "'DAILY'")
     val scheduleType: String = ScheduleType.DAILY.name,

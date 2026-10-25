@@ -1,5 +1,7 @@
 package me.yui.yuihub.ui.components.message
 
+import androidx.activity.compose.BackHandler
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -23,8 +25,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -260,12 +260,10 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
 
     if (showResult) {
         ModalBottomSheet(
-            sheetState = rememberBottomSheetState(
-                initialValue = SheetValue.Hidden,
-                enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
-            ),
+            sheetState = me.yui.yuihub.ui.components.ui.rememberGuardedModalBottomSheetState(),
             onDismissRequest = { showResult = false },
             content = {
+                BackHandler { showResult = false }
                 renderer.Preview(
                     context = context,
                     onDismissRequest = { showResult = false },

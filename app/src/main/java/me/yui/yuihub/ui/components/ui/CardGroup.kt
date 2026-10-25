@@ -1,40 +1,42 @@
 package me.yui.yuihub.ui.components.ui
 
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ListItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ListItemColors
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEachIndexed
 import me.yui.yuihub.ui.theme.CustomColors
 
 private val CardGroupCorner = 20.dp
-private val CardGroupItemSpacing = 2.dp
-private val CardGroupInnerCorner = 4.dp
+private val CardGroupRowMinHeight = 60.dp
 
 private data class CardGroupItem(
     val onClick: (() -> Unit)?,
@@ -93,38 +95,12 @@ private class CardGroupScopeImpl : CardGroupScope {
 }
 
 @Composable
-private fun CardGroupListItem(
-    item: CardGroupItem,
-    count: Int,
-    index: Int,
-) {
-    val isFirst = index == 0
-    val isLast = index == count - 1
-
+private fun CardGroupItemRow(item: CardGroupItem) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
 
-    val topCorner by animateDpAsState(
-        targetValue = if (isPressed || count == 1 || isFirst) CardGroupCorner else CardGroupInnerCorner,
-        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
-    )
-    val bottomCorner by animateDpAsState(
-        targetValue = if (isPressed || count == 1 || isLast) CardGroupCorner else CardGroupInnerCorner,
-        animationSpec = MaterialTheme.motionScheme.fastSpatialSpec(),
-    )
-
-    ListItem(
-        headlineContent = item.headlineContent,
+    Row(
         modifier = item.modifier
             .fillMaxWidth()
-            .clip(
-                RoundedCornerShape(
-                    topStart = topCorner,
-                    topEnd = topCorner,
-                    bottomStart = bottomCorner,
-                    bottomEnd = bottomCorner,
-                )
-            )
             .then(
                 if (item.onClick != null) {
                     Modifier.clickable(
@@ -133,13 +109,49 @@ private fun CardGroupListItem(
                         onClick = item.onClick,
                     )
                 } else Modifier
-            ),
-        overlineContent = item.overlineContent,
-        supportingContent = item.supportingContent,
-        leadingContent = item.leadingContent,
-        trailingContent = item.trailingContent,
-        colors = item.colors ?: CustomColors.listItemColors,
-    )
+            )
+            .defaultMinSize(minHeight = CardGroupRowMinHeight)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        item.leadingContent?.let { leading ->
+            Box(modifier = Modifier.padding(end = 13.dp)) {
+                leading()
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            item.overlineContent?.let { overline ->
+                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
+                    ProvideTextStyle(MaterialTheme.typography.labelSmall) {
+                        overline()
+                    }
+                }
+            }
+            ProvideTextStyle(
+                MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            ) {
+                item.headlineContent()
+            }
+            item.supportingContent?.let { supporting ->
+                Spacer(modifier = Modifier.height(2.dp))
+                CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
+                    ProvideTextStyle(MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp)) {
+                        supporting()
+                    }
+                }
+            }
+        }
+
+        item.trailingContent?.let { trailing ->
+            Box(modifier = Modifier.padding(start = 12.dp)) {
+                trailing()
+            }
+        }
+    }
 }
 
 @Composable
@@ -153,19 +165,36 @@ fun CardGroup(
 
     Column(modifier = modifier) {
         if (title != null) {
-            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.primary) {
-                ProvideTextStyle(MaterialTheme.typography.titleSmallEmphasized) {
-                    Box(modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp)) {
+            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurfaceVariant) {
+                ProvideTextStyle(
+                    MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
+                ) {
+                    Box(modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)) {
                         title()
                     }
                 }
             }
         }
-        val count = scope.items.size
-        scope.items.fastForEachIndexed { index, item ->
-            CardGroupListItem(item = item, count = count, index = index)
-            if (index != count - 1) {
-                Spacer(modifier = Modifier.height(CardGroupItemSpacing))
+
+        Surface(
+            shape = RoundedCornerShape(CardGroupCorner),
+            color = CustomColors.groupedCardSurface,
+            border = BorderStroke(
+                1.dp,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            ),
+            tonalElevation = 0.dp,
+        ) {
+            Column {
+                val count = scope.items.size
+                scope.items.fastForEachIndexed { index, item ->
+                    CardGroupItemRow(item = item)
+                    if (index != count - 1) {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                }
             }
         }
     }
@@ -180,10 +209,10 @@ private fun CardGroupPreview() {
                 title = {
                     Text("Card Group")
                 },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         Column(
             modifier = Modifier

@@ -9,6 +9,7 @@ import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 
 data class ExtendColors(
     val red1: Color,
@@ -172,20 +173,72 @@ fun darkExtendColors(): ExtendColors = ExtendColors(
 object CustomColors {
     var black = false
 
+    /** 页面底色：浅色使用略带灰的容器色，深色回到背景色，让白色卡片有层次。 */
+    val pageBackground: Color
+        @Composable get() = when {
+            LocalGlassTheme.current -> Color.Transparent
+            LocalDarkMode.current -> colorScheme.background
+            else -> colorScheme.surfaceContainerLow
+        }
+
+    /** 分组卡片表面：玻璃主题使用半透明容器色。 */
+    val groupedCardSurface: Color
+        @Composable get() = when {
+            LocalGlassTheme.current -> colorScheme.surfaceContainerLow.copy(alpha = 0.72f)
+            LocalDarkMode.current -> colorScheme.surfaceContainer
+            else -> colorScheme.surfaceContainerLowest
+        }
+
+    /** 玻璃弹层底色：带一点主题色，不是纯白。 */
+    val glassSheetSurface: Color
+        @Composable get() = colorScheme.primary
+            .copy(alpha = 0.10f)
+            .compositeOver(colorScheme.surfaceContainerLow)
+            .copy(alpha = 0.84f)
+
+    val pageTopBarColors: TopAppBarColors
+        @Composable get() = TopAppBarDefaults.topAppBarColors(
+            containerColor = pageBackground,
+            scrolledContainerColor = pageBackground,
+        )
+
     val topBarColors: TopAppBarColors
         @Composable get() {
-            return if (!LocalDarkMode.current) TopAppBarDefaults.topAppBarColors(
+            return if (LocalGlassTheme.current) {
+                TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = colorScheme.surfaceContainerLow,
+                )
+            } else if (!LocalDarkMode.current) TopAppBarDefaults.topAppBarColors(
                 containerColor = colorScheme.surfaceContainer,
                 scrolledContainerColor = colorScheme.surfaceContainer
             ) else TopAppBarDefaults.topAppBarColors()
         }
 
     val cardColors: CardColors
-        @Composable get() = CardDefaults.cardColors(containerColor = colorScheme.surfaceContainer)
+        @Composable get() = CardDefaults.cardColors(
+            containerColor = if (LocalGlassTheme.current) {
+                colorScheme.surfaceContainerLow.copy(alpha = 0.68f)
+            } else {
+                colorScheme.surfaceContainer
+            }
+        )
 
     val cardColorsOnSurfaceContainer: CardColors
-        @Composable get() = CardDefaults.cardColors(containerColor = colorScheme.surfaceBright)
+        @Composable get() = CardDefaults.cardColors(
+            containerColor = if (LocalGlassTheme.current) {
+                colorScheme.surfaceBright.copy(alpha = 0.78f)
+            } else {
+                colorScheme.surfaceBright
+            }
+        )
 
     val listItemColors: ListItemColors
-        @Composable get() = ListItemDefaults.colors(containerColor = colorScheme.surfaceBright)
+        @Composable get() = ListItemDefaults.colors(
+            containerColor = if (LocalGlassTheme.current) {
+                colorScheme.surfaceContainerLow.copy(alpha = 0.72f)
+            } else {
+                colorScheme.surfaceBright
+            }
+        )
 }

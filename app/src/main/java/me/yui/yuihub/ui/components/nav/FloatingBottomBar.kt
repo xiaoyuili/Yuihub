@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.ui.theme.LocalDarkMode
+import me.yui.yuihub.ui.theme.LocalGlassTheme
 import kotlin.math.roundToInt
 
 object FloatingBottomBarDefaults {
@@ -85,8 +86,17 @@ fun FloatingBottomBar(
             .padding(bottom = FloatingBottomBarDefaults.Margin)
             .height(FloatingBottomBarDefaults.Height),
         shape = RoundedCornerShape(18.dp),
-        color = CustomColors.cardColorsOnSurfaceContainer.containerColor,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        color = if (LocalGlassTheme.current) {
+            MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.68f)
+        } else {
+            CustomColors.cardColorsOnSurfaceContainer.containerColor
+        },
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(
+                alpha = if (LocalGlassTheme.current) 0.35f else 0.5f
+            )
+        ),
         shadowElevation = 6.dp,
     ) {
         BoxWithConstraints(

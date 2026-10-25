@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,25 +75,23 @@ import me.rerere.hugeicons.stroke.File02
 import me.rerere.hugeicons.stroke.MusicNote03
 import me.rerere.hugeicons.stroke.Video01
 import me.yui.yuihub.R
-import me.yui.yuihub.Screen
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.AssistantAffectScope
+import me.yui.yuihub.data.model.CompressionSummary
 import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.data.model.replaceRegexes
 import me.yui.yuihub.ui.components.richtext.LocalMarkdownAccentColor
 import me.yui.yuihub.ui.components.richtext.MarkdownBlock
 import me.yui.yuihub.ui.components.richtext.ZoomableAsyncImage
-import me.yui.yuihub.ui.components.richtext.buildMarkdownPreviewHtml
-import me.yui.yuihub.ui.components.webview.WebViewContentCache
 import me.yui.yuihub.ui.components.ui.ChainOfThought
 import me.yui.yuihub.ui.components.charts.ChartCard
 import me.yui.yuihub.ui.components.charts.ChartSpec
 import me.yui.yuihub.ui.components.ui.Favicon
-import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.modifier.shimmer
 import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.theme.LocalChatFontFamily
+import me.yui.yuihub.ui.theme.LocalGlassTheme
 import me.yui.yuihub.ui.theme.rememberChatFontFamily
 import me.yui.yuihub.ui.theme.extendColors
 import me.yui.yuihub.utils.JsonInstant
@@ -104,19 +103,32 @@ import kotlin.uuid.Uuid
 // 用户气泡固定为 iMessage 蓝（用户从配色方案中选定）；不跟随主题色，各主题下表现一致
 private val UserBubbleColor = Color(0xFF0A84FF)
 
+private fun compactionSummaryText(summary: CompressionSummary): String {
+    val meta = if (summary.originalTokens > 0 && summary.summaryTokens > 0) {
+        "${formatTokenCount(summary.originalTokens)} → ${formatTokenCount(summary.summaryTokens)}"
+    } else null
+    return if (meta != null) "$meta · ${summary.content}" else summary.content
+}
+
+private fun formatTokenCount(tokens: Int): String = when {
+    tokens >= 1_000_000 -> "%.1fM".format(tokens / 1_000_000.0)
+    tokens >= 1_000 -> "%.1fK".format(tokens / 1_000.0)
+    else -> tokens.toString()
+}
+
 @Composable
 fun ChatMessage(
     node: MessageNode,
     modifier: Modifier = Modifier,
     loading: Boolean = false,
     conversationId: Uuid? = null,
+    compactionSummaries: List<CompressionSummary> = emptyList(),
+    compressionInProgress: Boolean = false,
     model: Model? = null,
     assistant: Assistant? = null,
     lastMessage: Boolean = false,
-    onFork: () -> Unit,
     onRegenerate: () -> Unit,
     onEdit: () -> Unit,
-    onShare: () -> Unit,
     onDelete: () -> Unit,
     onUpdate: (MessageNode) -> Unit,
     isFavorite: Boolean = false,
@@ -137,9 +149,6 @@ fun ChatMessage(
     )
     var showActionsSheet by remember { mutableStateOf(false) }
     var showSelectCopySheet by remember { mutableStateOf(false) }
-    val navController = LocalNavController.current
-    val context = LocalContext.current
-    val colorScheme = MaterialTheme.colorScheme
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = if (message.role == MessageRole.USER) Alignment.End else Alignment.Start,
@@ -189,6 +198,20 @@ fun ChatMessage(
             assistant = assistant,
         )
 
+        if (compactionSummaries.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                compactionSummaries.forEach { summary ->
+                    CompactionRow(
+                        title = stringResource(R.string.tool_ui_compress_complete),
+                        summary = compactionSummaryText(summary),
+                    )
+                }
+            }
+        }
+
         val showActions = if (lastMessage) {
             !loading
         } else {
@@ -222,35 +245,25 @@ fun ChatMessage(
             ChatMessageNerdLine(message = message)
         }
 
+        if (compressionInProgress) {
+            CompactionRow(
+                title = stringResource(R.string.tool_ui_compress_in_progress),
+                summary = stringResource(R.string.tool_ui_compress_in_progress_detail),
+                loading = true,
+            )
+        }
     }
     if (showActionsSheet) {
         ChatMessageActionsSheet(
             message = message,
             onEdit = onEdit,
             onDelete = onDelete,
-            onShare = onShare,
-            onFork = onFork,
             model = model,
             onSelectAndCopy = {
                 showSelectCopySheet = true
             },
             isFavorite = isFavorite,
             onToggleFavorite = onToggleFavorite,
-            onWebViewPreview = {
-                val textContent = message.parts
-                    .filterIsInstance<UIMessagePart.Text>()
-                    .joinToString("\n\n") { it.text }
-                    .trim()
-                if (textContent.isNotBlank()) {
-                    val htmlContent = buildMarkdownPreviewHtml(
-                        context = context,
-                        markdown = textContent,
-                        colorScheme = colorScheme
-                    )
-                    val contentId = WebViewContentCache.store(context.cacheDir, htmlContent)
-                    navController.navigate(Screen.WebView(contentId = contentId))
-                }
-            },
             onDismissRequest = {
                 showActionsSheet = false
             }
@@ -282,6 +295,7 @@ private fun MessagePartsBlock(
     onUserMessageClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
+    val glassTheme = LocalGlassTheme.current
     val contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
 
     // 消息输出HapticFeedback
@@ -393,8 +407,12 @@ private fun MessagePartsBlock(
                                         modifier = sizeAnimModifier
                                             .widthIn(max = maxWidth * 0.82f),
                                         shape = RoundedCornerShape(20.dp),
-                                        color = UserBubbleColor.copy(alpha = settings.displaySetting.bubbleOpacity),
+                                        color = UserBubbleColor.copy(
+                                            alpha = if (glassTheme) minOf(settings.displaySetting.bubbleOpacity, 0.78f)
+                                            else settings.displaySetting.bubbleOpacity
+                                        ),
                                         contentColor = Color.White,
+                                        border = if (glassTheme) BorderStroke(1.dp, Color.White.copy(alpha = 0.28f)) else null,
                                         onClick = { onUserMessageClick?.invoke() },
                                     ) {
                                         // 蓝色气泡内链接/行内代码改用白色（默认跟随主题 primary 会看不清）
@@ -418,7 +436,19 @@ private fun MessagePartsBlock(
                                     Surface(
                                         modifier = sizeAnimModifier,
                                         shape = RoundedCornerShape(20.dp),
-                                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.displaySetting.bubbleOpacity),
+                                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(
+                                            alpha = if (glassTheme) minOf(settings.displaySetting.bubbleOpacity, 0.52f)
+                                            else settings.displaySetting.bubbleOpacity
+                                        ),
+                                        contentColor = MaterialTheme.colorScheme.onSurface,
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (glassTheme) {
+                                                MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                                            } else {
+                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+                                            },
+                                        ),
                                     ) {
                                         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                                             MarkdownBlock(

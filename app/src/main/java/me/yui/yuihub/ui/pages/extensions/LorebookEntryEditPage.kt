@@ -100,11 +100,11 @@ fun LorebookEntryEditPage(
                         }
                     }
                 },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
         bottomBar = {
-            Surface(color = CustomColors.topBarColors.containerColor) {
+            Surface(color = CustomColors.pageBackground) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -125,7 +125,7 @@ fun LorebookEntryEditPage(
                 }
             }
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         if (book == null || current == null) return@Scaffold
 

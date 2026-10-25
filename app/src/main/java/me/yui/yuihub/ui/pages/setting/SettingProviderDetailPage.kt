@@ -13,6 +13,7 @@ import me.rerere.hugeicons.stroke.Cancel01
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -42,35 +43,34 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.FloatingToolbarDefaults.floatingToolbarVerticalNestedScroll
-import androidx.compose.material3.HorizontalFloatingToolbar
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.MultiChoiceSegmentedButtonRow
-import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SecondaryTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -83,7 +83,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -92,7 +91,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -100,6 +99,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastFilter
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dokar.sonner.ToastType
@@ -115,7 +115,6 @@ import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
-import me.rerere.hugeicons.stroke.Settings03
 import me.yui.yuihub.R
 import me.yui.yuihub.data.model.ModelCatalogService
 import me.yui.yuihub.data.model.fillModelMetadata
@@ -138,8 +137,9 @@ import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.hooks.useEditState
 import me.yui.yuihub.ui.pages.assistant.detail.CustomBodies
 import me.yui.yuihub.ui.pages.assistant.detail.CustomHeaders
+import me.yui.yuihub.ui.pages.setting.components.FormCard
 import me.yui.yuihub.ui.pages.setting.components.ProviderConfigure
-import me.yui.yuihub.ui.pages.setting.components.ModelConnectionTester
+import me.yui.yuihub.ui.pages.setting.components.InlineModelConnectionTest
 import me.yui.yuihub.ui.pages.setting.components.ProviderConnectionTester
 import me.yui.yuihub.ui.pages.setting.components.SettingProviderBalanceOption
 import me.yui.yuihub.ui.pages.setting.components.isUsingDefaultBaseUrl
@@ -163,9 +163,9 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val provider = settings.providers.find { it.id == id } ?: return
-    val pager = rememberPagerState { 3 }
+    val pager = rememberPagerState { 2 }
     val toaster = LocalToaster.current
-    val context = LocalContext.current
+    val resources = LocalResources.current
     val catalog = koinInject<ModelCatalogService>()
     // 填充模型元数据：models.dev 优先，未命中回退内置注册表
     val fillMetadata: (Model) -> Model = { model ->
@@ -193,13 +193,13 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     }
 
     Scaffold(
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
         topBar = {
             TopAppBar(
                 navigationIcon = {
                     BackButton()
                 },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
                 title = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -211,9 +211,7 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                         Text(text = provider.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 },
-                actions = {
-                    ModelConnectionTester(providerSetting = provider)
-                }
+                actions = { }
             )
         },
     ) { innerPadding ->
@@ -231,7 +229,7 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                         onEdit = {
                             onEdit(it)
                             toaster.show(
-                                context.getString(R.string.setting_provider_page_save_success),
+                                resources.getString(R.string.setting_provider_page_save_success),
                                 type = ToastType.Success
                             )
                         },
@@ -248,13 +246,6 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                         fillMetadata = fillMetadata,
                     )
                 }
-
-                2 -> {
-                    SettingProviderAdvancedPage(
-                        provider = provider,
-                        onEdit = onEdit,
-                    )
-                }
             }
             }
             FloatingBottomBar(
@@ -267,10 +258,6 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                     FloatingBottomBarTab(
                         icon = HugeIcons.Package01,
                         label = stringResource(R.string.setting_provider_page_models),
-                    ),
-                    FloatingBottomBarTab(
-                        icon = HugeIcons.Settings03,
-                        label = stringResource(R.string.setting_provider_page_advanced_settings),
                     ),
                 ),
                 modifier = Modifier
@@ -295,8 +282,8 @@ private fun SettingProviderConfigPage(
             .fillMaxSize()
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + FloatingBottomBarDefaults.ContentBottom),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp + FloatingBottomBarDefaults.ContentBottom),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ProviderConfigure(
             provider = internalProvider,
@@ -306,12 +293,17 @@ private fun SettingProviderConfigPage(
         )
 
         if (internalProvider is ProviderSetting.OpenAI) {
-            SettingProviderBalanceOption(
-                provider = internalProvider,
-                balanceOption = internalProvider.balanceOption,
-                onEdit = { internalProvider = internalProvider.copyProvider(balanceOption = it) }
-            )
-            ProviderBalanceText(providerSetting = provider, style = MaterialTheme.typography.labelSmall)
+            FormCard {
+                SettingProviderBalanceOption(
+                    provider = internalProvider,
+                    balanceOption = internalProvider.balanceOption,
+                    onEdit = { internalProvider = internalProvider.copyProvider(balanceOption = it) }
+                )
+                ProviderBalanceText(
+                    providerSetting = internalProvider,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
 
         Row(
@@ -325,15 +317,7 @@ private fun SettingProviderConfigPage(
 
             Spacer(Modifier.weight(1f))
 
-            IconButton(
-                onClick = {
-                    showDeleteDialog = true
-                },
-            ) {
-                Icon(HugeIcons.Delete01, null)
-            }
-
-            IconButton(
+            TextButton(
                 onClick = {
                     internalProvider = internalProvider.resetBaseUrlToDefault()
                 },
@@ -341,15 +325,47 @@ private fun SettingProviderConfigPage(
             ) {
                 Icon(
                     imageVector = HugeIcons.Refresh03,
-                    contentDescription = stringResource(R.string.setting_model_page_reset_to_default)
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
                 )
+                Text(
+                    text = stringResource(R.string.setting_model_page_reset_to_default),
+                    modifier = Modifier.padding(start = 6.dp),
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedButton(
+                onClick = { showDeleteDialog = true },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.55f),
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error,
+                ),
+            ) {
+                Text(stringResource(R.string.delete))
             }
 
             Button(
                 onClick = {
                     val providerToSave: ProviderSetting = internalProvider
                     onEdit(providerToSave.copyProvider(name = providerToSave.name.trim()))
-                }
+                },
+                modifier = Modifier
+                    .weight(1.8f)
+                    .height(48.dp),
+                shape = RoundedCornerShape(16.dp),
             ) {
                 Text(stringResource(R.string.setting_provider_page_save))
             }
@@ -360,7 +376,7 @@ private fun SettingProviderConfigPage(
             SiliconFlowPowerByIcon(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .padding(vertical = 16.dp)
+                    .padding(vertical = 8.dp)
             )
         }
     }
@@ -407,36 +423,6 @@ private fun SettingProviderModelPage(
     )
 }
 
-/**
- * 提供商高级设置：自定义请求头（provider 级，优先级低于助手/模型级同名头）。
- */
-@Composable
-private fun SettingProviderAdvancedPage(
-    provider: ProviderSetting,
-    onEdit: (ProviderSetting) -> Unit,
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(
-                start = 16.dp,
-                top = 16.dp,
-                end = 16.dp,
-                bottom = 16.dp + FloatingBottomBarDefaults.ContentBottom,
-            ),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        CustomHeaders(
-            headers = provider.customHeaders,
-            onUpdate = { headers ->
-                onEdit(provider.copyProvider(customHeaders = headers))
-            },
-        )
-    }
-}
-
 @Composable
 private fun ModelList(
     providerSetting: ProviderSetting,
@@ -455,26 +441,70 @@ private fun ModelList(
             it.printStackTrace()
         }
     }
-    var expanded by rememberSaveable { mutableStateOf(true) }
     val lazyListState = rememberLazyListState()
     val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
         onUpdateProvider(providerSetting.moveMove(from.index, to.index))
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .floatingToolbarVerticalNestedScroll(
-                    expanded = expanded,
-                    onExpand = { expanded = true },
-                    onCollapse = { expanded = false },
-                ),
-            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = FloatingBottomBarDefaults.ToolbarContentBottom),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            state = lazyListState
-        ) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            top = 10.dp,
+            end = 16.dp,
+            bottom = FloatingBottomBarDefaults.ContentBottom,
+        ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        state = lazyListState,
+    ) {
+        item(key = "models_header") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 4.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.setting_provider_page_models) +
+                        " · " + providerSetting.models.size,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                ModelPicker(
+                    models = modelList,
+                    selectedModels = providerSetting.models,
+                    onModelSelected = { model -> onUpdateProvider(providerSetting.addModel(fillMetadata(model))) },
+                    onModelDeselected = { model -> onUpdateProvider(providerSetting.delModel(model)) },
+                    onAllModelSelected = { modelsToAdd ->
+                        onUpdateProvider(
+                            providerSetting.copyProvider(
+                                models = providerSetting.models + modelsToAdd
+                                    .filter { model -> providerSetting.models.none { existing -> existing.modelId == model.modelId } }
+                                    .map { model -> fillMetadata(model) }
+                            )
+                        )
+                    },
+                    onAllModelDeselected = { filteredModels ->
+                        onUpdateProvider(
+                            providerSetting.copyProvider(
+                                models = providerSetting.models.filter { model ->
+                                    filteredModels.none { filtered -> filtered.modelId == model.modelId }
+                                }
+                            )
+                        )
+                    },
+                    fillMetadata = fillMetadata,
+                )
+                AddModelButton(
+                    onAddModel = { onUpdateProvider(providerSetting.addModel(it)) },
+                    parentProvider = providerSetting,
+                    fillMetadata = fillMetadata,
+                )
+            }
+        }
             // 模型列表
             if (providerSetting.models.isEmpty()) {
                 item {
@@ -527,28 +557,6 @@ private fun ModelList(
                     }
                 }
             }
-        }
-        HorizontalFloatingToolbar(
-            expanded = expanded,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .offset(y = -FloatingBottomBarDefaults.ToolbarOffset),
-        ) {
-            AddModelButton(
-                models = modelList,
-                selectedModels = providerSetting.models,
-                onAddModel = {
-                    onUpdateProvider(providerSetting.addModel(it))
-                },
-                onRemoveModel = {
-                    onUpdateProvider(providerSetting.delModel(it))
-                },
-                expanded = expanded,
-                parentProvider = providerSetting,
-                onUpdateProvider = onUpdateProvider,
-                fillMetadata = fillMetadata,
-            )
-        }
     }
 }
 
@@ -569,38 +577,23 @@ private fun ModelSettingsForm(
     }
 
     Column {
-        SecondaryTabRow(
-            selectedTabIndex = pagerState.currentPage,
-            containerColor = Color.Transparent,
-        ) {
-            Tab(
-                selected = pagerState.currentPage == 0,
-                onClick = {
-                    scope.launch {
-                        pagerState.animateScrollToPage(0)
-                    }
-                },
-                text = { Text(stringResource(R.string.setting_provider_page_basic_settings)) }
-            )
-            Tab(
-                selected = pagerState.currentPage == 1,
-                onClick = {
-                    scope.launch {
-                        pagerState.animateScrollToPage(1)
-                    }
-                },
-                text = { Text(stringResource(R.string.setting_provider_page_advanced_settings)) }
-            )
-            Tab(
-                selected = pagerState.currentPage == 2,
-                onClick = {
-                    scope.launch {
-                        pagerState.animateScrollToPage(2)
-                    }
-                },
-                text = { Text(stringResource(R.string.setting_page_built_in_tools)) }
-            )
-        }
+        SegmentedPill(
+            options = listOf(0, 1, 2),
+            selectedOption = pagerState.currentPage,
+            onOptionSelected = { page ->
+                scope.launch { pagerState.animateScrollToPage(page) }
+            },
+            optionToString = { page ->
+                when (page) {
+                    0 -> stringResource(R.string.setting_provider_page_basic_settings)
+                    1 -> stringResource(R.string.setting_provider_page_advanced_settings)
+                    else -> stringResource(R.string.setting_page_built_in_tools)
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 8.dp),
+        )
 
         HorizontalPager(
             state = pagerState,
@@ -610,10 +603,10 @@ private fun ModelSettingsForm(
                 0 -> {
                     // 基本设置页面
                     Column(
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(vertical = 16.dp)
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
                             .verticalScroll(rememberScrollState())
                     ) {
                         OutlinedTextField(
@@ -690,8 +683,8 @@ private fun ModelSettingsForm(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         ProviderOverrideSettings(
                             providerOverride = model.providerOverwrite,
@@ -733,77 +726,29 @@ private fun ModelSettingsForm(
 
 @Composable
 private fun AddModelButton(
-    models: List<Model>,
-    selectedModels: List<Model>,
-    expanded: Boolean,
     onAddModel: (Model) -> Unit,
-    onRemoveModel: (Model) -> Unit,
     parentProvider: ProviderSetting,
-    onUpdateProvider: (ProviderSetting) -> Unit,
     fillMetadata: (Model) -> Model,
 ) {
     val dialogState = useEditState<Model> { onAddModel(it.copy(displayName = it.displayName.trim())) }
     val scope = rememberCoroutineScope()
 
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    FilledTonalButton(
+        onClick = { dialogState.open(Model()) },
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+        modifier = Modifier.height(36.dp),
     ) {
-        ModelPicker(
-            models = models,
-            selectedModels = selectedModels,
-            onModelSelected = { model ->
-                onAddModel(fillMetadata(model))
-            },
-            onModelDeselected = { model ->
-                onRemoveModel(model)
-            },
-            onAllModelSelected = {
-                onUpdateProvider(
-                    parentProvider.copyProvider(
-                        models = parentProvider.models + it.filter { model ->
-                            parentProvider.models.none { existing -> existing.modelId == model.modelId }
-                        }.map { model ->
-                            fillMetadata(model)
-                        }
-                    )
-                )
-            },
-            onAllModelDeselected = { filteredModels ->
-                onUpdateProvider(
-                    parentProvider.copyProvider(
-                        models = parentProvider.models.filter { model ->
-                            filteredModels.none { filtered -> filtered.modelId == model.modelId }
-                        }
-                    )
-                )
-            },
-            fillMetadata = fillMetadata,
+        Icon(
+            imageVector = HugeIcons.Add01,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
         )
-
-        Button(
-            onClick = {
-                dialogState.open(Model())
-            }
-        ) {
-            Row(
-                modifier = Modifier,
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    HugeIcons.Add01,
-                    contentDescription = stringResource(R.string.setting_provider_page_add_model)
-                )
-                AnimatedVisibility(expanded) {
-                    Spacer(modifier = Modifier.size(8.dp))
-                    Text(
-                        stringResource(R.string.setting_provider_page_add_new_model),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-            }
-        }
+        Spacer(modifier = Modifier.size(6.dp))
+        Text(
+            text = stringResource(R.string.setting_provider_page_add_model),
+            style = MaterialTheme.typography.labelLarge,
+        )
     }
 
     if (dialogState.isEditing) {
@@ -953,6 +898,22 @@ private fun ModelPicker(
                     }
                 }
 
+                OutlinedTextField(
+                    value = filterText,
+                    onValueChange = {
+                        filterText = it
+                    },
+                    label = { Text(stringResource(R.string.setting_provider_page_filter_placeholder)) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    singleLine = true,
+                    placeholder = {
+                        Text(stringResource(R.string.setting_provider_page_filter_example))
+                    },
+                )
+
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -961,7 +922,10 @@ private fun ModelPicker(
                     contentPadding = PaddingValues(8.dp),
                 ) {
                     items(filteredModels) {
-                        Card {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.35f),
+                        ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(
@@ -969,7 +933,7 @@ private fun ModelPicker(
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(8.dp),
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
                             ) {
                                 AutoAIIcon(
                                     it.modelId,
@@ -1022,17 +986,6 @@ private fun ModelPicker(
                         }
                     }
                 }
-                OutlinedTextField(
-                    value = filterText,
-                    onValueChange = {
-                        filterText = it
-                    },
-                    label = { Text(stringResource(R.string.setting_provider_page_filter_placeholder)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = {
-                        Text(stringResource(R.string.setting_provider_page_filter_example))
-                    },
-                )
             }
         }
     }
@@ -1391,21 +1344,31 @@ private fun ModelCard(
             }
         },
     ) {
-        OutlinedCard {
+        Surface(
+            onClick = { dialogState.open(model.copy()) },
+            shape = RoundedCornerShape(20.dp),
+            color = CustomColors.groupedCardSurface,
+            border = BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            ),
+            tonalElevation = 0.dp,
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Surface(
-                    color = MaterialTheme.colorScheme.secondaryContainer,
-                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                    shape = RoundedCornerShape(10.dp),
                 ) {
                     AutoAIIcon(
                         name = model.modelId,
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(34.dp),
+                        color = Color.Transparent,
                     )
                 }
                 Column(
@@ -1414,7 +1377,10 @@ private fun ModelCard(
                 ) {
                     Text(
                         text = model.displayName,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = 15.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                        ),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -1445,14 +1411,11 @@ private fun ModelCard(
                     }
                 }
 
-                // Edit button
-                IconButton(
-                    onClick = {
-                        dialogState.open(model.copy())
-                    }
-                ) {
-                    Icon(HugeIcons.Tools, "Edit")
-                }
+                // 插头图标 = 只测这个模型；测完在图标前直接显示延迟
+                InlineModelConnectionTest(
+                    providerSetting = parentProvider,
+                    model = model,
+                )
             }
         }
     }
@@ -1562,13 +1525,19 @@ private fun ProviderOverrideSettings(
         )
 
         if (providerOverride != null) {
-            OutlinedCard(
-                modifier = Modifier.fillMaxWidth()
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                color = CustomColors.groupedCardSurface,
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                ),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
@@ -1603,7 +1572,7 @@ private fun ProviderOverrideSettings(
                 }
             }
         } else {
-            Button(
+            FilledTonalButton(
                 onClick = {
                     editingProvider = parentProvider?.copyProvider(
                         id = Uuid.random(),
@@ -1789,7 +1758,7 @@ private fun ContextLengthDialog(
     onConfirm: (Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val resources = LocalResources.current
     var text by remember { mutableStateOf(initialValue?.toString() ?: "") }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -1830,7 +1799,7 @@ private fun ContextLengthDialog(
                 onClick = {
                     val parsed = if (text.isBlank()) null else parseContextLengthInput(text)
                     if (text.isNotBlank() && parsed == null) {
-                        error = context.getString(R.string.setting_provider_page_context_length_invalid)
+                        error = resources.getString(R.string.setting_provider_page_context_length_invalid)
                     } else {
                         onConfirm(parsed)
                     }

@@ -2,6 +2,7 @@ package me.yui.yuihub.data.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import me.rerere.ai.core.ReasoningLevel
 import kotlin.uuid.Uuid
 
 /**
@@ -20,6 +21,12 @@ data class SubagentPersona(
     /** 工具白名单；空集表示不限制（继承父代理全部可用工具） */
     @SerialName("allowed_tools")
     val allowedTools: Set<String> = emptySet(),
+    /** null = 跟随主对话模型 */
+    @SerialName("model_id")
+    val modelId: Uuid? = null,
+    /** null = 跟随主对话推理强度 */
+    @SerialName("reasoning_level")
+    val reasoningLevel: ReasoningLevel? = null,
     @SerialName("created_at")
     val createdAt: Long = 0L,
     @SerialName("updated_at")

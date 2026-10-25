@@ -48,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -95,6 +96,7 @@ fun WorkspaceFileEditorPage(
     val toaster = LocalToaster.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val editable = area == WorkspaceStorageArea.FILES
     val fileName = path.substringAfterLast('/').ifBlank { path }
     val extension = fileName.substringAfterLast('.', "").lowercase()
@@ -149,7 +151,7 @@ fun WorkspaceFileEditorPage(
         // 安装包：先确认「安装未知应用」权限，未开启时直接引导授权，避免选完安装器却装不上
         if (extension == "apk" && !SystemPermissions.ensureInstallPermission(context)) {
             toaster.show(
-                context.getString(R.string.workspace_file_editor_install_permission_needed),
+                resources.getString(R.string.workspace_file_editor_install_permission_needed),
                 type = ToastType.Warning,
             )
             return
@@ -221,10 +223,10 @@ fun WorkspaceFileEditorPage(
                         }
                     }
                 },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         when {
             loading -> Box(

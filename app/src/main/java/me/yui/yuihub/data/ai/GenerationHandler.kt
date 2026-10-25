@@ -29,10 +29,16 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
+import me.yui.yuihub.data.ai.prompts.isMemorySnapshot
+import me.yui.yuihub.data.ai.prompts.memorySnapshotKind
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderManager
@@ -57,12 +63,19 @@ import me.yui.yuihub.data.ai.transformers.onGenerationFinish
 import me.yui.yuihub.data.ai.transformers.transforms
 import me.yui.yuihub.data.ai.transformers.visualTransforms
 import me.yui.yuihub.data.ai.tools.buildMemoryTools
+import me.yui.yuihub.data.ai.tools.TODO_TOOL_NAME
 import me.yui.yuihub.data.ai.tools.SPAWN_AGENT_TOOL_NAME
 import me.yui.yuihub.data.ai.tools.FOLLOWUP_AGENT_TOOL_NAME
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.findProvider
+import me.yui.yuihub.data.ai.prompts.PromptId
+import me.yui.yuihub.data.ai.prompts.isPlainChatMode
+import me.yui.yuihub.data.ai.prompts.isPromptEnabled
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.repository.MemoryRepository
+import me.yui.yuihub.utils.effectiveContextLength
+import me.yui.yuihub.utils.estimateTokenCount
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -76,6 +89,9 @@ import kotlin.uuid.Uuid
 private const val TAG = "GenerationHandler"
 private const val MAX_TOOL_OUTPUT_CHARS = 32 * 1024
 private const val TOOL_OUTPUT_PREVIEW_CHARS = 4 * 1024
+private const val EMERGENCY_TOOL_PREVIEW_CHARS = 2 * 1024
+private const val CONTEXT_EMERGENCY_RATIO = 0.90f
+private const val CONTEXT_HARD_RATIO = 0.97f
 private const val MAX_PROVIDER_NETWORK_RETRIES = 3
 private const val INITIAL_PROVIDER_RETRY_DELAY_MS = 1_000L
 
@@ -132,6 +148,16 @@ private fun autoContinueHint(last: UIMessage?, continuationCount: Int): String? 
     }
 }
 
+internal fun generationMessageUpdates(
+    source: List<UIMessage>,
+    updated: List<UIMessage>,
+): List<UIMessage> {
+    val historyIds = source.dropLast(
+        if (source.lastOrNull()?.role == MessageRole.ASSISTANT) 1 else 0
+    ).mapTo(hashSetOf()) { it.id }
+    return updated.filter { !it.isSynthetic && it.id !in historyIds }
+}
+
 private class StreamChunkHandlingException(cause: Throwable) : RuntimeException(cause)
 
 @Serializable
@@ -159,6 +185,9 @@ class GenerationHandler(
         outputTransformers: List<OutputMessageTransformer> = emptyList(),
         assistant: Assistant,
         tools: List<Tool> = emptyList(),
+        extraTools: () -> List<Tool> = { emptyList() },
+        onUsage: suspend (me.rerere.ai.core.TokenUsage) -> Unit = {},
+        onRequestBreakdown: (RequestBreakdown) -> Unit = {},
         maxSteps: Int = 256,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         conversationSystemPrompt: String? = null,
@@ -175,7 +204,9 @@ class GenerationHandler(
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         val providerImpl = providerManager.getProviderByType(provider)
 
+        val sourceMessages = messages
         var messages: List<UIMessage> = messages
+        fun generationUpdates(updated: List<UIMessage>) = generationMessageUpdates(sourceMessages, updated)
         // 空回复补救：只重试一次；pendingRecoveryHint 只作用于下一次请求的系统提示
         var visibleAnswerRecovered = false
         var pendingRecoveryHint: String? = null
@@ -186,29 +217,19 @@ class GenerationHandler(
             Log.i(TAG, "streamText: start step #$stepIndex (${model.id})")
 
             val toolsInternal = buildList {
-                Log.i(TAG, "generateInternal: build tools($assistant)")
+                Log.i(TAG, "generateInternal: build tools (memory=${assistant.enableMemory}, configured=${tools.size})")
                 if (assistant.enableMemory) {
                     val memoryAssistantId = assistant.id.toString()
                     buildMemoryTools(
                         json = json,
-                        onCreation = { content, category, importance ->
-                            memoryRepo.addMemory(
-                                memoryAssistantId,
-                                content,
-                                importance = importance ?: 0.6f,
-                                category = category,
-                            )
-                        },
-                        onUpdate = { id, content, category, importance ->
-                            memoryRepo.updateMemory(id, content, importance = importance, category = category)
-                                ?: throw IllegalStateException("Memory record #$id no longer exists")
-                        },
-                        onDelete = { id ->
-                            memoryRepo.deleteMemory(id)
-                        }
+                        repository = memoryRepo,
+                        assistantId = memoryAssistantId,
+                        conversationId = conversationId?.toString(),
+                        workspaceId = assistant.workspaceId?.toString(),
                     ).let(this::addAll)
                 }
                 addAll(tools)
+                addAll(extraTools())
             }
 
             // Check if we have tool calls ready to continue after user interaction.
@@ -240,15 +261,17 @@ class GenerationHandler(
                             assistant = assistant,
                             settings = settings
                         )
-                        emit(GenerationChunk.Messages(visualMessages))
+                        emit(GenerationChunk.Messages(generationUpdates(visualMessages)))
                         // 持久化检查点：以转换后的消息落库；调用方内部节流为固定间隔
-                        onCheckpoint(visualMessages)
+                        onCheckpoint(generationUpdates(visualMessages))
                     },
                     transformers = inputTransformers,
                     model = model,
                     providerImpl = providerImpl,
                     provider = provider,
                     tools = toolsInternal,
+                    onUsage = onUsage,
+                    onRequestBreakdown = onRequestBreakdown,
                     stream = assistant.streamOutput,
                     processingStatus = processingStatus,
                     conversationSystemPrompt = conversationSystemPrompt,
@@ -257,6 +280,7 @@ class GenerationHandler(
                     conversationLorebookIds = conversationLorebookIds,
                     workspaceCwd = workspaceCwd,
                     recoveryHint = pendingRecoveryHint,
+                    planNudge = buildPlanNudge(messages),
                 )
                 // 续写步骤结束后把新增的 Text part 合并回上一段：
                 // StreamChunkHandler 会为新一轮流新建 Text part，不合并会在消息里多出一个 markdown 块的空行
@@ -281,7 +305,7 @@ class GenerationHandler(
                     finishedAt = Clock.System.now()
                         .toLocalDateTime(TimeZone.currentSystemDefault())
                 )
-                emit(GenerationChunk.Messages(messages))
+                emit(GenerationChunk.Messages(generationUpdates(messages)))
 
                 val tools = messages.last().getTools().filter { !it.isExecuted }
                 if (tools.isEmpty()) {
@@ -349,7 +373,7 @@ class GenerationHandler(
                         }
                     }
                     messages = messages.dropLast(1) + lastMessage.copy(parts = updatedParts)
-                    emit(GenerationChunk.Messages(messages))
+                    emit(GenerationChunk.Messages(generationUpdates(messages)))
                 }
 
                 // If there are pending approvals, break and wait for user
@@ -396,7 +420,7 @@ class GenerationHandler(
                         } else part
                     }
                     messages = messages.dropLast(1) + lastMessage.copy(parts = parts)
-                    emit(GenerationChunk.Messages(messages))
+                    emit(GenerationChunk.Messages(generationUpdates(messages)))
                 }
             }
 
@@ -443,7 +467,7 @@ class GenerationHandler(
                             val toolDef = toolsInternal.find { toolDef -> toolDef.name == tool.toolName }
                                 ?: error("Tool ${tool.toolName} not found")
                             val args = parseToolArguments(tool)
-                            Log.i(TAG, "generateText: executing tool ${toolDef.name} with args: $args")
+                            Log.i(TAG, "generateText: executing tool ${toolDef.name}")
                             val toolStartMs = SystemClock.elapsedRealtime()
                             val result = withToolProgress(processingStatus, toolDef.name) {
                                 toolDef.execute(args)
@@ -452,8 +476,9 @@ class GenerationHandler(
                             pushExecuted(
                                 tool.copy(
                                     output = maybeTruncateToolOutput(
-                                        tool.toolCallId,
-                                        normalizeToolResultParts(toolDef.name, result),
+                                        toolCallId = tool.toolCallId,
+                                        output = normalizeToolResultParts(toolDef.name, result),
+                                        maxChars = toolOutputBudget(messages, model),
                                     )
                                 )
                             )
@@ -501,13 +526,13 @@ class GenerationHandler(
             // 工具结果已在 pushExecuted 中逐个 emit 并更新 messages, 这里只需做输出转换
             emit(
                 GenerationChunk.Messages(
-                    messages.transforms(
+                    generationUpdates(messages.transforms(
                         transformers = outputTransformers,
                         context = context,
                         model = model,
                         assistant = assistant,
                         settings = settings
-                    )
+                    ))
                 )
             )
         }
@@ -524,6 +549,8 @@ class GenerationHandler(
         providerImpl: Provider<ProviderSetting>,
         provider: ProviderSetting,
         tools: List<Tool>,
+        onUsage: suspend (me.rerere.ai.core.TokenUsage) -> Unit = {},
+        onRequestBreakdown: (RequestBreakdown) -> Unit = {},
         stream: Boolean,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         conversationSystemPrompt: String? = null,
@@ -533,10 +560,21 @@ class GenerationHandler(
         workspaceCwd: String? = null,
         /** 空回复补救提示（只作用于本请求系统提示，不进入对话历史） */
         recoveryHint: String? = null,
+        /** 计划提醒：附在最后一条工具结果末尾，只作用于本请求，不落库也不展示 */
+        planNudge: String? = null,
     ) {
+        val effectiveMessages = enforceContextBudget(messages, model)
+        if (effectiveMessages !== messages) {
+            onUpdateMessages(effectiveMessages)
+        }
         val buildStartMs = SystemClock.elapsedRealtime()
+        val requestTools = ToolSchemaCompactor.compact(
+            tools = tools,
+            level = ToolSchemaCompactor.Level.from(settings.toolSchemaCompactLevel),
+        )
         val internalMessages = buildList {
             val system = buildString {
+                if (settings.isPlainChatMode()) return@buildString
                 val effectiveSystemPrompt =
                     if (assistant.allowConversationSystemPrompt && !conversationSystemPrompt.isNullOrBlank()) {
                         conversationSystemPrompt
@@ -548,13 +586,13 @@ class GenerationHandler(
                 }
 
                 // 工具prompt
-                tools.forEach { tool ->
+                requestTools.forEach { tool ->
                     appendLine()
                     append(tool.systemPrompt(model, messages))
                 }
-                if (tools.isNotEmpty()) {
+                if (tools.isNotEmpty() && settings.isPromptEnabled(PromptId.AGENT_TOOL_STYLE)) {
                     appendLine()
-                    append(AGENT_TOOL_STYLE_PROMPT)
+                    append(settings.agentToolStylePrompt)
                 }
                 // 空回复补救提示（一次性，不进入对话历史）
                 if (!recoveryHint.isNullOrBlank()) {
@@ -567,7 +605,7 @@ class GenerationHandler(
             if (system.isNotBlank()) {
                 add(UIMessage.system(prompt = system).copy(isSynthetic = true))
             }
-            addAll(messages.limitContext(assistant.contextMessageLimit))
+            addAll(effectiveMessages.limitContext(assistant.contextMessageLimit))
         }.transforms(
             transformers = transformers,
             context = context,
@@ -580,22 +618,20 @@ class GenerationHandler(
             workspaceCwd = workspaceCwd,
         )
 
-        var messages: List<UIMessage> = messages
+        var messages: List<UIMessage> = effectiveMessages
+        val requestMessages = if (planNudge.isNullOrBlank()) {
+            internalMessages
+        } else {
+            internalMessages.withToolResultSuffix(planNudge)
+        }
+        onRequestBreakdown(buildRequestBreakdown(requestMessages, requestTools))
         val params = TextGenerationParams(
             model = model,
-            temperature = assistant.temperature,
-            topP = assistant.topP,
             maxTokens = assistant.maxTokens,
-            tools = tools,
+            tools = requestTools,
             reasoningLevel = assistant.reasoningLevel,
-            customHeaders = buildList {
-                addAll(assistant.customHeaders)
-                addAll(model.customHeaders)
-            },
-            customBody = buildList {
-                addAll(assistant.customBodies)
-                addAll(model.customBodies)
-            },
+            customHeaders = model.customHeaders,
+            customBody = model.customBodies,
             sessionId = (conversationId ?: Uuid.random()).toString(),
         )
         val buildMs = SystemClock.elapsedRealtime() - buildStartMs
@@ -627,7 +663,7 @@ class GenerationHandler(
                     try {
                         providerImpl.streamText(
                             providerSetting = provider,
-                            messages = internalMessages,
+                            messages = requestMessages,
                             params = params
                         ).collect { chunk ->
                             try {
@@ -654,7 +690,9 @@ class GenerationHandler(
                         //   这些是「等待模型开始输出」的时间，不该算进输出速度。
                         val attemptDurationMs = SystemClock.elapsedRealtime() - attemptStartMs
                         val pureGenerationMs = (attemptDurationMs - firstChunkMs).coerceAtLeast(0L)
-                        val attemptTokens = streamChunkHandler.attemptUsage?.completionTokens ?: 0
+                        val attemptUsage = streamChunkHandler.attemptUsage
+                        val attemptTokens = attemptUsage?.completionTokens ?: 0
+                        attemptUsage?.let { usage -> runCatching { onUsage(usage) } }
                         val lastMessage = messages.lastOrNull()
                         if (lastMessage?.role == MessageRole.ASSISTANT) {
                             messages = messages.dropLast(1) + lastMessage.copy(
@@ -690,11 +728,12 @@ class GenerationHandler(
                 ) {
                     providerImpl.generateText(
                         providerSetting = provider,
-                        messages = internalMessages,
+                        messages = requestMessages,
                         params = params,
                     )
                 }
                 val attemptDurationMs = SystemClock.elapsedRealtime() - attemptStartMs
+                result.usage?.let { usage -> runCatching { onUsage(usage) } }
                 messages = messages.handleTextGenerationResult(result = result, model = model)
                 val lastMessage = messages.lastOrNull()
                 if (lastMessage?.role == MessageRole.ASSISTANT) {
@@ -757,8 +796,7 @@ class GenerationHandler(
         Log.w(
             TAG,
             "Provider request failed ($reason), retrying in ${retryDelay}ms " +
-                    "($nextRetryCount/$MAX_PROVIDER_NETWORK_RETRIES)",
-            error,
+                    "($nextRetryCount/$MAX_PROVIDER_NETWORK_RETRIES), error=${error.javaClass.simpleName}",
         )
         delay(retryDelay)
         return nextRetryCount
@@ -783,6 +821,64 @@ class GenerationHandler(
      * DSH 字节级前缀稳定的观测手段：同一会话连续轮次该值不变 → 前缀缓存命中；
      * 变化 → 从 token 0 断裂，结合日志能直接定位是哪次改动破坏了缓存。
      */
+    private fun buildRequestBreakdown(
+        messages: List<UIMessage>,
+        tools: List<Tool>,
+    ): RequestBreakdown {
+        val systemTokens = messages.firstOrNull { it.role == MessageRole.SYSTEM }
+            ?.let { estimateTokenCount(listOf(it)) } ?: 0
+        val memoryMessages = messages.filter { it.isMemorySnapshot() }
+        val memoryCore = memoryMessages.filter { it.memorySnapshotKind() == "core" }
+        val memoryHit = memoryMessages.filter { it.memorySnapshotKind() == "hit" }
+        val memoryRebase = memoryMessages.filter { it.memorySnapshotKind() == "rebase" }
+        val memoryLegacy = memoryMessages.filter { it.memorySnapshotKind() == "legacy" }
+        val historyMessages = messages.filter {
+            it.role != MessageRole.SYSTEM && !it.isMemorySnapshot()
+        }
+        val memoryCoreTokens = estimateTokenCount(memoryCore)
+        val memoryHitTokens = estimateTokenCount(memoryHit)
+        val memoryRebaseTokens = estimateTokenCount(memoryRebase) + estimateTokenCount(memoryLegacy)
+        val historyTokens = estimateTokenCount(historyMessages)
+        val toolUsages = tools.map { tool ->
+            val schema = runCatching {
+                val parsed = tool.parameters()
+                if (parsed is InputSchema.Obj) {
+                    json.encodeToString(InputSchema.Obj.serializer(), parsed)
+                } else {
+                    ""
+                }
+            }.getOrDefault("")
+            val text = buildString {
+                append(tool.name)
+                append('\n')
+                append(tool.description)
+                if (schema.isNotBlank()) {
+                    append('\n')
+                    append(schema)
+                }
+            }
+            RequestBreakdown.ToolUsage(
+                name = tool.name,
+                tokens = estimateTokenCount(listOf(UIMessage.user(text))),
+            )
+        }
+        val toolTokens = toolUsages.sumOf { it.tokens }
+        return RequestBreakdown(
+            systemPromptTokens = systemTokens,
+            toolSchemaTokens = toolTokens,
+            memoryCoreTokens = memoryCoreTokens,
+            memoryHitTokens = memoryHitTokens,
+            memoryRebaseTokens = memoryRebaseTokens,
+            historyTokens = historyTokens,
+            totalEstimatedTokens = systemTokens + toolTokens + memoryCoreTokens +
+                memoryHitTokens + memoryRebaseTokens + historyTokens,
+            toolCount = tools.size,
+            messageCount = messages.size,
+            topTools = toolUsages.sortedByDescending { it.tokens }.take(8),
+            updatedAt = System.currentTimeMillis(),
+        )
+    }
+
     private fun prefixFingerprint(messages: List<UIMessage>, tools: List<Tool>): String {
         val digest = MessageDigest.getInstance("SHA-256")
         messages.firstOrNull { it.role == MessageRole.SYSTEM }?.let { system ->
@@ -867,6 +963,66 @@ class GenerationHandler(
     }
 
     /**
+     * 计划提醒：清单还有未完成步骤、且自上次 todo_write 之后又跑了别的工具时生成一段提醒，
+     * 由 [withToolResultSuffix] 附在最后一条工具结果末尾。只作用于本次请求，不落库、不展示。
+     */
+    private fun buildPlanNudge(messages: List<UIMessage>): String? {
+        // 只看本轮（最后一条用户消息之后）的工具：上一轮残留的旧清单不应该干扰新提问
+        val lastUserIndex = messages.indexOfLast { it.role == MessageRole.USER }
+        val runMessages = if (lastUserIndex >= 0) messages.drop(lastUserIndex + 1) else messages
+        val toolParts = runMessages.flatMap { message ->
+            message.parts.filterIsInstance<UIMessagePart.Tool>()
+        }
+        val lastTodoIndex = toolParts.indexOfLast {
+            it.toolName == TODO_TOOL_NAME && it.isExecuted
+        }
+        if (lastTodoIndex < 0) return null
+        // 刚更新过清单就不再提醒
+        if (toolParts.drop(lastTodoIndex + 1).none { it.isExecuted }) return null
+
+        val items = runCatching {
+            json.parseToJsonElement(toolParts[lastTodoIndex].input)
+                .jsonObject["todos"]?.jsonArray.orEmpty()
+                .mapNotNull { element ->
+                    val obj = element.jsonObject
+                    val content = obj["content"]?.jsonPrimitive?.contentOrNull
+                        ?: return@mapNotNull null
+                    content to (obj["status"]?.jsonPrimitive?.contentOrNull ?: "pending")
+                }
+        }.getOrNull().orEmpty()
+        val inProgress = items.firstOrNull { it.second == "in_progress" }?.first
+        val pending = items.firstOrNull { it.second == "pending" }?.first
+        if (inProgress == null && pending == null) return null
+
+        return buildString {
+            append("<plan_note>")
+            if (inProgress != null) {
+                append("The task checklist still shows \"$inProgress\" as in_progress. ")
+                append("If it is finished, call $TODO_TOOL_NAME now to mark it completed and set the next step in_progress; ")
+                append("otherwise keep exactly one step in_progress.")
+            } else {
+                append("The task checklist has no step in_progress. ")
+                append("Call $TODO_TOOL_NAME before doing \"$pending\": mark it in_progress.")
+            }
+            append("</plan_note>")
+        }
+    }
+
+    /** 把提醒附在最后一条已执行工具的输出末尾；只改请求副本，追加在尾部不破坏前缀缓存 */
+    private fun List<UIMessage>.withToolResultSuffix(suffix: String): List<UIMessage> {
+        for (i in indices.reversed()) {
+            val message = this[i]
+            val index = message.parts.indexOfLast { it is UIMessagePart.Tool && it.isExecuted }
+            if (index < 0) continue
+            val tool = message.parts[index] as UIMessagePart.Tool
+            val parts = message.parts.toMutableList()
+            parts[index] = tool.copy(output = tool.output + UIMessagePart.Text(suffix))
+            return toMutableList().also { it[i] = message.copy(parts = parts) }
+        }
+        return this
+    }
+
+    /**
      * 工具参数 JSON 解析（P1-2）：strict 失败后宽松模式自动重试 1 次（本地重解析，不重新请求
      * 模型，不放大 token）；仍失败则降级为单行可读错误，不再把带协程栈的原始异常抛进上下文。
      * 实现在 [ToolArgumentParser]（纯函数层，有 JVM 单测覆盖），此处只负责日志。
@@ -875,23 +1031,111 @@ class GenerationHandler(
         return try {
             ToolArgumentParser.parse(json, tool.input, tool.toolName)
         } catch (e: ToolArgumentException) {
-            Log.w(TAG, "parseToolArguments: invalid JSON for ${tool.toolName} (${e.message}), input=${tool.input.take(200)}", e)
+            Log.w(
+                TAG,
+                "parseToolArguments: invalid JSON for ${tool.toolName} " +
+                    "(${e.javaClass.simpleName})",
+            )
             error(ToolArgumentParser.invalidArgsMessage(tool.toolName, e))
         }
     }
 
     /**
      * 面向模型的工具错误统一为单行 JSON（P1-4），格式化逻辑在 [ToolArgumentParser.formatError]；
-     * 原始栈打印到 logcat 供排障，不进入模型上下文。
+     * 日志仅记录异常类型。
      */
     private fun toolErrorJson(toolName: String, error: Throwable): String {
-        Log.w(TAG, "Tool $toolName failed", error)
+        Log.w(TAG, "Tool $toolName failed: ${error.javaClass.simpleName}")
         return ToolArgumentParser.formatError(toolName, error)
+    }
+
+    private fun toolOutputBudget(messages: List<UIMessage>, model: Model): Int {
+        val window = model.effectiveContextLength().coerceAtLeast(1)
+        val ratio = estimateTokenCount(messages).toFloat() / window
+        return when {
+            ratio >= 0.80f -> 8 * 1024
+            ratio >= 0.65f -> 16 * 1024
+            else -> MAX_TOOL_OUTPUT_CHARS
+        }
+    }
+
+    /**
+     * 工具循环内部的最后一道上下文保护：不调用第二次模型压缩，
+     * 只把旧工具结果卸载到文件，避免一个长工具链直接撞上窗口上限。
+     */
+    private suspend fun enforceContextBudget(
+        messages: List<UIMessage>,
+        model: Model,
+    ): List<UIMessage> {
+        val window = model.effectiveContextLength().coerceAtLeast(1)
+        val softLimit = (window * CONTEXT_EMERGENCY_RATIO).toInt()
+        val hardLimit = (window * CONTEXT_HARD_RATIO).toInt()
+        var current = messages
+        var estimated = estimateTokenCount(current)
+        if (estimated <= softLimit) return messages
+
+        val keepRecent = 4
+        val outputDir = File(context.filesDir, FileFolders.TOOL_OUTPUTS).apply { mkdirs() }
+        var changed = false
+        val candidates = (0 until (current.size - keepRecent).coerceAtLeast(0)).toList()
+        for (index in candidates) {
+            val message = current[index]
+            var messageChanged = false
+            val parts = message.parts.map { part ->
+                if (part !is UIMessagePart.Tool || part.output.isEmpty()) return@map part
+                val textParts = part.output.filterIsInstance<UIMessagePart.Text>()
+                val fullText = textParts.joinToString("\n") { it.text }
+                if (fullText.length <= EMERGENCY_TOOL_PREVIEW_CHARS ||
+                    fullText.contains("[Context guard: output offloaded]") ||
+                    fullText.contains("[Tool output truncated:")
+                ) {
+                    return@map part
+                }
+                val safeId = part.toolCallId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                val fileName = "guard-$safeId.txt"
+                withContext(Dispatchers.IO) {
+                    File(outputDir, fileName).writeText(fullText)
+                }
+                messageChanged = true
+                val nonText = part.output.filter { it !is UIMessagePart.Text }
+                part.copy(
+                    output = listOf(
+                        UIMessagePart.Text(
+                            buildString {
+                                appendLine("[Context guard: output offloaded]")
+                                appendLine("resultId: guard-$safeId")
+                                appendLine("Full output saved to: /tool_outputs/$fileName")
+                                appendLine("Read only the needed range with workspace_read_file or history_read.")
+                                appendLine()
+                                append(fullText.take(EMERGENCY_TOOL_PREVIEW_CHARS))
+                            }
+                        )
+                    ) + nonText
+                )
+            }
+            if (messageChanged) {
+                current = current.toMutableList().also { it[index] = message.copy(parts = parts) }
+                changed = true
+                estimated = estimateTokenCount(current)
+                if (estimated <= softLimit) break
+            }
+        }
+        if (estimated > hardLimit) {
+            throw IllegalStateException(
+                "Context window budget exceeded after offloading old tool outputs: " +
+                    "$estimated / $window tokens. Start a new conversation or compress context manually."
+            )
+        }
+        if (changed) {
+            Log.i(TAG, "enforceContextBudget: offloaded old tool outputs, $estimated / $window tokens")
+        }
+        return if (changed) current else messages
     }
 
     private fun maybeTruncateToolOutput(
         toolCallId: String,
         output: List<UIMessagePart>,
+        maxChars: Int = MAX_TOOL_OUTPUT_CHARS,
     ): List<UIMessagePart> {
         val textParts = output.filterIsInstance<UIMessagePart.Text>()
         val nonTextParts = output.filter { it !is UIMessagePart.Text }
@@ -899,7 +1143,7 @@ class GenerationHandler(
 
         // 截断始终生效：超大输出原样进历史会撑爆窗口并抖动缓存；
         // 与是否绑定 workspace 无关（MCP/搜索工具同样受限）
-        if (totalChars <= MAX_TOOL_OUTPUT_CHARS) return output
+        if (totalChars <= maxChars) return output
 
         Log.i(TAG, "maybeTruncateToolOutput: truncating tool $toolCallId output ($totalChars chars)")
 
@@ -914,11 +1158,14 @@ class GenerationHandler(
             UIMessagePart.Text(
                 buildString {
                     appendLine("[Tool output truncated: $totalChars characters total]")
+                    appendLine("resultId: $toolCallId")
                     appendLine("Full output saved to: /tool_outputs/$fileName")
-                    append("If you have shell access, read it in chunks: `cat /tool_outputs/$fileName` or `grep \"pattern\" /tool_outputs/$fileName`.")
+                    appendLine(
+                        "Read only the needed range with workspace_read_file(path=\"/tool_outputs/$fileName\", offset=1, limit=200) " +
+                            "instead of re-running the tool. If no workspace is bound, use shell cat/grep."
+                    )
                     appendLine()
-                    appendLine()
-                    append(preview)
+                    appendLine(preview)
                 }
             )
         ) + nonTextParts

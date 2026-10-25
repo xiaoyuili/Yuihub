@@ -56,6 +56,8 @@ import me.yui.yuihub.data.datastore.getCurrentAssistant
 import me.yui.yuihub.ui.hooks.writeStringPreference
 import me.yui.yuihub.ui.theme.YuihubTheme
 import me.yui.yuihub.RouteActivity
+import me.yui.yuihub.StartupState
+import me.yui.yuihub.YuiHubApp
 import me.yui.yuihub.utils.CrashHandler
 import org.koin.android.ext.android.inject
 import kotlin.uuid.Uuid
@@ -66,6 +68,11 @@ class SafeModeActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if ((application as YuiHubApp).startupState.value != StartupState.Ready) {
+            startActivity(Intent(this, RouteActivity::class.java))
+            finish()
+            return
+        }
         val stackTrace = CrashHandler.getStackTrace(this)
         CrashHandler.clearCrashed(this)
         enableEdgeToEdge()

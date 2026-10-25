@@ -55,4 +55,22 @@ class WorkspaceToolsPathRulesTest {
         assertTrue("/etc/passwd".isOutsideWritableRoots())
         assertTrue("/workspace-other/a.txt".isOutsideWritableRoots())
     }
+
+    @Test
+    fun `read-write mount is writable and needs no approval`() {
+        val writableRoots = listOf("/workspace", "/tmp", "/skills", "/mnt/phone")
+        assertFalse("/mnt/phone/a.txt".isOutsideWritableRoots(writableRoots))
+        // 前缀相同的兄弟目录仍需要审批
+        assertTrue("/mnt/phone-other/a.txt".isOutsideWritableRoots(writableRoots))
+    }
+
+    @Test
+    fun `read-only mount rejects writes`() {
+        val readOnlyRoots = listOf("/upload", "/mnt/photo")
+        assertTrue("/mnt/photo/a.jpg".isInReadOnlyRoot(readOnlyRoots))
+        val e = assertThrows(IllegalStateException::class.java) {
+            rejectReadOnlyPath("/mnt/photo/a.jpg", readOnlyRoots)
+        }
+        assertTrue(e.message.orEmpty().startsWith("READ_ONLY"))
+    }
 }

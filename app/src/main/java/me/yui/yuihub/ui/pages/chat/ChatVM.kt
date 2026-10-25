@@ -11,7 +11,6 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.analytics.FirebaseAnalytics
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
@@ -51,12 +50,12 @@ class ChatVM(
     private val settingsStore: SettingsStore,
     private val conversationRepo: ConversationRepository,
     private val chatService: ChatService,
-    private val analytics: FirebaseAnalytics,
     private val filesManager: FilesManager,
     private val favoriteRepository: FavoriteRepository,
 ) : ViewModel() {
     private val _conversationId: Uuid = Uuid.parse(id)
     val conversation: StateFlow<Conversation> = chatService.getConversationFlow(_conversationId)
+    val requestBreakdown = chatService.getRequestBreakdownFlow(_conversationId)
     var chatListInitialized by mutableStateOf(false) // 聊天列表是否已经滚动到底部
 
     // 聊天输入状态 - 保存在 ViewModel 中避免 TransactionTooLargeException
@@ -142,6 +141,11 @@ class ChatVM(
             .map { _conversationId in it }
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    val compressionInProgress: StateFlow<Boolean> =
+        chatService.compressionInProgress
+            .map { _conversationId in it }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     fun compressManually() {
         chatService.compressManually(_conversationId)
     }
@@ -197,27 +201,25 @@ class ChatVM(
             compressManually()
             return
         }
-        analytics.logEvent("ai_send_message", null)
 
         chatService.sendMessage(_conversationId, content, answer)
     }
 
     private fun List<UIMessagePart>.isCompressCommand(): Boolean {
-        val text = singleOrNull() as? UIMessagePart.Text ?: return false
-        return text.text.trim() == "/压缩"
+        if (any { it !is UIMessagePart.Text }) return false
+        val text = filterIsInstance<UIMessagePart.Text>()
+            .joinToString("") { it.text }
+            .replace("\u200B", "")
+            .trim()
+        return text == "/压缩" || text.equals("/compress", ignoreCase = true)
     }
 
     fun handleMessageEdit(parts: List<UIMessagePart>, messageId: Uuid) {
         if (parts.isEmptyInputMessage()) return
-        analytics.logEvent("ai_edit_message", null)
 
         viewModelScope.launch {
             chatService.editMessage(_conversationId, messageId, parts)
         }
-    }
-
-    suspend fun forkMessage(message: UIMessage): Conversation {
-        return chatService.forkConversationAtMessage(_conversationId, message.id)
     }
 
     fun deleteMessage(message: UIMessage) {
@@ -238,7 +240,6 @@ class ChatVM(
         message: UIMessage,
         regenerateAssistantMsg: Boolean = true
     ) {
-        analytics.logEvent("ai_regenerate_at_message", null)
         chatService.regenerateAtMessage(_conversationId, message, regenerateAssistantMsg)
     }
 
@@ -247,7 +248,6 @@ class ChatVM(
         approved: Boolean,
         reason: String = ""
     ) {
-        analytics.logEvent("ai_tool_approval", null)
         chatService.handleToolApproval(_conversationId, toolCallId, approved, reason)
     }
 
@@ -255,7 +255,6 @@ class ChatVM(
         toolCallId: String,
         answer: String,
     ) {
-        analytics.logEvent("ai_tool_answer", null)
         chatService.handleToolApproval(_conversationId, toolCallId, approved = true, answer = answer)
     }
 

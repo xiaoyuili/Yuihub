@@ -1,7 +1,12 @@
 package me.yui.yuihub.ui.components.message
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -149,12 +155,32 @@ private fun TodoRow(item: TodoEntry) {
                     tint = markerColor,
                 )
 
-                inProgress -> Box(
-                    modifier = Modifier
-                        .size(9.dp)
-                        .clip(CircleShape)
-                        .background(markerColor),
-                )
+                inProgress -> {
+                    // 进行中的步骤呼吸一下，和输入栏上的加载态对得上
+                    val transition = rememberInfiniteTransition(label = "todoRowInProgress")
+                    val pulse by transition.animateFloat(
+                        initialValue = 0.82f,
+                        targetValue = 1.12f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(
+                                durationMillis = 900,
+                                easing = FastOutSlowInEasing,
+                            ),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "todoRowInProgressPulse",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(9.dp)
+                            .graphicsLayer {
+                                scaleX = pulse
+                                scaleY = pulse
+                            }
+                            .clip(CircleShape)
+                            .background(markerColor),
+                    )
+                }
 
                 else -> Box(
                     modifier = Modifier

@@ -22,6 +22,9 @@ interface ScheduledTaskDAO {
     @Query("SELECT * FROM scheduled_task WHERE assistant_id = :assistantId ORDER BY created_at DESC")
     suspend fun getByAssistant(assistantId: String): List<ScheduledTaskEntity>
 
+    @Query("SELECT * FROM scheduled_task WHERE conversation_id = :conversationId ORDER BY created_at DESC")
+    suspend fun getByConversation(conversationId: String): List<ScheduledTaskEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(task: ScheduledTaskEntity)
 

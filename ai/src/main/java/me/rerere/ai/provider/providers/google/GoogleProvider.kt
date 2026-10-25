@@ -141,7 +141,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             val response = client.newCall(request).await()
             if (response.isSuccessful) {
                 val body = response.body?.string() ?: error("empty body")
-                Log.d(TAG, "listModels: $body")
+                Log.d(TAG, "listModels: response received chars=${body.length}")
                 val bodyObject = json.parseToJsonElement(body).jsonObject
                 val models = bodyObject["models"]?.jsonArray ?: return@withContext emptyList()
 
@@ -158,7 +158,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
                     val name = modelObject["name"]?.jsonPrimitive?.content
                     if (name == null) {
-                        Log.w(TAG, "listModels: skip model entry without name: $modelObject")
+                        Log.w(TAG, "listModels: skip model entry without name")
                         return@mapNotNull null
                     }
 
@@ -276,7 +276,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         )
 
         if (Log.isLoggable(TAG, Log.DEBUG)) {
-            Log.d(TAG, "streamText: ${json.encodeToString(requestBody)}")
+            Log.d(TAG, "streamText: request prepared messages=${messages.size}")
         }
 
         val responseId = Uuid.random().toString()
@@ -285,7 +285,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         fun sendChunks(chunks: Iterable<StreamChunk>) {
             chunks.forEach { chunk ->
                 trySend(chunk).onFailure { e ->
-                    Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
+                    Log.w(TAG, "onEvent: chunk dropped (${e?.javaClass?.simpleName})")
                 }
             }
         }
@@ -298,7 +298,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 data: String
             ) {
                 if (Log.isLoggable(TAG, Log.DEBUG)) {
-                    Log.d(TAG, "onEvent: $data")
+                    Log.d(TAG, "onEvent: received chars=${data.length}")
                 }
 
                 try {
@@ -309,7 +309,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                         close()
                     }
                 } catch (e: Throwable) {
-                    Log.e(TAG, "Failed to parse stream event: $data", e)
+                    Log.e(TAG, "Failed to parse stream event: ${e.javaClass.simpleName}")
                     close(e)
                 }
             }
@@ -321,7 +321,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             ) {
                 var exception = t
 
-                Log.w(TAG, "onFailure: ${t?.message}")
+                Log.w(TAG, "onFailure: error=${t?.javaClass?.simpleName}, httpCode=${response?.code}")
 
                 try {
                     if (t == null && response != null) {
@@ -345,7 +345,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                         }
                     }
                 } catch (e: Throwable) {
-                    e.printStackTrace()
+                    Log.w(TAG, "onFailure: response parse failed (${e.javaClass.simpleName})")
                     exception = e
                 } finally {
                     close(exception ?: Exception("Stream failed"))
@@ -553,7 +553,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         val parts = parseMessageParts(content["parts"]?.jsonArray)
 
         val groundingMetadata = message["groundingMetadata"]?.jsonObject
-        Log.i(TAG, "parseMessage: $groundingMetadata")
+        Log.i(TAG, "parseMessage: grounding metadata present=${groundingMetadata != null}")
         val annotations = parseSearchGroundingMetadata(groundingMetadata)
 
         return UIMessage(
@@ -575,7 +575,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 url = uri
             )
         }
-        Log.i(TAG, "parseSearchGroundingMetadata: $chunks")
+        Log.i(TAG, "parseSearchGroundingMetadata: citations=${chunks.size}")
         return chunks
     }
 
@@ -697,7 +697,7 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
             }
 
             else -> {
-                Log.w(TAG, "parseMessagePart: unknown message part type: $jsonObject")
+                Log.w(TAG, "parseMessagePart: unknown message part type")
                 null
             }
         }

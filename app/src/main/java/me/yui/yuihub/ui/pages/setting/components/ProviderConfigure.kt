@@ -6,15 +6,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,6 +28,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dokar.sonner.ToastType
 import me.rerere.ai.provider.ClaudePromptCacheTtl
 import me.rerere.ai.provider.ProviderSetting
@@ -37,6 +38,7 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
 import me.yui.yuihub.ui.context.LocalToaster
+import me.yui.yuihub.ui.pages.setting.SegmentedPill
 import me.yui.yuihub.ui.theme.JetbrainsMono
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import kotlinx.serialization.json.Json
@@ -45,6 +47,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.reflect.KClass
 
+/**
+ * 供应商配置表单：接口类型（下拉弹层）+ 基础/连接/行为三段卡片。
+ *
+ * 只负责编辑 [provider] 内容，不包含保存/删除按钮——列表页的新增弹层、
+ * 配置页、模型级「供应商重写」弹层都复用它。
+ */
 @Composable
 fun ProviderConfigure(
     provider: ProviderSetting,
@@ -52,22 +60,10 @@ fun ProviderConfigure(
     onEdit: (provider: ProviderSetting) -> Unit
 ) {
     Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = modifier
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = modifier.fillMaxWidth(),
     ) {
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            ProviderSetting.Types.forEachIndexed { index, type ->
-                SegmentedButton(
-                    shape = SegmentedButtonDefaults.itemShape(
-                        index = index,
-                        count = ProviderSetting.Types.size
-                    ),
-                    label = { Text(type.simpleName ?: "") },
-                    selected = provider::class == type,
-                    onClick = { onEdit(provider.convertTo(type)) }
-                )
-            }
-        }
+        ProviderTypeField(provider = provider, onEdit = onEdit)
 
         when (provider) {
             is ProviderSetting.OpenAI -> ProviderConfigureOpenAI(provider, onEdit)
@@ -195,93 +191,137 @@ private val OFFICIAL_PROVIDER_HOSTS = setOf(
     CLAUDE_OFFICIAL_HOST
 )
 
+/** 表单里的单行输入框：统一的圆角与密度，避免各页各一套 */
+@Composable
+private fun ConfigTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    isError: Boolean = false,
+    supportingText: String? = null,
+    minLines: Int = 1,
+    maxLines: Int = 1,
+    textStyle: androidx.compose.ui.text.TextStyle? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailingIcon: (@Composable () -> Unit)? = null,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        modifier = modifier.fillMaxWidth(),
+        enabled = enabled,
+        isError = isError,
+        supportingText = supportingText?.let { { Text(it) } },
+        minLines = minLines,
+        maxLines = maxLines,
+        singleLine = maxLines == 1 && minLines == 1,
+        shape = RoundedCornerShape(14.dp),
+        textStyle = textStyle ?: LocalTextStyle.current,
+        visualTransformation = visualTransformation,
+        trailingIcon = trailingIcon,
+    )
+}
+
+@Composable
+private fun BasicInfoCard(
+    name: String,
+    onNameChange: (String) -> Unit,
+    description: (@Composable () -> Unit)? = null,
+) {
+    FormCard(title = stringResource(R.string.setting_provider_page_basic_settings)) {
+        description?.let {
+            it()
+        }
+        ConfigTextField(
+            value = name,
+            onValueChange = onNameChange,
+            label = stringResource(R.string.setting_provider_page_name),
+        )
+    }
+}
+
+@Composable
+private fun SecretKeyField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    visible: Boolean,
+    onToggleVisible: () -> Unit,
+    maxLines: Int = 3,
+) {
+    ConfigTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = stringResource(R.string.setting_provider_page_api_key),
+        maxLines = maxLines,
+        visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+            IconButton(onClick = onToggleVisible) {
+                Icon(if (visible) HugeIcons.ViewOff else HugeIcons.View, contentDescription = null)
+            }
+        },
+    )
+}
+
 @Composable
 private fun ProviderConfigureOpenAI(
     provider: ProviderSetting.OpenAI,
     onEdit: (provider: ProviderSetting.OpenAI) -> Unit
 ) {
     val toaster = LocalToaster.current
-
-    provider.description()
-
-    OutlinedTextField(
-        value = provider.name,
-        onValueChange = { onEdit(provider.copy(name = it)) },
-        label = { Text(stringResource(R.string.setting_provider_page_name)) },
-        modifier = Modifier.fillMaxWidth(),
-    )
-
     var keyVisible by remember { mutableStateOf(false) }
-    OutlinedTextField(
-        value = provider.apiKey,
-        onValueChange = { onEdit(provider.copy(apiKey = it)) },
-        label = { Text(stringResource(R.string.setting_provider_page_api_key)) },
-        modifier = Modifier.fillMaxWidth(),
-        maxLines = 3,
-        visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-            IconButton(onClick = { keyVisible = !keyVisible }) {
-                Icon(if (keyVisible) HugeIcons.ViewOff else HugeIcons.View, contentDescription = null)
-            }
-        },
+    val responseApiWarning = stringResource(R.string.setting_provider_page_response_api_warning)
+
+    BasicInfoCard(
+        name = provider.name,
+        onNameChange = { onEdit(provider.copy(name = it)) },
+        description = provider.description,
     )
 
-    OutlinedTextField(
-        value = provider.baseUrl,
-        onValueChange = { onEdit(provider.copy(baseUrl = it.trim())) },
-        label = { Text(stringResource(R.string.setting_provider_page_api_base_url)) },
-        modifier = Modifier.fillMaxWidth(),
-        isError = provider.baseUrl.isNotBlank() && !provider.baseUrl.isValidBaseUrl(),
-    )
-
-    if (!provider.useResponseApi) {
-        OutlinedTextField(
-            value = provider.chatCompletionsPath,
-            onValueChange = { onEdit(provider.copy(chatCompletionsPath = it.trim())) },
-            label = { Text(stringResource(R.string.setting_provider_page_api_path)) },
-            modifier = Modifier.fillMaxWidth(),
+    FormCard(title = stringResource(R.string.setting_provider_page_connection)) {
+        ConfigTextField(
+            value = provider.baseUrl,
+            onValueChange = { onEdit(provider.copy(baseUrl = it.trim())) },
+            label = stringResource(R.string.setting_provider_page_api_base_url),
+            isError = provider.baseUrl.isNotBlank() && !provider.baseUrl.isValidBaseUrl(),
         )
+        SecretKeyField(
+            value = provider.apiKey,
+            onValueChange = { onEdit(provider.copy(apiKey = it)) },
+            visible = keyVisible,
+            onToggleVisible = { keyVisible = !keyVisible },
+        )
+        if (provider.customApiType || !provider.useResponseApi) {
+            ConfigTextField(
+                value = provider.chatCompletionsPath,
+                onValueChange = { onEdit(provider.copy(chatCompletionsPath = it.trim())) },
+                label = stringResource(R.string.setting_provider_page_api_path),
+                supportingText = if (provider.customApiType) {
+                    stringResource(R.string.setting_provider_page_api_path_hint)
+                } else null,
+            )
+        }
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(stringResource(R.string.setting_provider_page_enable))
-        Switch(
-            checked = provider.enabled,
-            onCheckedChange = { onEdit(provider.copy(enabled = it)) }
-        )
-    }
-
-    val responseAPIWarning = stringResource(R.string.setting_provider_page_response_api_warning)
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(stringResource(R.string.setting_provider_page_response_api))
-        Switch(
-            checked = provider.useResponseApi,
-            onCheckedChange = {
-                onEdit(provider.copy(useResponseApi = it))
-                if (it && provider.baseUrl.toHttpUrlOrNull()?.host != "api.openai.com") {
-                    toaster.show(message = responseAPIWarning, type = ToastType.Warning)
-                }
-            }
-        )
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(stringResource(R.string.setting_provider_page_include_history_reasoning))
-        Switch(
+    FormCard(title = stringResource(R.string.setting_provider_page_behavior)) {
+        if (!provider.customApiType) {
+            SettingToggleRow(
+                title = stringResource(R.string.setting_provider_page_response_api),
+                checked = provider.useResponseApi,
+                onCheckedChange = {
+                    onEdit(provider.copy(useResponseApi = it))
+                    if (it && provider.baseUrl.toHttpUrlOrNull()?.host != "api.openai.com") {
+                        toaster.show(message = responseApiWarning, type = ToastType.Warning)
+                    }
+                },
+            )
+        }
+        SettingToggleRow(
+            title = stringResource(R.string.setting_provider_page_include_history_reasoning),
             checked = provider.includeHistoryReasoning,
-            onCheckedChange = { onEdit(provider.copy(includeHistoryReasoning = it)) }
+            onCheckedChange = { onEdit(provider.copy(includeHistoryReasoning = it)) },
         )
     }
 }
@@ -291,84 +331,55 @@ private fun ProviderConfigureClaude(
     provider: ProviderSetting.Claude,
     onEdit: (provider: ProviderSetting.Claude) -> Unit
 ) {
-    provider.description()
-
-    OutlinedTextField(
-        value = provider.name,
-        onValueChange = { onEdit(provider.copy(name = it)) },
-        label = { Text(stringResource(R.string.setting_provider_page_name)) },
-        modifier = Modifier.fillMaxWidth(),
-        maxLines = 3,
-    )
-
     var keyVisible by remember { mutableStateOf(false) }
-    OutlinedTextField(
-        value = provider.apiKey,
-        onValueChange = { onEdit(provider.copy(apiKey = it)) },
-        label = { Text(stringResource(R.string.setting_provider_page_api_key)) },
-        modifier = Modifier.fillMaxWidth(),
-        maxLines = 3,
-        visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-            IconButton(onClick = { keyVisible = !keyVisible }) {
-                Icon(if (keyVisible) HugeIcons.ViewOff else HugeIcons.View, contentDescription = null)
-            }
-        },
+
+    BasicInfoCard(
+        name = provider.name,
+        onNameChange = { onEdit(provider.copy(name = it)) },
+        description = provider.description,
     )
 
-    OutlinedTextField(
-        value = provider.baseUrl,
-        onValueChange = { onEdit(provider.copy(baseUrl = it.trim())) },
-        label = { Text(stringResource(R.string.setting_provider_page_api_base_url)) },
-        modifier = Modifier.fillMaxWidth(),
-        isError = provider.baseUrl.isNotBlank() && !provider.baseUrl.isValidBaseUrl(),
-    )
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(stringResource(R.string.setting_provider_page_enable))
-        Switch(
-            checked = provider.enabled,
-            onCheckedChange = { onEdit(provider.copy(enabled = it)) }
+    FormCard(title = stringResource(R.string.setting_provider_page_connection)) {
+        ConfigTextField(
+            value = provider.baseUrl,
+            onValueChange = { onEdit(provider.copy(baseUrl = it.trim())) },
+            label = stringResource(R.string.setting_provider_page_api_base_url),
+            isError = provider.baseUrl.isNotBlank() && !provider.baseUrl.isValidBaseUrl(),
+        )
+        SecretKeyField(
+            value = provider.apiKey,
+            onValueChange = { onEdit(provider.copy(apiKey = it)) },
+            visible = keyVisible,
+            onToggleVisible = { keyVisible = !keyVisible },
         )
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(stringResource(R.string.setting_provider_page_claude_prompt_caching))
-        Switch(
+    FormCard(title = stringResource(R.string.setting_provider_page_behavior)) {
+        SettingToggleRow(
+            title = stringResource(R.string.setting_provider_page_claude_prompt_caching),
             checked = provider.promptCaching,
-            onCheckedChange = { onEdit(provider.copy(promptCaching = it)) }
+            onCheckedChange = { onEdit(provider.copy(promptCaching = it)) },
         )
-    }
-
-    if (provider.promptCaching) {
-        Text(stringResource(R.string.setting_provider_page_claude_prompt_cache_ttl))
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            ClaudePromptCacheTtl.entries.forEachIndexed { index, ttl ->
-                SegmentedButton(
-                    shape = SegmentedButtonDefaults.itemShape(
-                        index = index,
-                        count = ClaudePromptCacheTtl.entries.size
-                    ),
-                    label = {
-                        Text(
-                            when (ttl) {
-                                ClaudePromptCacheTtl.FIVE_MINUTES -> stringResource(R.string.setting_provider_page_claude_prompt_cache_ttl_5m)
-                                ClaudePromptCacheTtl.ONE_HOUR -> stringResource(R.string.setting_provider_page_claude_prompt_cache_ttl_1h)
-                            }
-                        )
-                    },
-                    selected = provider.promptCacheTtl == ttl,
-                    onClick = { onEdit(provider.copy(promptCacheTtl = ttl)) }
-                )
-            }
+        if (provider.promptCaching) {
+            Text(
+                text = stringResource(R.string.setting_provider_page_claude_prompt_cache_ttl),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            SegmentedPill(
+                options = ClaudePromptCacheTtl.entries,
+                selectedOption = provider.promptCacheTtl,
+                onOptionSelected = { onEdit(provider.copy(promptCacheTtl = it)) },
+                optionToString = {
+                    stringResource(
+                        when (it) {
+                            ClaudePromptCacheTtl.FIVE_MINUTES -> R.string.setting_provider_page_claude_prompt_cache_ttl_5m
+                            ClaudePromptCacheTtl.ONE_HOUR -> R.string.setting_provider_page_claude_prompt_cache_ttl_1h
+                        }
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
@@ -380,6 +391,8 @@ private fun ProviderConfigureGoogle(
 ) {
     val context = LocalContext.current
     val toaster = LocalToaster.current
+    var keyVisible by remember { mutableStateOf(false) }
+    var privateKeyVisible by remember { mutableStateOf(false) }
     val serviceAccountJsonLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -403,143 +416,96 @@ private fun ProviderConfigureGoogle(
         }
     }
 
-    provider.description()
-
-    OutlinedTextField(
-        value = provider.name,
-        onValueChange = { onEdit(provider.copy(name = it)) },
-        label = { Text(stringResource(R.string.setting_provider_page_name)) },
-        modifier = Modifier.fillMaxWidth(),
+    BasicInfoCard(
+        name = provider.name,
+        onNameChange = { onEdit(provider.copy(name = it)) },
+        description = provider.description,
     )
 
-    if (!(provider.vertexAI && provider.useServiceAccount)) {
-        var keyVisible by remember { mutableStateOf(false) }
-        OutlinedTextField(
-            value = provider.apiKey,
-            onValueChange = { onEdit(provider.copy(apiKey = it)) },
-            label = { Text(stringResource(R.string.setting_provider_page_api_key)) },
-            modifier = Modifier.fillMaxWidth(),
-            maxLines = 3,
-            visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { keyVisible = !keyVisible }) {
-                    Icon(if (keyVisible) HugeIcons.ViewOff else HugeIcons.View, contentDescription = null)
-                }
-            },
-        )
-    }
-
-    if (!provider.vertexAI) {
-        OutlinedTextField(
-            value = provider.baseUrl,
-            onValueChange = { onEdit(provider.copy(baseUrl = it.trim())) },
-            label = { Text(stringResource(R.string.setting_provider_page_api_base_url)) },
-            modifier = Modifier.fillMaxWidth(),
-            isError = provider.baseUrl.isNotBlank() && (
-                !provider.baseUrl.isValidBaseUrl() || !provider.baseUrl.endsWith("/v1beta")
-                ),
-            supportingText = if (!provider.baseUrl.endsWith("/v1beta")) {
-                { Text("The base URL usually ends with `/v1beta`") }
-            } else null,
-        )
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(stringResource(R.string.setting_provider_page_enable))
-        Switch(
-            checked = provider.enabled,
-            onCheckedChange = { onEdit(provider.copy(enabled = it)) }
-        )
-    }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(stringResource(R.string.setting_provider_page_vertex_ai))
-        Switch(
-            checked = provider.vertexAI,
-            onCheckedChange = { onEdit(provider.copy(vertexAI = it)) }
-        )
-    }
-
-    if (!provider.vertexAI) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(stringResource(R.string.setting_provider_page_interactions_api))
-            Switch(
-                checked = provider.useInteractionsApi,
-                onCheckedChange = { onEdit(provider.copy(useInteractionsApi = it)) }
+    FormCard(title = stringResource(R.string.setting_provider_page_connection)) {
+        if (!provider.vertexAI) {
+            ConfigTextField(
+                value = provider.baseUrl,
+                onValueChange = { onEdit(provider.copy(baseUrl = it.trim())) },
+                label = stringResource(R.string.setting_provider_page_api_base_url),
+                isError = provider.baseUrl.isNotBlank() && (
+                    !provider.baseUrl.isValidBaseUrl() || !provider.baseUrl.endsWith("/v1beta")
+                    ),
+                supportingText = if (!provider.baseUrl.endsWith("/v1beta")) {
+                    "The base URL usually ends with `/v1beta`"
+                } else null,
+            )
+        }
+        if (!(provider.vertexAI && provider.useServiceAccount)) {
+            SecretKeyField(
+                value = provider.apiKey,
+                onValueChange = { onEdit(provider.copy(apiKey = it)) },
+                visible = keyVisible,
+                onToggleVisible = { keyVisible = !keyVisible },
             )
         }
     }
 
-    if (provider.vertexAI) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(stringResource(R.string.setting_provider_page_use_service_account))
-            Switch(
+    FormCard(title = stringResource(R.string.setting_provider_page_behavior)) {
+        SettingToggleRow(
+            title = stringResource(R.string.setting_provider_page_vertex_ai),
+            checked = provider.vertexAI,
+            onCheckedChange = { onEdit(provider.copy(vertexAI = it)) },
+        )
+        if (!provider.vertexAI) {
+            SettingToggleRow(
+                title = stringResource(R.string.setting_provider_page_interactions_api),
+                checked = provider.useInteractionsApi,
+                onCheckedChange = { onEdit(provider.copy(useInteractionsApi = it)) },
+            )
+        }
+        if (provider.vertexAI) {
+            SettingToggleRow(
+                title = stringResource(R.string.setting_provider_page_use_service_account),
                 checked = provider.useServiceAccount,
-                onCheckedChange = { onEdit(provider.copy(useServiceAccount = it)) }
+                onCheckedChange = { onEdit(provider.copy(useServiceAccount = it)) },
             )
         }
     }
 
     if (provider.vertexAI && provider.useServiceAccount) {
-        OutlinedButton(
-            onClick = { serviceAccountJsonLauncher.launch(arrayOf("application/json", "*/*")) },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(stringResource(R.string.setting_provider_page_import_service_account_json))
+        FormCard(title = stringResource(R.string.setting_provider_page_service_account_email)) {
+            OutlinedButton(
+                onClick = { serviceAccountJsonLauncher.launch(arrayOf("application/json", "*/*")) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Text(stringResource(R.string.setting_provider_page_import_service_account_json))
+            }
+            ConfigTextField(
+                value = provider.serviceAccountEmail,
+                onValueChange = { onEdit(provider.copy(serviceAccountEmail = it.trim())) },
+                label = stringResource(R.string.setting_provider_page_service_account_email),
+            )
+            ConfigTextField(
+                value = provider.privateKey,
+                onValueChange = { onEdit(provider.copy(privateKey = it.trim())) },
+                label = stringResource(R.string.setting_provider_page_private_key),
+                minLines = 3,
+                maxLines = 6,
+                textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetbrainsMono),
+                visualTransformation = if (privateKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = {
+                    IconButton(onClick = { privateKeyVisible = !privateKeyVisible }) {
+                        Icon(if (privateKeyVisible) HugeIcons.ViewOff else HugeIcons.View, contentDescription = null)
+                    }
+                },
+            )
+            ConfigTextField(
+                value = provider.location,
+                onValueChange = { onEdit(provider.copy(location = it.trim())) },
+                label = stringResource(R.string.setting_provider_page_location),
+            )
+            ConfigTextField(
+                value = provider.projectId,
+                onValueChange = { onEdit(provider.copy(projectId = it.trim())) },
+                label = stringResource(R.string.setting_provider_page_project_id),
+            )
         }
-
-        OutlinedTextField(
-            value = provider.serviceAccountEmail,
-            onValueChange = { onEdit(provider.copy(serviceAccountEmail = it.trim())) },
-            label = { Text(stringResource(R.string.setting_provider_page_service_account_email)) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        var privateKeyVisible by remember { mutableStateOf(false) }
-        OutlinedTextField(
-            value = provider.privateKey,
-            onValueChange = { onEdit(provider.copy(privateKey = it.trim())) },
-            label = { Text(stringResource(R.string.setting_provider_page_private_key)) },
-            modifier = Modifier.fillMaxWidth(),
-            maxLines = 6,
-            minLines = 3,
-            textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = JetbrainsMono),
-            visualTransformation = if (privateKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { privateKeyVisible = !privateKeyVisible }) {
-                    Icon(if (privateKeyVisible) HugeIcons.ViewOff else HugeIcons.View, contentDescription = null)
-                }
-            },
-        )
-
-        OutlinedTextField(
-            value = provider.location,
-            onValueChange = { onEdit(provider.copy(location = it.trim())) },
-            label = { Text(stringResource(R.string.setting_provider_page_location)) },
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        OutlinedTextField(
-            value = provider.projectId,
-            onValueChange = { onEdit(provider.copy(projectId = it.trim())) },
-            label = { Text(stringResource(R.string.setting_provider_page_project_id)) },
-            modifier = Modifier.fillMaxWidth(),
-        )
     }
 }

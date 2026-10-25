@@ -11,9 +11,6 @@ import io.ktor.http.HttpHeaders
 import io.pebbletemplates.pebble.PebbleEngine
 import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory
 import io.requery.android.database.sqlite.SQLiteCustomExtension
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.common.http.AcceptLanguageBuilder
@@ -23,8 +20,8 @@ import me.yui.yuihub.data.ai.GenerationHandler
 import me.yui.yuihub.data.ai.transformers.TemplateTransformer
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.AppDatabase
+import me.yui.yuihub.data.db.dao.TokenUsageEventDAO
 import me.yui.yuihub.data.db.fts.MessageFtsManager
-import me.yui.yuihub.data.db.fts.SimpleDictManager
 import me.yui.yuihub.data.db.migrations.Migration_6_7
 import me.yui.yuihub.data.db.migrations.Migration_11_12
 import me.yui.yuihub.data.db.migrations.Migration_13_14
@@ -76,9 +73,7 @@ val dataSourceModule = module {
             .addMigrations(Migration_6_7, Migration_11_12, Migration_13_14, Migration_14_15, Migration_15_16, Migration_30_31, Migration_32_33)
             .addCallback(object : RoomDatabase.Callback() {
                 override fun onOpen(db: SupportSQLiteDatabase) {
-                    // jieba 词典 ~11MB, 同步加载在 onOpen 会拖慢首次 DB 查询链路
-                    // (冷启动进聊天页的等待)。挪到 IO 线程异步加载:
-                    // FTS 写入在词典就绪前会失败, 由 MessageFtsManager 的重试兑底。
+                    // 全文搜索不再依赖 jieba 词典：只清理旧版本解压出来的词典目录。
                     // createVirtualTable 必须同步执行, 否则并发写入会报表不存在。
                     db.execSQL(
                         """
@@ -93,28 +88,8 @@ val dataSourceModule = module {
                         )
                         """.trimIndent()
                     )
-                    CoroutineScope(Dispatchers.IO).launch {
-                        val t0 = System.currentTimeMillis()
-                        val dictDir = SimpleDictManager.extractDict(context)
-                        val cursor = db.query("SELECT jieba_dict(?)", arrayOf(dictDir.absolutePath))
-                        cursor.use {
-                            if (it.moveToFirst()) {
-                                val result = it.getString(0)
-                                val success = result?.trimEnd('/') == dictDir.absolutePath
-                                if (!success) {
-                                    android.util.Log.e(
-                                        "DataSourceModule",
-                                        "jieba_dict failed: $result, path=${dictDir.absolutePath}"
-                                    )
-                                } else {
-                                    android.util.Log.i(
-                                        "DataSourceModule",
-                                        "jieba_dict loaded in ${System.currentTimeMillis() - t0}ms"
-                                    )
-                                    me.yui.yuihub.data.db.fts.JiebaDictState.dictReady = true
-                                }
-                            }
-                        }
+                    runCatching {
+                        context.filesDir.resolve("simple_dict").deleteRecursively()
                     }
                 }
             })
@@ -157,6 +132,18 @@ val dataSourceModule = module {
     }
 
     single {
+        get<AppDatabase>().memoryEventDao()
+    }
+
+    single {
+        get<AppDatabase>().memoryUsageDao()
+    }
+
+    single {
+        get<AppDatabase>().memorySessionDao()
+    }
+
+    single {
         get<AppDatabase>().genMediaDao()
     }
 
@@ -182,6 +169,10 @@ val dataSourceModule = module {
 
     single {
         get<AppDatabase>().tokenLedgerDao()
+    }
+
+    single<TokenUsageEventDAO> {
+        get<AppDatabase>().tokenUsageEventDao()
     }
 
     single {
@@ -302,7 +293,7 @@ val dataSourceModule = module {
             json = get(),
             database = get(),
             settingsStore = get(),
-            writeFileEntry = { entryName, bytes -> get<LocalBackupService>().writeFileEntry(entryName, bytes) },
+            writeFileEntry = { entryName, staged -> get<LocalBackupService>().writeFileEntry(entryName, staged) },
         )
     }
 
@@ -311,6 +302,7 @@ val dataSourceModule = module {
             memoryRepository = get(),
             providerManager = get(),
             json = get(),
+            tokenUsageRepository = get(),
         )
     }
 
@@ -323,6 +315,7 @@ val dataSourceModule = module {
             json = get(),
             scope = get<AppScope>(),
             consolidator = get(),
+            tokenUsageRepository = get(),
         )
     }
 

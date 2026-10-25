@@ -4,16 +4,22 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Play
 import me.rerere.hugeicons.stroke.Delete01
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,6 +34,7 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,8 +45,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -48,6 +57,8 @@ import me.rerere.highlight.LocalCodeHighlighter
 import me.yui.yuihub.R
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.richtext.HighlightCodeVisualTransformation
+import me.yui.yuihub.ui.components.ui.AutoAIIcon
+import me.yui.yuihub.ui.components.ui.RikkaConfirmDialog
 import me.yui.yuihub.ui.components.ui.FormItem
 import me.yui.yuihub.ui.context.LocalNavController
 import me.yui.yuihub.ui.theme.CustomColors
@@ -73,6 +84,7 @@ fun SettingSearchDetailPage(
     val service = settings.searchServices.find { it.id == serviceId } ?: return
     val serviceIndex = settings.searchServices.indexOf(service)
     var options by remember(service) { mutableStateOf(service) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     fun save(updated: SearchServiceOptions) {
         options = updated
@@ -92,14 +104,7 @@ fun SettingSearchDetailPage(
                 },
                 actions = {
                     if (settings.searchServices.size > 1) {
-                        IconButton(
-                            onClick = {
-                                val newServices = settings.searchServices.toMutableList()
-                                newServices.removeAt(serviceIndex)
-                                vm.updateSettings(settings.copy(searchServices = newServices))
-                                nav.popBackStack()
-                            }
-                        ) {
+                        IconButton(onClick = { showDeleteDialog = true }) {
                             Icon(
                                 imageVector = HugeIcons.Delete01,
                                 contentDescription = stringResource(R.string.delete)
@@ -107,10 +112,10 @@ fun SettingSearchDetailPage(
                         }
                     }
                 },
-                colors = CustomColors.topBarColors
+                colors = CustomColors.pageTopBarColors
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageBackground
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -119,11 +124,56 @@ fun SettingSearchDetailPage(
             contentPadding = padding + PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item("header") {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = CustomColors.groupedCardSurface
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        AutoAIIcon(name = options.displayName, modifier = Modifier.size(44.dp))
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Text(
+                                text = options.displayName,
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                            )
+                            ProvideTextStyle(MaterialTheme.typography.bodySmall) {
+                                SearchService.getService(options).Description()
+                            }
+                        }
+                    }
+                }
+            }
+
+            item("config_label") {
+                Text(
+                    text = stringResource(R.string.setting_page_search_config),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             item("config") {
                 Card(
+                    shape = RoundedCornerShape(18.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = CustomColors.listItemColors.containerColor
-                    )
+                        containerColor = CustomColors.groupedCardSurface
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                 ) {
                     Column(
                         modifier = Modifier
@@ -132,11 +182,6 @@ fun SettingSearchDetailPage(
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Text(
-                            text = stringResource(R.string.setting_page_search_config),
-                            style = MaterialTheme.typography.titleMedium
-                        )
-
                         SearchServiceOptionsEditor(
                             options = options,
                             onUpdateOptions = { save(it) }
@@ -149,6 +194,14 @@ fun SettingSearchDetailPage(
                 }
             }
 
+            item("test_label") {
+                Text(
+                    text = stringResource(R.string.setting_page_search_test),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             item("test") {
                 SearchTestSection(
                     options = options,
@@ -156,6 +209,23 @@ fun SettingSearchDetailPage(
                 )
             }
         }
+    }
+
+    RikkaConfirmDialog(
+        show = showDeleteDialog,
+        title = stringResource(R.string.setting_page_search_delete_title),
+        confirmText = stringResource(R.string.delete),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = {
+            showDeleteDialog = false
+            val newServices = settings.searchServices.toMutableList()
+            newServices.removeAt(serviceIndex)
+            vm.updateSettings(settings.copy(searchServices = newServices))
+            nav.popBackStack()
+        },
+        onDismiss = { showDeleteDialog = false },
+    ) {
+        Text(stringResource(R.string.setting_page_search_delete_message, options.displayName))
     }
 }
 
@@ -202,9 +272,11 @@ private fun SearchTestSection(
     val scope = rememberCoroutineScope()
 
     Card(
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = CustomColors.listItemColors.containerColor
-        )
+            containerColor = CustomColors.groupedCardSurface
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
     ) {
         Column(
             modifier = Modifier
@@ -213,11 +285,6 @@ private fun SearchTestSection(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(
-                text = stringResource(R.string.setting_page_search_test),
-                style = MaterialTheme.typography.titleMedium
-            )
-
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -230,7 +297,7 @@ private fun SearchTestSection(
                     singleLine = true
                 )
 
-                IconButton(
+                Button(
                     onClick = {
                         if (query.isNotBlank() && !testing) {
                             testing = true
@@ -245,19 +312,24 @@ private fun SearchTestSection(
                             }
                         }
                     },
-                    enabled = query.isNotBlank() && !testing
+                    enabled = query.isNotBlank() && !testing,
                 ) {
                     if (testing) {
                         CircularProgressIndicator(
-                            modifier = Modifier.padding(4.dp),
-                            strokeWidth = 2.dp
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
                         )
                     } else {
                         Icon(
                             imageVector = HugeIcons.Play,
-                            contentDescription = stringResource(R.string.setting_page_search_test_run)
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
                         )
                     }
+                    Text(
+                        text = stringResource(R.string.setting_page_search_test_run),
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
                 }
             }
 

@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -77,10 +78,12 @@ import org.koin.core.parameter.parametersOf
 @Composable
 fun ScheduledTasksPage(
     assistantId: String? = null,
+    conversationId: String? = null,
     vm: ScheduledTasksVM = koinViewModel(parameters = { parametersOf(assistantId) }),
 ) {
     val navController = LocalNavController.current
-    val tasks by vm.tasks.collectAsStateWithLifecycle()
+    val allTasks by vm.tasks.collectAsStateWithLifecycle()
+    val tasks = if (conversationId == null) allTasks else allTasks.filter { it.conversationId == conversationId }
     var pendingDelete by remember { mutableStateOf<ScheduledTaskEntity?>(null) }
 
     // 助手视图下，标题用助手名，新建任务时把助手作为默认值带进编辑页
@@ -124,7 +127,7 @@ fun ScheduledTasksPage(
             FloatingActionButton(
                 onClick = {
                     // 助手视图下，新建任务默认归属该助手
-                    navController.navigate(Screen.ScheduledTaskEdit(null, assistantId))
+                    navController.navigate(Screen.ScheduledTaskEdit(null, assistantId, conversationId))
                 },
             ) {
                 Icon(HugeIcons.Add01, contentDescription = stringResource(R.string.automation_page_add))
@@ -168,7 +171,7 @@ fun ScheduledTasksPage(
                 )
                 Spacer(modifier = Modifier.height(18.dp))
                 Button(
-                    onClick = { navController.navigate(Screen.ScheduledTaskEdit(null, assistantId)) },
+                    onClick = { navController.navigate(Screen.ScheduledTaskEdit(null, assistantId, conversationId)) },
                 ) {
                     Text(stringResource(R.string.automation_page_add))
                 }
@@ -389,9 +392,11 @@ private fun scheduleIcon(type: ScheduleType) = when (type) {
 }
 
 @Composable
-private fun scheduleDescription(task: ScheduledTaskEntity, type: ScheduleType): String = when (type) {
+private fun scheduleDescription(task: ScheduledTaskEntity, type: ScheduleType): String {
+    val locale = LocalConfiguration.current.locales[0]
+    return when (type) {
     ScheduleType.ONCE -> {
-        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", locale)
         stringResource(R.string.automation_page_type_once_at, fmt.format(java.util.Date(task.triggerAt)))
     }
 
@@ -407,6 +412,7 @@ private fun scheduleDescription(task: ScheduledTaskEntity, type: ScheduleType): 
         R.string.automation_page_type_interval,
         task.intervalMinutes.coerceAtLeast(15),
     )
+    }
 }
 
 @Composable

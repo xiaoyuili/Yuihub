@@ -12,9 +12,13 @@ import me.yui.yuihub.data.db.dao.FolderDAO
 import me.yui.yuihub.data.db.dao.GenMediaDAO
 import me.yui.yuihub.data.db.dao.ManagedFileDAO
 import me.yui.yuihub.data.db.dao.MemoryDAO
+import me.yui.yuihub.data.db.dao.MemoryEventDAO
+import me.yui.yuihub.data.db.dao.MemorySessionDAO
+import me.yui.yuihub.data.db.dao.MemoryUsageDAO
 import me.yui.yuihub.data.db.dao.MessageNodeDAO
 import me.yui.yuihub.data.db.dao.ScheduledTaskDAO
 import me.yui.yuihub.data.db.dao.TokenLedgerDAO
+import me.yui.yuihub.data.db.dao.TokenUsageEventDAO
 import me.yui.yuihub.data.db.dao.WorkspaceDAO
 import me.yui.yuihub.data.db.entity.ConversationEntity
 import me.yui.yuihub.data.db.entity.FavoriteEntity
@@ -22,8 +26,12 @@ import me.yui.yuihub.data.db.entity.FolderEntity
 import me.yui.yuihub.data.db.entity.GenMediaEntity
 import me.yui.yuihub.data.db.entity.ManagedFileEntity
 import me.yui.yuihub.data.db.entity.MemoryEntity
+import me.yui.yuihub.data.db.entity.MemoryEventEntity
+import me.yui.yuihub.data.db.entity.MemorySessionEntity
+import me.yui.yuihub.data.db.entity.MemoryUsageEntity
 import me.yui.yuihub.data.db.entity.MessageNodeEntity
 import me.yui.yuihub.data.db.entity.TokenLedgerEntity
+import me.yui.yuihub.data.db.entity.TokenUsageEventEntity
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.yui.yuihub.data.db.migrations.Migration_16_17
 import me.yui.yuihub.data.db.migrations.Migration_22_23
@@ -33,6 +41,7 @@ import me.yui.yuihub.data.db.migrations.Migration_27_28
 import me.yui.yuihub.data.db.migrations.Migration_28_29
 import me.yui.yuihub.data.db.migrations.Migration_29_30
 import me.yui.yuihub.data.db.migrations.Migration_30_31
+import me.yui.yuihub.data.db.migrations.Migration_40_41
 import me.yui.yuihub.data.db.migrations.Migration_8_9
 import me.yui.yuihub.utils.JsonInstant
 import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
@@ -41,6 +50,9 @@ import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
     entities = [
         ConversationEntity::class,
         MemoryEntity::class,
+        MemoryEventEntity::class,
+        MemoryUsageEntity::class,
+        MemorySessionEntity::class,
         GenMediaEntity::class,
         MessageNodeEntity::class,
         ManagedFileEntity::class,
@@ -48,9 +60,10 @@ import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
         WorkspaceEntity::class,
         FolderEntity::class,
         TokenLedgerEntity::class,
+        TokenUsageEventEntity::class,
         ScheduledTaskEntity::class,
     ],
-    version = 36,
+    version = 41,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -85,13 +98,29 @@ import me.yui.yuihub.data.db.entity.ScheduledTaskEntity
         AutoMigration(from = 34, to = 35),
         // 35→36：定时任务表（自动化）
         AutoMigration(from = 35, to = 36),
+        AutoMigration(from = 36, to = 37),
+        // 37→38：按模型请求记账（修复工具循环/后台调用漏记）
+        AutoMigration(from = 37, to = 38),
+        // 38→39：会话持久化多段压缩摘要
+        AutoMigration(from = 38, to = 39),
+        AutoMigration(from = 39, to = 40),
+        AutoMigration(from = 40, to = 41, spec = Migration_40_41::class),
     ]
 )
 @TypeConverters(TokenUsageConverter::class)
 abstract class AppDatabase : RoomDatabase() {
+    companion object {
+        const val DATABASE_VERSION = 41
+    }
     abstract fun conversationDao(): ConversationDAO
 
     abstract fun memoryDao(): MemoryDAO
+
+    abstract fun memoryEventDao(): MemoryEventDAO
+
+    abstract fun memoryUsageDao(): MemoryUsageDAO
+
+    abstract fun memorySessionDao(): MemorySessionDAO
 
     abstract fun genMediaDao(): GenMediaDAO
 
@@ -106,6 +135,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun folderDao(): FolderDAO
 
     abstract fun tokenLedgerDao(): TokenLedgerDAO
+    abstract fun tokenUsageEventDao(): TokenUsageEventDAO
 
     abstract fun scheduledTaskDao(): ScheduledTaskDAO
 }

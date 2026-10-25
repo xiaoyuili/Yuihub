@@ -109,6 +109,7 @@ class FilesManager(
             dir.mkdirs()
         }
         uris.forEach { uri ->
+            var createdFile: File? = null
             runCatching {
                 val sourceName = getFileNameFromUri(uri) ?: uri.lastPathSegment ?: "file"
                 val sourceMime = getFileMimeType(uri)
@@ -117,12 +118,16 @@ class FilesManager(
                 if (!file.exists()) {
                     file.createNewFile()
                 }
+                createdFile = file
                 val inputStream = context.contentResolver.openInputStream(uri)
                     ?: error("Failed to open input stream for $uri")
                 inputStream.use { input ->
                     file.outputStream().use { output ->
                         input.copyTo(output)
                     }
+                }
+                if (file.length() == 0L) {
+                    error("Copied file is empty: $uri")
                 }
                 val guessedMime = sourceMime ?: guessMimeType(file, sourceName)
                 trackManagedFile(
@@ -133,6 +138,8 @@ class FilesManager(
                 )
                 newUris.add(file.toUri())
             }.onFailure {
+                // 失败了就别把空文件留在 upload 里（之前会残留 0 字节垃圾，也确实掩盖了拷贝失败）
+                createdFile?.let { file -> runCatching { file.delete() } }
                 it.printStackTrace()
                 Log.e(TAG, "createChatFilesByContents: Failed to save file from $uri", it)
                 Logging.log(

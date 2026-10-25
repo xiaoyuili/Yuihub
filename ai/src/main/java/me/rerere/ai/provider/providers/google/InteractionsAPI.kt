@@ -108,14 +108,17 @@ internal class InteractionsAPI(
         val requestBody = buildRequestBody(messages, params, stream = true)
         val request = buildRequest(providerSetting, params, requestBody)
 
-        Log.i(TAG, "streamText: ${json.encodeToString(requestBody)}")
+        Log.i(
+            TAG,
+            "streamText: request prepared messages=${messages.size}, tools=${params.tools.size}",
+        )
 
         val decoder = InteractionsStreamDecoder(fallbackModel = params.model.modelId)
 
         fun sendChunks(chunks: Iterable<StreamChunk>) {
             chunks.forEach { chunk ->
                 trySend(chunk).onFailure { e ->
-                    Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
+                    Log.w(TAG, "onEvent: chunk dropped (${e?.javaClass?.simpleName})")
                 }
             }
         }
@@ -127,7 +130,7 @@ internal class InteractionsAPI(
                 type: String?,
                 data: String
             ) {
-                Log.d(TAG, "onEvent: $id/$type $data")
+                Log.d(TAG, "onEvent: received chars=${data.length}")
                 try {
                     val result = decoder.accept(SseEvent(id = id, event = type, data = data))
                     sendChunks(result.chunks)
@@ -136,7 +139,7 @@ internal class InteractionsAPI(
                         close()
                     }
                 } catch (e: Throwable) {
-                    Log.e(TAG, "Failed to parse stream event: $data", e)
+                    Log.e(TAG, "Failed to parse stream event: ${e.javaClass.simpleName}")
                     close(e)
                 }
             }
@@ -152,7 +155,7 @@ internal class InteractionsAPI(
                         exception = Exception("Unknown error: ${response.code}")
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
+                    Log.w(TAG, "onFailure: failed to parse response body (${e.javaClass.simpleName})")
                 } finally {
                     close(exception ?: Exception("Stream failed"))
                 }

@@ -1,5 +1,7 @@
 package me.yui.yuihub.ui.components.ai
 
+import androidx.activity.compose.BackHandler
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
@@ -33,10 +35,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -153,9 +153,12 @@ fun SearchPickerSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
+        sheetState = me.yui.yuihub.ui.components.ui.rememberGuardedModalBottomSheetState()
     ) {
         var selectingProvider by remember { mutableStateOf(false) }
+        BackHandler {
+            if (selectingProvider) selectingProvider = false else onDismiss()
+        }
         AnimatedContent(
             targetState = selectingProvider,
             transitionSpec = {

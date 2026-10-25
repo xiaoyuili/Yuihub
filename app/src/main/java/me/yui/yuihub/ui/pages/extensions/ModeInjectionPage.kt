@@ -1,6 +1,7 @@
 package me.yui.yuihub.ui.pages.extensions
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,14 +51,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.ArrowDown01
+import me.rerere.hugeicons.stroke.MagicWand01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.FileImport
 import me.rerere.hugeicons.stroke.Share03
@@ -69,6 +73,8 @@ import me.yui.yuihub.data.export.rememberImporter
 import me.yui.yuihub.data.model.InjectionPosition
 import me.yui.yuihub.data.model.PromptInjection
 import me.yui.yuihub.ui.components.nav.BackButton
+import me.yui.yuihub.ui.pages.setting.SettingIcon
+import me.yui.yuihub.ui.theme.EntryAccents
 import me.yui.yuihub.ui.components.nav.FloatingBottomBarDefaults
 import me.yui.yuihub.ui.components.ui.ExportDialog
 import me.yui.yuihub.ui.components.ui.FormItem
@@ -91,10 +97,10 @@ fun ModeInjectionPage(vm: PromptVM = koinViewModel()) {
             TopAppBar(
                 navigationIcon = { BackButton() },
                 title = { Text(stringResource(R.string.mode_injection_page_title)) },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         Box(
             modifier = Modifier
@@ -115,14 +121,17 @@ private fun ModeInjectionsContent(
     onUpdate: (List<PromptInjection.ModeInjection>) -> Unit
 ) {
     var expanded by rememberSaveable { mutableStateOf(true) }
+    var query by rememberSaveable { mutableStateOf("") }
     val lazyListState = rememberLazyListState()
     val toaster = LocalToaster.current
     val currentModeInjections by rememberUpdatedState(modeInjections)
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        val newList = modeInjections.toMutableList()
-        val item = newList.removeAt(from.index)
-        newList.add(to.index, item)
-        onUpdate(newList)
+        if (query.isBlank()) {
+            val newList = modeInjections.toMutableList()
+            val item = newList.removeAt(from.index)
+            newList.add(to.index, item)
+            onUpdate(newList)
+        }
     }
     val editState = useEditState<PromptInjection.ModeInjection> { edited ->
         val index = modeInjections.indexOfFirst { it.id == edited.id }
@@ -143,6 +152,13 @@ private fun ModeInjectionsContent(
         }
     }
 
+    val visibleInjections = remember(modeInjections, query) {
+        if (query.isBlank()) modeInjections
+        else modeInjections.filter {
+            it.name.contains(query, ignoreCase = true) || it.content.contains(query, ignoreCase = true)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier
@@ -156,6 +172,31 @@ private fun ModeInjectionsContent(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             state = lazyListState
         ) {
+            item {
+                ExtensionSearchField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = stringResource(R.string.prompt_page_search_placeholder),
+                )
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.extensions_count_items, visibleInjections.size),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = stringResource(R.string.extensions_drag_hint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    )
+                }
+            }
             if (modeInjections.isEmpty()) {
                 item {
                     Column(
@@ -177,8 +218,17 @@ private fun ModeInjectionsContent(
                         )
                     }
                 }
+            } else if (visibleInjections.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.extensions_search_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    )
+                }
             } else {
-                items(modeInjections, key = { it.id }) { injection ->
+                items(visibleInjections, key = { it.id }) { injection ->
                     ReorderableItem(
                         state = reorderableState,
                         key = injection.id
@@ -194,7 +244,10 @@ private fun ModeInjectionsContent(
                                     }
                                 },
                             onEdit = { editState.open(injection) },
-                            onDelete = { onUpdate(modeInjections - injection) }
+                            onDelete = { onUpdate(modeInjections - injection) },
+                            onToggleEnabled = { enabled ->
+                                onUpdate(modeInjections.map { if (it.id == injection.id) it.copy(enabled = enabled) else it })
+                            },
                         )
                     }
                 }
@@ -246,7 +299,8 @@ private fun ModeInjectionCard(
     injection: PromptInjection.ModeInjection,
     modifier: Modifier = Modifier,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onToggleEnabled: (Boolean) -> Unit,
 ) {
     var showExportDialog by remember { mutableStateOf(false) }
     val exporter = rememberExporter(injection, ModeInjectionSerializer)
@@ -260,27 +314,38 @@ private fun ModeInjectionCard(
             onClick = onEdit,
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
-                containerColor = CustomColors.listItemColors.containerColor
+                containerColor = CustomColors.groupedCardSurface
             ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                SettingIcon(HugeIcons.MagicWand01, EntryAccents.Rose)
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
                         text = injection.name.ifEmpty { stringResource(R.string.prompt_page_unnamed) },
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp, fontWeight = FontWeight.Medium),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (injection.content.isNotBlank()) {
+                        Text(
+                            text = injection.content,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -297,6 +362,10 @@ private fun ModeInjectionCard(
                         }
                     }
                 }
+                Switch(
+                    checked = injection.enabled,
+                    onCheckedChange = onToggleEnabled,
+                )
                 IconButton(onClick = { showExportDialog = true }) {
                     Icon(HugeIcons.Share03, stringResource(R.string.export_title))
                 }
@@ -347,7 +416,6 @@ private fun ModeInjectionEditSheet(
             Text(
                 text = stringResource(R.string.prompt_page_edit_mode_injection),
                 style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
             )
 
             Column(
@@ -435,7 +503,7 @@ private fun ModeInjectionEditSheet(
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.prompt_page_cancel))
                 }
-                TextButton(onClick = onConfirm) {
+                Button(onClick = onConfirm) {
                     Text(stringResource(R.string.prompt_page_confirm))
                 }
             }

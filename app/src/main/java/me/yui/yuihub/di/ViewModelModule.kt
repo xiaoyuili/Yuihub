@@ -3,6 +3,7 @@ package me.yui.yuihub.di
 import me.yui.yuihub.ui.pages.assistant.AssistantVM
 import me.yui.yuihub.ui.pages.automation.ScheduledTasksVM
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantDetailVM
+import me.yui.yuihub.ui.pages.assistant.detail.memory.MemoryVM
 import me.yui.yuihub.ui.pages.backup.BackupVM
 import me.yui.yuihub.ui.pages.chat.ChatDrawerVM
 import me.yui.yuihub.ui.pages.chat.ChatVM
@@ -31,7 +32,6 @@ val viewModelModule = module {
             settingsStore = get(),
             conversationRepo = get(),
             chatService = get(),
-            analytics = get(),
             filesManager = get(),
             favoriteRepository = get(),
         )
@@ -50,11 +50,19 @@ val viewModelModule = module {
         AssistantDetailVM(
             id = it.get(),
             settingsStore = get(),
-            memoryRepository = get(),
-            memoryConsolidator = get(),
             filesManager = get(),
             skillManager = get(),
             workspaceRepository = get(),
+        )
+    }
+    viewModel<MemoryVM> {
+        MemoryVM(
+            id = it.get(),
+            settingsStore = get(),
+            memoryRepository = get(),
+            consolidator = get(),
+            extractor = get(),
+            conversationRepository = get(),
         )
     }
     viewModel<ShareHandlerVM> {
@@ -86,12 +94,5 @@ val viewModelModule = module {
     }
     viewModelOf(::FavoriteVM)
     viewModelOf(::SearchVM)
-    viewModel<StatsVM> {
-        StatsVM(
-            messageNodeDAO = get(),
-            tokenLedgerDAO = get(),
-            settingsStore = get(),
-            conversationId = it.getOrNull(),
-        )
-    }
+    viewModelOf(::StatsVM)
 }

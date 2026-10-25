@@ -71,6 +71,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import me.yui.yuihub.R
 import me.yui.yuihub.data.model.Conversation
+import me.yui.yuihub.ui.theme.LocalGlassTheme
 import me.yui.yuihub.ui.theme.extendColors
 import me.yui.yuihub.utils.toLocalString
 import java.time.LocalDate
@@ -143,7 +144,12 @@ fun ColumnScope.ConversationList(
                         .fillMaxWidth()
                         .padding(16.dp),
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow
+                    // 玻璃主题下侧滑页本身透明，空态不该再压一块不透明底色
+                    color = if (LocalGlassTheme.current) {
+                        Color.Transparent
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                    }
                 ) {
                     Text(
                         text = stringResource(id = R.string.chat_page_no_conversations),
@@ -220,7 +226,6 @@ private fun DateHeaderItem(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -240,7 +245,6 @@ private fun PinnedHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

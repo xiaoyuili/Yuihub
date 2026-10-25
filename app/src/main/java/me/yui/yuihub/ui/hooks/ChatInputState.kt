@@ -83,9 +83,6 @@ class ChatInputState {
                 }
                 // Newly added attachments are appended in insertion order.
                 merged.addAll(remainingAttachments)
-                if (editedTextIndex < 0 && text.isNotBlank()) {
-                    merged.add(0, UIMessagePart.Text(text))
-                }
                 return merged
             }
             return if (text.isBlank()) messageContent else listOf(UIMessagePart.Text(text)) + messageContent

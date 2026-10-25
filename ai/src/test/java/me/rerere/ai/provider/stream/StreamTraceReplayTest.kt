@@ -38,6 +38,27 @@ import org.junit.Test
 
 class StreamTraceReplayTest {
     @Test
+    fun `SSE log descriptions expose only metadata`() {
+        val data = "{\"output\":\"private response\",\"api_key\":\"private credential\"}"
+        assertEquals(
+            "eventPresent=true idPresent=true dataChars=${data.length}",
+            describeSseEvent("private request id", "private event value", data),
+        )
+    }
+
+    @Test
+    fun `SSE log descriptions handle missing fields and long payloads`() {
+        assertEquals(
+            "eventPresent=false idPresent=false dataChars=0",
+            describeSseEvent(null, null, ""),
+        )
+        assertEquals(
+            "eventPresent=false idPresent=false dataChars=10000",
+            describeSseEvent("", " ", "s".repeat(10000)),
+        )
+    }
+
+    @Test
     fun `replay DeepSeek Claude mixed tool trace`() {
         assertTrace(
             "generated/claude/deepseek-anthropic-tool",

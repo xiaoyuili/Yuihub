@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.IOException
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -13,8 +14,14 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStoreFile
 import io.pebbletemplates.pebble.PebbleEngine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -24,6 +31,7 @@ import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
@@ -38,10 +46,23 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.yui.yuihub.AppScope
 import me.yui.yuihub.data.ai.mcp.McpServerConfig
+import me.yui.yuihub.data.ai.prompts.COMPACTION_CHECKPOINT_PREAMBLE
+import me.yui.yuihub.data.ai.prompts.DEFAULT_CHILD_AGENT_PROMPT
 import me.yui.yuihub.data.ai.prompts.DEFAULT_COMPRESS_PROMPT
+import me.yui.yuihub.data.ai.prompts.DEFAULT_MEMORY_CONSOLIDATE_PROMPT
+import me.yui.yuihub.data.ai.prompts.DEFAULT_MEMORY_EXTRACT_PROMPT
+import me.yui.yuihub.data.ai.prompts.DEFAULT_MEMORY_SNAPSHOT_PROMPT
+import me.yui.yuihub.data.ai.prompts.DEFAULT_SCHEDULED_TASK_PROMPT
+import me.yui.yuihub.data.ai.prompts.DEFAULT_SKILLS_PROMPT
 import me.yui.yuihub.data.ai.prompts.DEFAULT_TITLE_PROMPT
+import me.yui.yuihub.data.ai.prompts.DEFAULT_VISION_PROMPT
+import me.yui.yuihub.data.ai.prompts.DEFAULT_WORKSPACE_PROMPT
+import me.yui.yuihub.data.ai.AGENT_TOOL_STYLE_PROMPT as DEFAULT_AGENT_TOOL_STYLE_PROMPT
 import me.yui.yuihub.data.datastore.migration.PreferenceStoreV1Migration
 import me.yui.yuihub.data.datastore.migration.PreferenceStoreV2Migration
+import me.yui.yuihub.data.datastore.migration.PreferenceStoreV3Migration
+import me.yui.yuihub.data.datastore.migration.PreferenceStoreV4Migration
+import me.yui.yuihub.data.datastore.migration.PreferenceStoreV5Migration
 import me.yui.yuihub.data.model.Assistant
 import me.yui.yuihub.data.model.Avatar
 import me.yui.yuihub.data.model.InjectionPosition
@@ -77,8 +98,13 @@ private val Context.settingsStore: DataStore<Preferences>
         settingsDataStore ?: createSettingsDataStore(applicationContext).also { settingsDataStore = it }
     }
 
-private fun createSettingsDataStore(context: Context): DataStore<Preferences> {
-    val file = context.preferencesDataStoreFile(SETTINGS_STORE_NAME)
+fun settingsDataStoreFile(context: Context): File = context.preferencesDataStoreFile(SETTINGS_STORE_NAME)
+
+private fun createSettingsDataStore(
+    context: Context,
+    scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
+): DataStore<Preferences> {
+    val file = settingsDataStoreFile(context)
     return PreferenceDataStoreFactory.create(
         corruptionHandler = ReplaceFileCorruptionHandler { exception ->
             // 文件已损坏无法解析, 先留一份原文件用于排查/抢救, 再重建为空
@@ -92,10 +118,96 @@ private fun createSettingsDataStore(context: Context): DataStore<Preferences> {
         },
         migrations = listOf(
             PreferenceStoreV1Migration(),
-            PreferenceStoreV2Migration()
+            PreferenceStoreV2Migration(),
+            PreferenceStoreV3Migration(),
+            PreferenceStoreV4Migration(),
+            PreferenceStoreV5Migration(),
         ),
+        scope = scope,
         produceFile = { file },
     )
+}
+
+suspend fun restoreSettingsBeforeStartup(context: Context, settings: Settings) {
+    val job = SupervisorJob()
+    val scope = CoroutineScope(job + Dispatchers.IO)
+    try {
+        createSettingsDataStore(context.applicationContext, scope).edit { preferences ->
+            preferences.writeSettings(settings)
+        }
+    } finally {
+        withContext(NonCancellable) {
+            job.cancelAndJoin()
+        }
+    }
+}
+
+private fun MutablePreferences.writeSettings(settings: Settings) {
+    this[SettingsStore.DYNAMIC_COLOR] = settings.dynamicColor
+    this[SettingsStore.THEME_ID] = settings.themeId
+    this[SettingsStore.CUSTOM_THEMES] = JsonInstant.encodeToString(settings.customThemes)
+    this[SettingsStore.DEVELOPER_MODE] = settings.developerMode
+    this[SettingsStore.DISPLAY_SETTING] = JsonInstant.encodeToString(settings.displaySetting)
+    this[SettingsStore.NETWORK_SETTING] = JsonInstant.encodeToString(settings.networkSetting)
+
+    this[SettingsStore.FAVORITE_MODELS] = JsonInstant.encodeToString(settings.favoriteModels)
+    this[SettingsStore.SELECT_MODEL] = settings.chatModelId.toString()
+    if (settings.titleModelId != null) {
+        this[SettingsStore.TITLE_MODEL] = settings.titleModelId.toString()
+    } else {
+        remove(SettingsStore.TITLE_MODEL)
+    }
+    this[SettingsStore.TITLE_MODEL_REASONING_LEVEL] = settings.titleModelReasoningLevel.name
+    this[SettingsStore.IMAGE_GENERATION_MODEL] = settings.imageGenerationModelId.toString()
+    if (settings.visionModelId != null) {
+        this[SettingsStore.VISION_MODEL] = settings.visionModelId.toString()
+    } else {
+        remove(SettingsStore.VISION_MODEL)
+    }
+    this[SettingsStore.TITLE_PROMPT] = settings.titlePrompt
+    this[SettingsStore.COMPRESS_PROMPT] = settings.compressPrompt
+    this[SettingsStore.MEMORY_EXTRACT_PROMPT] = settings.memoryExtractPrompt
+    this[SettingsStore.MEMORY_CONSOLIDATE_PROMPT] = settings.memoryConsolidatePrompt
+    this[SettingsStore.MEMORY_SNAPSHOT_PROMPT] = settings.memorySnapshotPrompt
+    this[SettingsStore.WORKSPACE_PROMPT] = settings.workspacePrompt
+    this[SettingsStore.CHILD_AGENT_PROMPT] = settings.childAgentPrompt
+    this[SettingsStore.SKILLS_PROMPT] = settings.skillsPrompt
+    this[SettingsStore.SCHEDULED_TASK_PROMPT] = settings.scheduledTaskPrompt
+    this[SettingsStore.VISION_PROMPT] = settings.visionPrompt
+    this[SettingsStore.COMPACTION_CHECKPOINT_PROMPT] = settings.compactionCheckpointPrompt
+    this[SettingsStore.AGENT_TOOL_STYLE_PROMPT] = settings.agentToolStylePrompt
+    this[SettingsStore.DISABLED_PROMPTS] = settings.disabledPromptIds
+    this[SettingsStore.AUTO_COMPRESS_ENABLED] = settings.autoCompressEnabled
+    this[SettingsStore.AUTO_COMPRESS_THRESHOLD] = settings.autoCompressThreshold.coerceIn(0.5f, 0.95f)
+    this[SettingsStore.MEMORY_HIT_TOP_K] = settings.memoryHitTopK.coerceIn(0, 3)
+    this[SettingsStore.MEMORY_HIT_CHAR_BUDGET] = settings.memoryHitCharBudget.coerceIn(300, 900)
+    this[SettingsStore.MEMORY_CORE_CHAR_BUDGET] = settings.memoryCoreCharBudget.coerceIn(800, 2400)
+    this[SettingsStore.MEMORY_ORGANIZE_GROWTH] = settings.memoryOrganizeGrowth.coerceIn(10, 50)
+    if (settings.memoryMaintenanceModelId != null) {
+        this[SettingsStore.MEMORY_MAINTENANCE_MODEL] = settings.memoryMaintenanceModelId.toString()
+    } else {
+        remove(SettingsStore.MEMORY_MAINTENANCE_MODEL)
+    }
+    this[SettingsStore.TOOL_SCHEMA_COMPACT_LEVEL] = settings.toolSchemaCompactLevel.coerceIn(0, 2)
+
+    this[SettingsStore.PROVIDERS] = JsonInstant.encodeToString(settings.providers)
+
+    this[SettingsStore.ASSISTANTS] = JsonInstant.encodeToString(settings.assistants)
+    this[SettingsStore.SELECT_ASSISTANT] = settings.assistantId.toString()
+    this[SettingsStore.ASSISTANT_TAGS] = JsonInstant.encodeToString(settings.assistantTags)
+    this[SettingsStore.SUBAGENT_PERSONAS] = JsonInstant.encodeToString(settings.subagentPersonas)
+
+    this[SettingsStore.SEARCH_SERVICES] = JsonInstant.encodeToString(settings.searchServices)
+    this[SettingsStore.SEARCH_COMMON] = JsonInstant.encodeToString(settings.searchCommonOptions)
+    this[SettingsStore.SEARCH_SELECTED] = settings.searchServiceSelected.coerceIn(0, maxOf(settings.searchServices.size - 1, 0))
+
+    this[SettingsStore.MCP_SERVERS] = JsonInstant.encodeToString(settings.mcpServers)
+    this[SettingsStore.MODE_INJECTIONS] = JsonInstant.encodeToString(settings.modeInjections)
+    this[SettingsStore.LOREBOOKS] = JsonInstant.encodeToString(settings.lorebooks)
+    this[SettingsStore.KEEP_AWAKE_ENABLED] = settings.keepAwakeEnabled
+    this[SettingsStore.BACKUP_REMINDER_CONFIG] = JsonInstant.encodeToString(settings.backupReminderConfig)
+    this[SettingsStore.MODEL_CATALOG_ENABLED] = settings.modelCatalogEnabled
+    this[SettingsStore.LAUNCH_COUNT] = settings.launchCount
 }
 
 class SettingsStore(
@@ -123,10 +235,29 @@ class SettingsStore(
         val VISION_MODEL = stringPreferencesKey("vision_model")
         val TITLE_PROMPT = stringPreferencesKey("title_prompt")
         val COMPRESS_PROMPT = stringPreferencesKey("compress_prompt")
+        val MEMORY_EXTRACT_PROMPT = stringPreferencesKey("memory_extract_prompt")
+        val MEMORY_CONSOLIDATE_PROMPT = stringPreferencesKey("memory_consolidate_prompt")
+        val MEMORY_SNAPSHOT_PROMPT = stringPreferencesKey("memory_snapshot_prompt")
+        val WORKSPACE_PROMPT = stringPreferencesKey("workspace_prompt")
+        val CHILD_AGENT_PROMPT = stringPreferencesKey("child_agent_prompt")
+        val SKILLS_PROMPT = stringPreferencesKey("skills_prompt")
+        val SCHEDULED_TASK_PROMPT = stringPreferencesKey("scheduled_task_prompt")
+        val VISION_PROMPT = stringPreferencesKey("vision_prompt")
+        val COMPACTION_CHECKPOINT_PROMPT = stringPreferencesKey("compaction_checkpoint_prompt")
+        val AGENT_TOOL_STYLE_PROMPT = stringPreferencesKey("agent_tool_style_prompt")
+        val DISABLED_PROMPTS = stringSetPreferencesKey("disabled_prompts")
 
         // 上下文自动压缩
         val AUTO_COMPRESS_ENABLED = booleanPreferencesKey("auto_compress_enabled")
         val AUTO_COMPRESS_THRESHOLD = floatPreferencesKey("auto_compress_threshold")
+
+        // 记忆注入与整理
+        val MEMORY_HIT_TOP_K = intPreferencesKey("memory_hit_top_k")
+        val MEMORY_HIT_CHAR_BUDGET = intPreferencesKey("memory_hit_char_budget")
+        val MEMORY_CORE_CHAR_BUDGET = intPreferencesKey("memory_core_char_budget")
+        val MEMORY_ORGANIZE_GROWTH = intPreferencesKey("memory_organize_growth")
+        val MEMORY_MAINTENANCE_MODEL = stringPreferencesKey("memory_maintenance_model")
+        val TOOL_SCHEMA_COMPACT_LEVEL = intPreferencesKey("tool_schema_compact_level")
 
         // 供应商
         val PROVIDERS = stringPreferencesKey("providers")
@@ -196,8 +327,25 @@ class SettingsStore(
                 visionModelId = preferences[VISION_MODEL]?.let { Uuid.parse(it) },
                 titlePrompt = preferences[TITLE_PROMPT] ?: DEFAULT_TITLE_PROMPT,
                 compressPrompt = preferences[COMPRESS_PROMPT] ?: DEFAULT_COMPRESS_PROMPT,
+                memoryExtractPrompt = preferences[MEMORY_EXTRACT_PROMPT] ?: DEFAULT_MEMORY_EXTRACT_PROMPT,
+                memoryConsolidatePrompt = preferences[MEMORY_CONSOLIDATE_PROMPT] ?: DEFAULT_MEMORY_CONSOLIDATE_PROMPT,
+                memorySnapshotPrompt = preferences[MEMORY_SNAPSHOT_PROMPT] ?: DEFAULT_MEMORY_SNAPSHOT_PROMPT,
+                workspacePrompt = preferences[WORKSPACE_PROMPT] ?: DEFAULT_WORKSPACE_PROMPT,
+                childAgentPrompt = preferences[CHILD_AGENT_PROMPT] ?: DEFAULT_CHILD_AGENT_PROMPT,
+                skillsPrompt = preferences[SKILLS_PROMPT] ?: DEFAULT_SKILLS_PROMPT,
+                scheduledTaskPrompt = preferences[SCHEDULED_TASK_PROMPT] ?: DEFAULT_SCHEDULED_TASK_PROMPT,
+                visionPrompt = preferences[VISION_PROMPT] ?: DEFAULT_VISION_PROMPT,
+                compactionCheckpointPrompt = preferences[COMPACTION_CHECKPOINT_PROMPT] ?: COMPACTION_CHECKPOINT_PREAMBLE,
+                agentToolStylePrompt = preferences[AGENT_TOOL_STYLE_PROMPT] ?: DEFAULT_AGENT_TOOL_STYLE_PROMPT,
+                disabledPromptIds = preferences[DISABLED_PROMPTS] ?: emptySet(),
                 autoCompressEnabled = preferences[AUTO_COMPRESS_ENABLED] ?: true,
                 autoCompressThreshold = (preferences[AUTO_COMPRESS_THRESHOLD] ?: 0.85f).coerceIn(0.5f, 0.95f),
+                memoryHitTopK = (preferences[MEMORY_HIT_TOP_K] ?: 2).coerceIn(0, 3),
+                memoryHitCharBudget = (preferences[MEMORY_HIT_CHAR_BUDGET] ?: 440).coerceIn(300, 900),
+                memoryCoreCharBudget = (preferences[MEMORY_CORE_CHAR_BUDGET] ?: 1200).coerceIn(800, 2400),
+                memoryOrganizeGrowth = (preferences[MEMORY_ORGANIZE_GROWTH] ?: 20).coerceIn(10, 50),
+                memoryMaintenanceModelId = preferences[MEMORY_MAINTENANCE_MODEL]?.let { Uuid.parse(it) },
+                toolSchemaCompactLevel = (preferences[TOOL_SCHEMA_COMPACT_LEVEL] ?: 1).coerceIn(0, 2),
                 assistantId = preferences[SELECT_ASSISTANT]?.let { Uuid.parse(it) }
                     ?: DEFAULT_ASSISTANT_ID,
                 assistantTags = preferences[ASSISTANT_TAGS]?.let {
@@ -207,14 +355,26 @@ class SettingsStore(
                     JsonInstant.decodeFromString(it)
                 } ?: BuiltinSubagentPersonas.all(),
                 providers = JsonInstant.decodeFromString(preferences[PROVIDERS] ?: "[]"),
-                assistants = JsonInstant.decodeFromString(preferences[ASSISTANTS] ?: "[]"),
+                assistants = JsonInstant.decodeFromString<List<Assistant>>(preferences[ASSISTANTS] ?: "[]")
+                    .map {
+                        it.copy(
+                            avatar = if (it.avatar == Avatar.Dummy) Avatar.Logo else it.avatar,
+                            streamOutput = true,
+                        )
+                    },
                 dynamicColor = preferences[DYNAMIC_COLOR] == true,
                 themeId = preferences[THEME_ID] ?: PresetThemes.find { it.id == "minimal" }?.id ?: PresetThemes[0].id,
                 customThemes = preferences[CUSTOM_THEMES]?.let {
                     JsonInstant.decodeFromString(it)
                 } ?: emptyList(),
                 developerMode = preferences[DEVELOPER_MODE] == true,
-                displaySetting = JsonInstant.decodeFromString(preferences[DISPLAY_SETTING] ?: "{}"),
+                displaySetting = JsonInstant.decodeFromString<DisplaySetting>(preferences[DISPLAY_SETTING] ?: "{}")
+                    .copy(
+                        sendOnEnter = false,
+                        skipCropImage = true,
+                        enableMessageGenerationHapticEffect = false,
+                        useAppIconStyleLoadingIndicator = true,
+                    ),
                 networkSetting = JsonInstant.decodeFromString(preferences[NETWORK_SETTING] ?: "{}"),
                 searchServices = preferences[SEARCH_SERVICES]?.let {
                     // 过滤已移除的搜索供应商(如 yuihub, 以及 2.5.7 起不再提供的
@@ -357,50 +517,7 @@ class SettingsStore(
         }
         settingsFlow.value = settings
         dataStore.edit { preferences ->
-            preferences[DYNAMIC_COLOR] = settings.dynamicColor
-            preferences[THEME_ID] = settings.themeId
-            preferences[CUSTOM_THEMES] = JsonInstant.encodeToString(settings.customThemes)
-            preferences[DEVELOPER_MODE] = settings.developerMode
-            preferences[DISPLAY_SETTING] = JsonInstant.encodeToString(settings.displaySetting)
-            preferences[NETWORK_SETTING] = JsonInstant.encodeToString(settings.networkSetting)
-
-            preferences[FAVORITE_MODELS] = JsonInstant.encodeToString(settings.favoriteModels)
-            preferences[SELECT_MODEL] = settings.chatModelId.toString()
-            if (settings.titleModelId != null) {
-                preferences[TITLE_MODEL] = settings.titleModelId.toString()
-            } else {
-                preferences.remove(TITLE_MODEL)
-            }
-            preferences[TITLE_MODEL_REASONING_LEVEL] = settings.titleModelReasoningLevel.name
-            preferences[IMAGE_GENERATION_MODEL] = settings.imageGenerationModelId.toString()
-            if (settings.visionModelId != null) {
-                preferences[VISION_MODEL] = settings.visionModelId.toString()
-            } else {
-                preferences.remove(VISION_MODEL)
-            }
-            preferences[TITLE_PROMPT] = settings.titlePrompt
-            preferences[COMPRESS_PROMPT] = settings.compressPrompt
-            preferences[AUTO_COMPRESS_ENABLED] = settings.autoCompressEnabled
-            preferences[AUTO_COMPRESS_THRESHOLD] = settings.autoCompressThreshold.coerceIn(0.5f, 0.95f)
-
-            preferences[PROVIDERS] = JsonInstant.encodeToString(settings.providers)
-
-            preferences[ASSISTANTS] = JsonInstant.encodeToString(settings.assistants)
-            preferences[SELECT_ASSISTANT] = settings.assistantId.toString()
-            preferences[ASSISTANT_TAGS] = JsonInstant.encodeToString(settings.assistantTags)
-            preferences[SUBAGENT_PERSONAS] = JsonInstant.encodeToString(settings.subagentPersonas)
-
-            preferences[SEARCH_SERVICES] = JsonInstant.encodeToString(settings.searchServices)
-            preferences[SEARCH_COMMON] = JsonInstant.encodeToString(settings.searchCommonOptions)
-            preferences[SEARCH_SELECTED] = settings.searchServiceSelected.coerceIn(0, maxOf(settings.searchServices.size - 1, 0))
-
-            preferences[MCP_SERVERS] = JsonInstant.encodeToString(settings.mcpServers)
-            preferences[MODE_INJECTIONS] = JsonInstant.encodeToString(settings.modeInjections)
-            preferences[LOREBOOKS] = JsonInstant.encodeToString(settings.lorebooks)
-            preferences[KEEP_AWAKE_ENABLED] = settings.keepAwakeEnabled
-            preferences[BACKUP_REMINDER_CONFIG] = JsonInstant.encodeToString(settings.backupReminderConfig)
-            preferences[MODEL_CATALOG_ENABLED] = settings.modelCatalogEnabled
-            preferences[LAUNCH_COUNT] = settings.launchCount
+            preferences.writeSettings(settings)
         }
     }
 
@@ -505,6 +622,25 @@ data class Settings(
     val visionModelId: Uuid? = null,
     val titlePrompt: String = DEFAULT_TITLE_PROMPT,
     val compressPrompt: String = DEFAULT_COMPRESS_PROMPT,
+    val memoryExtractPrompt: String = DEFAULT_MEMORY_EXTRACT_PROMPT,
+    val memoryConsolidatePrompt: String = DEFAULT_MEMORY_CONSOLIDATE_PROMPT,
+    val memorySnapshotPrompt: String = DEFAULT_MEMORY_SNAPSHOT_PROMPT,
+    val memoryHitTopK: Int = 2,
+    val memoryHitCharBudget: Int = 440,
+    val memoryCoreCharBudget: Int = 1200,
+    val memoryOrganizeGrowth: Int = 20,
+    /** 提取/整理使用的模型；null = 当前聊天模型。 */
+    val memoryMaintenanceModelId: Uuid? = null,
+    /** 0=关闭；1=均衡（默认）；2=激进。只压缩工具描述，不删参数/能力。 */
+    val toolSchemaCompactLevel: Int = 1,
+    val workspacePrompt: String = DEFAULT_WORKSPACE_PROMPT,
+    val childAgentPrompt: String = DEFAULT_CHILD_AGENT_PROMPT,
+    val skillsPrompt: String = DEFAULT_SKILLS_PROMPT,
+    val scheduledTaskPrompt: String = DEFAULT_SCHEDULED_TASK_PROMPT,
+    val visionPrompt: String = DEFAULT_VISION_PROMPT,
+    val compactionCheckpointPrompt: String = COMPACTION_CHECKPOINT_PREAMBLE,
+    val agentToolStylePrompt: String = DEFAULT_AGENT_TOOL_STYLE_PROMPT,
+    val disabledPromptIds: Set<String> = emptySet(),
     // 上下文自动压缩：达到窗口占比阈值时自动压缩早期历史，默认开启
     val autoCompressEnabled: Boolean = true,
     val autoCompressThreshold: Float = 0.85f,
@@ -558,6 +694,10 @@ enum class ChatFontFamily {
 data class DisplaySetting(
     val userAvatar: Avatar = Avatar.Dummy,
     val userNickname: String = "",
+    val useAssistantAvatar: Boolean = false,
+    val chatBackground: String? = null,
+    val chatBackgroundOpacity: Float = 1.0f,
+    val useGradientBackground: Boolean = false,
     val useAppIconStyleLoadingIndicator: Boolean = true,
     val showUserAvatar: Boolean = true,
     val showAssistantBubble: Boolean = false,
@@ -584,6 +724,7 @@ data class DisplaySetting(
     val enableAutoScroll: Boolean = true,
     val enableLatexRendering: Boolean = true,
     val enableBlurEffect: Boolean = false,
+    val inputBarBlurRadius: Float = 16f,
     val chatFontFamily: ChatFontFamily = ChatFontFamily.DEFAULT,
     val chatCustomFontPath: String = "",
     val chatCustomFontName: String = "",

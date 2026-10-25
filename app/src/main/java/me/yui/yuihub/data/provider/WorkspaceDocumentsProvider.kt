@@ -11,11 +11,14 @@ import android.provider.DocumentsProvider
 import android.webkit.MimeTypeMap
 import kotlinx.coroutines.runBlocking
 import me.yui.yuihub.R
+import me.yui.yuihub.StartupState
+import me.yui.yuihub.YuiHubApp
 import me.yui.yuihub.data.db.dao.WorkspaceDAO
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.rerere.workspace.WorkspaceManager
 import org.koin.core.context.GlobalContext
 import java.io.File
+import java.io.IOException
 
 /**
  * 通过 Storage Access Framework 将 workspace 的 files 目录暴露给系统文件管理器。
@@ -38,6 +41,13 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 
     private fun dao(): WorkspaceDAO = GlobalContext.get().get()
 
+    private fun startupReady(): Boolean =
+        (context?.applicationContext as? YuiHubApp)?.startupState?.value == StartupState.Ready
+
+    private fun requireStartupReady() {
+        if (!startupReady()) throw IOException("Application startup is not ready")
+    }
+
     private fun allWorkspaces(): List<WorkspaceEntity> = runBlocking { dao().getAll() }
 
     private fun workspaceName(root: String): String =
@@ -47,6 +57,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 
     override fun queryRoots(projection: Array<String>?): Cursor {
         val cursor = MatrixCursor(projection ?: DEFAULT_ROOT_PROJECTION)
+        if (!startupReady()) return cursor
         val ctx = context ?: return cursor
         cursor.newRow().apply {
             add(Root.COLUMN_ROOT_ID, ROOT_ID)
@@ -64,6 +75,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
 
     override fun queryDocument(documentId: String, projection: Array<String>?): Cursor {
         val cursor = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
+        if (!startupReady()) return cursor
         val target = parseDocId(documentId)
         if (target.isRoot) {
             cursor.newRow().apply {
@@ -89,6 +101,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         sortOrder: String?,
     ): Cursor {
         val cursor = MatrixCursor(projection ?: DEFAULT_DOCUMENT_PROJECTION)
+        if (!startupReady()) return cursor
         val parent = parseDocId(parentDocumentId)
         if (parent.isRoot) {
             // 顶层：列出所有 workspace
@@ -114,6 +127,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         mode: String,
         signal: CancellationSignal?,
     ): ParcelFileDescriptor {
+        requireStartupReady()
         val target = parseDocId(documentId)
         require(!target.isRoot) { "Cannot open root as a document" }
         val file = resolveFile(target.root, target.relPath)
@@ -125,6 +139,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         mimeType: String,
         displayName: String,
     ): String {
+        requireStartupReady()
         val parent = parseDocId(parentDocumentId)
         require(!parent.isRoot) { "Cannot create document at root" }
         manager().ensureWorkspace(parent.root)
@@ -141,6 +156,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
     }
 
     override fun deleteDocument(documentId: String) {
+        requireStartupReady()
         val target = parseDocId(documentId)
         require(!target.isRoot && target.relPath.isNotEmpty()) { "Cannot delete this document" }
         val file = resolveFile(target.root, target.relPath)
@@ -150,6 +166,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
     }
 
     override fun renameDocument(documentId: String, displayName: String): String {
+        requireStartupReady()
         val target = parseDocId(documentId)
         require(!target.isRoot && target.relPath.isNotEmpty()) { "Cannot rename this document" }
         val file = resolveFile(target.root, target.relPath)
@@ -161,6 +178,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
     }
 
     override fun copyDocument(sourceDocumentId: String, targetParentDocumentId: String): String {
+        requireStartupReady()
         val source = parseDocId(sourceDocumentId)
         val targetParent = parseDocId(targetParentDocumentId)
         require(!source.isRoot && source.relPath.isNotEmpty()) { "Cannot copy this document" }
@@ -183,6 +201,7 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
         sourceParentDocumentId: String?,
         targetParentDocumentId: String,
     ): String {
+        requireStartupReady()
         val source = parseDocId(sourceDocumentId)
         val targetParent = parseDocId(targetParentDocumentId)
         require(!source.isRoot && source.relPath.isNotEmpty()) { "Cannot move this document" }
@@ -208,12 +227,14 @@ class WorkspaceDocumentsProvider : DocumentsProvider() {
     }
 
     override fun getDocumentType(documentId: String): String {
+        requireStartupReady()
         val target = parseDocId(documentId)
         if (target.isRoot) return Document.MIME_TYPE_DIR
         return mimeOf(resolveFile(target.root, target.relPath))
     }
 
     override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
+        if (!startupReady()) return false
         val parent = parseDocId(parentDocumentId)
         val child = parseDocId(documentId)
         if (child.isRoot) return false

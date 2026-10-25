@@ -32,7 +32,7 @@ suspend fun Clipboard.setClipEntrySafely(label: String, text: String): SafeCopyR
         throw e
     } catch (e: Exception) {
         // 不同 ROM 对事务上限的处理不一致，捕获异常避免闪退
-        Log.w(TAG, "setClipEntry failed (len=${text.length})", e)
+        Log.w(TAG, "setClipEntry failed (len=${text.length}, error=${e.javaClass.simpleName})")
         SafeCopyResult.FAILED
     }
 }

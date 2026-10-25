@@ -5,6 +5,9 @@ import android.database.Cursor
 import android.util.Log
 import androidx.sqlite.db.SupportSQLiteDatabase
 import io.requery.android.database.sqlite.SQLiteDatabase
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -13,6 +16,8 @@ import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.datastore.migration.SettingsJsonMigrator
 import me.yui.yuihub.data.db.AppDatabase
 import java.io.File
+import java.io.InputStream
+import java.io.IOException
 import java.io.FileInputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
@@ -36,7 +41,7 @@ class RikkaHubImporter(
     private val database: AppDatabase,
     private val settingsStore: SettingsStore,
     /** 文件条目的落盘逻辑（复用 LocalBackupService 的前缀分派与路径校验） */
-    private val writeFileEntry: (entryName: String, bytes: ByteArray) -> Unit,
+    private val writeFileEntry: suspend (entryName: String, staged: File) -> Unit,
 ) {
     /** 导入结果计数，用于给用户反馈 */
     data class ImportResult(
@@ -49,16 +54,13 @@ class RikkaHubImporter(
         val workspaces: Int = 0,
         val settingsImported: Boolean = false,
         val uploadedFiles: Int = 0,
+        val failedTables: List<String> = emptyList(),
     ) {
         val totalRows: Int
             get() = conversations + messageNodes + memories + media + favorites + folders + workspaces
     }
 
-    /**
-     * 执行导入。导入数据库前会关闭连接，因此调用方必须提示用户重启应用。
-     *
-     * 逐段容错：某张表失败只记日志并跳过，不阻断其余内容。
-     */
+    /** 按本地表结构导入可兼容的列；附件安装失败会中止导入并报告。 */
     suspend fun importFromZip(
         zipFile: File,
         includeDatabase: Boolean = true,
@@ -67,8 +69,12 @@ class RikkaHubImporter(
     ): ImportResult = withContext(Dispatchers.IO) {
         Log.i(TAG, "importFromZip: start ${zipFile.absolutePath}")
 
-        val staging = File(context.cacheDir, "rikkahub_import_${System.currentTimeMillis()}")
-        staging.mkdirs()
+        val staging = File.createTempFile("rikkahub_import_", "", context.cacheDir)
+        check(staging.delete() && staging.mkdir()) { "Cannot create import staging directory" }
+        val jobContext = currentCoroutineContext()
+        val budget = RestoreByteBudget()
+        val seen = hashSetOf<String>()
+        var nameLength = 0L
         var upstreamDb: File? = null
         var upstreamWal: File? = null
         var upstreamSettings: String? = null
@@ -80,32 +86,42 @@ class RikkaHubImporter(
                 var entry: ZipEntry? = zipIn.nextEntry
                 while (entry != null) {
                     val name = entry.name
+                    jobContext.ensureActive()
+                    nameLength += name.length
+                    check(nameLength <= 4L * 1024 * 1024 && seen.size < 100_000 && seen.add(name)) {
+                        "Invalid or oversized backup entry list"
+                    }
+                    val input = budget.entry(zipIn, if (name == "settings.json") SETTINGS_LIMIT else ENTRY_LIMIT) {
+                        jobContext.ensureActive()
+                    }
                     if (!entry.isDirectory) {
                         when {
                             // 上游 DatabaseBackup.ARCHIVE_DATABASE = "rikka_hub.db"（带 .db 后缀），
                             // 本 fork 自身备份条目名为 "rikka_hub"；两种都要接住。
                             // 用文件名前缀判断而不是全等，避免路径前缀与后缀变体漏配。
                             isMainDatabaseEntry(name) -> {
-                                upstreamDb = File(staging, "upstream.db").also { writeEntry(zipIn, it) }
+                                upstreamDb = File(staging, "upstream.db").also { writeEntry(input, it) }
                             }
 
                             name.endsWith("$DATABASE_NAME-wal") -> {
-                                upstreamWal = File(staging, "upstream.db-wal").also { writeEntry(zipIn, it) }
+                                upstreamWal = File(staging, "upstream.db-wal").also { writeEntry(input, it) }
                             }
 
                             name == "settings.json" -> {
-                                upstreamSettings = zipIn.readBytes().toString(Charsets.UTF_8)
+                                upstreamSettings = input.readBytes().toString(Charsets.UTF_8)
                             }
 
                             includeFiles -> {
-                                val target = File(staging, "files/$name")
-                                writeEntry(zipIn, target)
+                                val target = File(staging, "file_${stagedFileEntries.size}")
+                                writeEntry(input, target)
                                 stagedFileEntries.add(name to target)
                             }
 
                             else -> Unit
                         }
                     }
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (input.read(buffer) != -1) Unit
                     zipIn.closeEntry()
                     entry = zipIn.nextEntry
                 }
@@ -117,14 +133,14 @@ class RikkaHubImporter(
             val dbFile = upstreamDb
             if (includeDatabase && dbFile != null) {
                 replayUpstreamWal(dbFile, upstreamWal)
-                if (!isReadableDatabase(dbFile)) {
-                    Log.e(TAG, "importFromZip: upstream database is not readable, skipping")
-                } else {
+                check(isReadableDatabase(dbFile)) { "Backup database failed integrity check" }
+                run {
                     result = result.copy(
                         conversations = 0,
                         settingsImported = false,
                     )
-                    val counts = importDatabaseTables(dbFile)
+                    val failedTables = mutableListOf<String>()
+                    val counts = importDatabaseTables(dbFile, failedTables) { jobContext.ensureActive() }
                     result = result.copy(
                         conversations = counts["ConversationEntity"] ?: 0,
                         messageNodes = counts["message_node"] ?: 0,
@@ -133,6 +149,7 @@ class RikkaHubImporter(
                         favorites = counts["favorites"] ?: 0,
                         folders = counts["conversation_folder"] ?: 0,
                         workspaces = counts["workspaces"] ?: 0,
+                        failedTables = failedTables,
                     )
                 }
             }
@@ -150,6 +167,7 @@ class RikkaHubImporter(
                     settingsStore.update(settings)
                     true
                 }.onFailure {
+                    if (it is CancellationException) throw it
                     Log.e(TAG, "importFromZip: settings import failed", it)
                 }.getOrDefault(false)
                 result = result.copy(settingsImported = ok)
@@ -159,12 +177,9 @@ class RikkaHubImporter(
             if (includeFiles && stagedFileEntries.isNotEmpty()) {
                 var written = 0
                 stagedFileEntries.forEach { (entryName, staged) ->
-                    runCatching {
-                        writeFileEntry(entryName, staged.readBytes())
-                        written++
-                    }.onFailure {
-                        Log.e(TAG, "importFromZip: file entry failed: $entryName", it)
-                    }
+                    jobContext.ensureActive()
+                    writeFileEntry(entryName, staged)
+                    written++
                 }
                 result = result.copy(uploadedFiles = written)
             }
@@ -183,20 +198,33 @@ class RikkaHubImporter(
      * 本 fork 有 `scheduled_task` / `token_ledger` 两张上游没有的表，
      * 库里缺这两张表且 user_version <= 25，即视为上游备份。
      */
-    fun looksLikeUpstreamBackup(zipFile: File): Boolean = runCatching {
-        val staging = File(context.cacheDir, "rikkahub_probe_${System.currentTimeMillis()}.db")
+    suspend fun looksLikeUpstreamBackup(zipFile: File): Boolean = withContext(Dispatchers.IO) { runCatching {
+        val jobContext = currentCoroutineContext()
+        val budget = RestoreByteBudget()
+        val seen = hashSetOf<String>()
+        var nameLength = 0L
+        val staging = File.createTempFile("rikkahub_probe_", ".db", context.cacheDir)
         try {
             var found = false
             ZipInputStream(FileInputStream(zipFile)).use { zipIn ->
                 var entry: ZipEntry? = zipIn.nextEntry
                 while (entry != null) {
                     val name = entry.name
-                    if (!entry.isDirectory && isMainDatabaseEntry(name)) {
-                        writeEntry(zipIn, staging)
+                    jobContext.ensureActive()
+                    nameLength += name.length
+                    check(nameLength <= 4L * 1024 * 1024 && seen.size < 100_000 && seen.add(name)) {
+                        "Invalid or oversized backup entry list"
+                    }
+                    val input = budget.entry(zipIn, if (name == "settings.json") SETTINGS_LIMIT else ENTRY_LIMIT) {
+                        jobContext.ensureActive()
+                    }
+                    if (!entry.isDirectory && isMainDatabaseEntry(name) && !found) {
+                        writeEntry(input, staging)
                         found = true
                     }
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (input.read(buffer) != -1) Unit
                     zipIn.closeEntry()
-                    if (found) break
                     entry = zipIn.nextEntry
                 }
             }
@@ -220,8 +248,10 @@ class RikkaHubImporter(
         } finally {
             staging.delete()
         }
-    }.onFailure { Log.w(TAG, "looksLikeUpstreamBackup: probe failed", it) }
-        .getOrDefault(false)
+    }.onFailure {
+        if (it is CancellationException || it is IOException || it is IllegalStateException) throw it
+        Log.w(TAG, "looksLikeUpstreamBackup: probe failed", it)
+    }.getOrDefault(false) }
 
     /** 老格式上游备份可能带 WAL，先回放才能读到完整数据 */
     private fun replayUpstreamWal(dbFile: File, wal: File?) {
@@ -250,7 +280,11 @@ class RikkaHubImporter(
     }
 
     /** 逐表按列名交集搬运数据；返回各表写入行数 */
-    private fun importDatabaseTables(upstreamDbFile: File): Map<String, Int> {
+    private fun importDatabaseTables(
+        upstreamDbFile: File,
+        failedTables: MutableList<String>,
+        checkActive: () -> Unit,
+    ): Map<String, Int> {
         val counts = mutableMapOf<String, Int>()
         val upstream: SupportSQLiteDatabase = SQLiteDatabase.openDatabase(
             upstreamDbFile.absolutePath,
@@ -272,8 +306,13 @@ class RikkaHubImporter(
                 "managed_files",
             )
             order.forEach { table ->
-                counts[table] = runCatching { copyTable(upstream, local, table) }
-                    .onFailure { Log.e(TAG, "importDatabaseTables: table $table failed", it) }
+                checkActive()
+                counts[table] = runCatching { copyTable(upstream, local, table, checkActive) }
+                    .onFailure {
+                        if (it is CancellationException) throw it
+                        failedTables.add(table)
+                        Log.e(TAG, "importDatabaseTables: table $table failed", it)
+                    }
                     .getOrDefault(0)
             }
         } finally {
@@ -292,6 +331,7 @@ class RikkaHubImporter(
         upstream: SupportSQLiteDatabase,
         local: SupportSQLiteDatabase,
         table: String,
+        checkActive: () -> Unit,
     ): Int {
         val upstreamColumns = tableColumns(upstream, table)
         if (upstreamColumns.isEmpty()) {
@@ -319,6 +359,7 @@ class RikkaHubImporter(
             upstream.query("SELECT $columnsSql FROM \"$table\"").use { cursor ->
                 val statement = local.compileStatement(insertSql)
                 while (cursor.moveToNext()) {
+                    checkActive()
                     statement.clearBindings()
                     shared.forEachIndexed { index, _ ->
                         bindCursorValue(statement, index + 1, cursor, index)
@@ -362,9 +403,9 @@ class RikkaHubImporter(
         }
     }.getOrDefault(emptyList())
 
-    private fun writeEntry(zipIn: ZipInputStream, target: File) {
+    private fun writeEntry(input: InputStream, target: File) {
         target.parentFile?.mkdirs()
-        target.outputStream().use { zipIn.copyTo(it) }
+        target.outputStream().use { input.copyTo(it) }
     }
 
     companion object {

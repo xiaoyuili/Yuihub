@@ -1,15 +1,14 @@
 package me.yui.yuihub.ui.pages.stats
 
-import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.AiBrain01
-import me.rerere.hugeicons.stroke.ChartColumn
-import me.rerere.hugeicons.stroke.Rocket01
-import me.rerere.hugeicons.stroke.TransactionHistory
+import android.graphics.Paint
+import android.graphics.Typeface
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,59 +20,93 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.ArrowDown01
+import me.rerere.hugeicons.stroke.ChartLineData01
+import me.rerere.hugeicons.stroke.Refresh01
+import me.rerere.hugeicons.stroke.TransactionHistory
 import me.yui.yuihub.R
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
-import org.koin.core.parameter.parametersOf
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import kotlin.math.roundToInt
 
 @Composable
-fun StatsPage(
-    chatId: String?,
-    vm: StatsVM = koinViewModel(parameters = { parametersOf(chatId) }),
-) {
+fun StatsPage(vm: StatsVM = koinViewModel()) {
     val stats by vm.stats.collectAsStateWithLifecycle()
+    val inputColor = MaterialTheme.colorScheme.primary
+    val outputColor = MaterialTheme.colorScheme.tertiary
+    val cacheColor = MaterialTheme.colorScheme.secondary
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.stats_page_title)) },
+                title = { Text(stringResource(R.string.stats_page_history_title)) },
                 navigationIcon = { BackButton() },
+                actions = {
+                    IconButton(onClick = vm::refresh, enabled = !stats.isLoading) {
+                        Icon(
+                            imageVector = HugeIcons.Refresh01,
+                            contentDescription = stringResource(R.string.stats_page_refresh),
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                },
                 colors = CustomColors.topBarColors,
             )
         },
         containerColor = CustomColors.topBarColors.containerColor,
     ) { padding ->
-        if (stats.isLoading) {
+        if (stats.isLoading && stats.totals.requests == 0 && stats.daily.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator()
             }
@@ -83,81 +116,37 @@ fun StatsPage(
                 contentPadding = padding + PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                item {
-                    StatsCard(
-                        title = stringResource(R.string.stats_page_current_conversation),
-                        icon = HugeIcons.AiBrain01,
-                    ) {
-                        StatGrid(
-                            items = listOf(
-                                stringResource(R.string.stats_page_input_tokens) to formatTokens(stats.currentPromptTokens),
-                                stringResource(R.string.stats_page_output_tokens) to formatTokens(stats.currentCompletionTokens),
-                                stringResource(R.string.stats_page_cached_input_tokens) to formatTokens(stats.currentCachedTokens),
-                                stringResource(R.string.stats_page_cache_rate) to formatCacheRate(
-                                    stats.currentCachedTokens,
-                                    stats.currentPromptTokens
-                                ),
-                                stringResource(R.string.stats_page_message_count) to formatCount(stats.currentMessageCount.toLong()),
-                                stringResource(R.string.stats_page_model_calls) to formatCount(stats.currentModelCalls.toLong()),
-                            )
-                        )
+                if (stats.isLoading) {
+                    item {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
                 }
-
                 item {
-                    StatsCard(
-                        title = stringResource(R.string.stats_page_history_token_stats),
-                        icon = HugeIcons.TransactionHistory,
-                    ) {
-                        StatGrid(
-                            items = listOf(
-                                stringResource(R.string.stats_page_input_tokens) to formatTokens(stats.totalPromptTokens),
-                                stringResource(R.string.stats_page_output_tokens) to formatTokens(stats.totalCompletionTokens),
-                                stringResource(R.string.stats_page_cached_input_tokens) to formatTokens(stats.totalCachedTokens),
-                                stringResource(R.string.stats_page_total_conversations) to formatCount(stats.totalConversations.toLong()),
-                                stringResource(R.string.stats_page_total_model_calls) to formatCount(stats.totalModelCalls.toLong()),
-                            )
-                        )
-                    }
+                    HistorySummaryCard(stats = stats)
                 }
-
                 item {
-                    StatsCard(
-                        title = stringResource(R.string.stats_page_daily_token_usage),
-                        icon = HugeIcons.ChartColumn,
-                    ) {
-                        DailyTokenBars(tokensPerDay = stats.tokensPerDay)
-                    }
+                    FilterCard(
+                        stats = stats,
+                        onProvider = vm::setProvider,
+                        onModel = vm::setModel,
+                        onRange = vm::setRange,
+                    )
                 }
-
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CustomColors.cardColorsOnSurfaceContainer,
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                imageVector = HugeIcons.Rocket01,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                text = stringResource(R.string.stats_page_launch_count),
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = formatCount(stats.launchCount.toLong()),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
+                    TrendCard(
+                        stats = stats,
+                        inputColor = inputColor,
+                        outputColor = outputColor,
+                        cacheColor = cacheColor,
+                    )
+                }
+                item {
+                    BreakdownCard(
+                        stats = stats,
+                        inputColor = inputColor,
+                        outputColor = outputColor,
+                        cacheColor = cacheColor,
+                    )
                 }
             }
         }
@@ -165,10 +154,227 @@ fun StatsPage(
 }
 
 @Composable
-private fun StatsCard(
-    title: String,
-    icon: ImageVector,
-    content: @Composable ColumnScope.() -> Unit,
+private fun HistorySummaryCard(stats: AppStats) {
+    val totals = stats.totals
+    val total = totals.totalTokens
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = HugeIcons.TransactionHistory,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = stringResource(R.string.stats_page_filtered_total),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Text(
+                text = formatTokens(total),
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.Bold,
+            )
+            Text(
+                text = stringResource(
+                    R.string.stats_page_history_caption,
+                    formatTokens(stats.lifetimeTotals.totalTokens),
+                    formatCount(totals.requests.toLong()),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SummaryMetric(
+                    label = stringResource(R.string.stats_page_input_tokens),
+                    value = formatTokens(totals.promptTokens),
+                    modifier = Modifier.weight(1f),
+                )
+                SummaryMetric(
+                    label = stringResource(R.string.stats_page_output_tokens),
+                    value = formatTokens(totals.completionTokens),
+                    modifier = Modifier.weight(1f),
+                )
+                SummaryMetric(
+                    label = stringResource(R.string.stats_page_cached_input_tokens),
+                    value = formatTokens(totals.cachedTokens),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SummaryMetric(
+                    label = stringResource(R.string.stats_page_total_model_calls),
+                    value = formatCount(totals.requests.toLong()),
+                    modifier = Modifier.weight(1f),
+                )
+                SummaryMetric(
+                    label = stringResource(R.string.stats_page_total_conversations),
+                    value = formatCount(totals.conversations.toLong()),
+                    modifier = Modifier.weight(1f),
+                )
+                SummaryMetric(
+                    label = stringResource(R.string.stats_page_cache_rate),
+                    value = formatCacheRate(totals.cachedTokens, totals.promptTokens),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SummaryMetric(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun FilterCard(
+    stats: AppStats,
+    onProvider: (String?) -> Unit,
+    onModel: (String?) -> Unit,
+    onRange: (StatsRange) -> Unit,
+) {
+    val selectedProvider = stats.providers.find { it.id == stats.providerId }
+    val availableModels = stats.models.filter {
+        stats.providerId == null || it.providerId == stats.providerId
+    }
+    val selectedModel = availableModels.find { it.id == stats.modelId }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterDropdown(
+                    label = selectedProvider?.name ?: stringResource(R.string.stats_page_all_providers),
+                    allLabel = stringResource(R.string.stats_page_all_providers),
+                    options = stats.providers.map { it.id to it.name },
+                    selectedId = stats.providerId,
+                    onSelect = onProvider,
+                )
+                FilterDropdown(
+                    label = selectedModel?.name ?: stringResource(R.string.stats_page_all_models),
+                    allLabel = stringResource(R.string.stats_page_all_models),
+                    options = availableModels.map { it.id to it.name },
+                    selectedId = stats.modelId,
+                    onSelect = onModel,
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                StatsRange.entries.forEach { range ->
+                    FilterChip(
+                        selected = stats.range == range,
+                        onClick = { onRange(range) },
+                        label = { Text(rangeLabel(range)) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterDropdown(
+    label: String,
+    allLabel: String,
+    options: List<Pair<String, String>>,
+    selectedId: String?,
+    onSelect: (String?) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        FilterChip(
+            selected = selectedId != null,
+            onClick = { expanded = true },
+            label = {
+                Text(
+                    text = label,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 150.dp),
+                )
+            },
+            trailingIcon = {
+                Icon(
+                    imageVector = HugeIcons.ArrowDown01,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                )
+            },
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            DropdownMenuItem(
+                text = { Text(allLabel) },
+                onClick = {
+                    onSelect(null)
+                    expanded = false
+                },
+            )
+            options.forEach { (id, name) ->
+                DropdownMenuItem(
+                    text = { Text(name) },
+                    onClick = {
+                        onSelect(id)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrendCard(
+    stats: AppStats,
+    inputColor: Color,
+    outputColor: Color,
+    cacheColor: Color,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -178,194 +384,454 @@ private fun StatsCard(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = icon,
+                    imageVector = HugeIcons.ChartLineData01,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
                 )
+                Spacer(Modifier.width(8.dp))
                 Text(
-                    text = title,
+                    text = stringResource(R.string.stats_page_token_trend),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = rangeLabel(stats.range),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            content()
+            if (stats.daily.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = stringResource(R.string.stats_page_no_data),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                TokenLineChart(
+                    points = stats.daily,
+                    inputColor = inputColor,
+                    outputColor = outputColor,
+                    cacheColor = cacheColor,
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    LegendDot(stringResource(R.string.stats_page_input_tokens), inputColor)
+                    LegendDot(stringResource(R.string.stats_page_output_tokens), outputColor)
+                    LegendDot(stringResource(R.string.stats_page_cached_input_tokens), cacheColor)
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun StatGrid(items: List<Pair<String, String>>) {
-    Column {
-        items.chunked(2).forEachIndexed { index, rowItems ->
-            if (index > 0) {
+private fun LegendDot(label: String, color: Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(9.dp)
+                .clip(CircleShape)
+                .background(color),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun TokenLineChart(
+    points: List<StatsDailyPoint>,
+    inputColor: Color,
+    outputColor: Color,
+    cacheColor: Color,
+) {
+    var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(points) { selectedIndex = null }
+
+    val maxValue = maxOf(
+        points.maxOf { it.inputTokens },
+        points.maxOf { it.outputTokens },
+        points.maxOf { it.cachedTokens },
+        2L,
+    )
+    val cacheIsDominant = points.any { it.cachedTokens > 0 }
+    val areaValues = if (cacheIsDominant) {
+        points.map { it.cachedTokens }
+    } else {
+        points.map { it.inputTokens }
+    }
+    val areaColor = if (cacheIsDominant) cacheColor else inputColor
+    val selected = selectedIndex?.let { points.getOrNull(it) }
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val gridColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+    val axisColor = MaterialTheme.colorScheme.outlineVariant
+    val selectionColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+    val density = LocalDensity.current
+    val labelTextSize = with(density) { 10.sp.toPx() }
+    val labelPaint = remember(labelColor, labelTextSize) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = labelColor.toArgb()
+            textSize = labelTextSize
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+        }
+    }
+    val chartHeight = 232.dp
+    val leftMargin = with(density) {
+        (labelPaint.measureText(formatAxisTokens(maxValue)) + 10.dp.toPx()).toDp()
+    }.coerceIn(40.dp, 64.dp)
+    val rightMargin = 4.dp
+    val topMargin = 8.dp
+    val bottomMargin = 30.dp
+
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (selected != null) {
+            Text(
+                text = buildString {
+                    append(selected.label)
+                    append("   ")
+                    append(stringResource(R.string.stats_page_input_tokens))
+                    append(' ')
+                    append(formatTokens(selected.inputTokens))
+                    append("   ")
+                    append(stringResource(R.string.stats_page_output_tokens))
+                    append(' ')
+                    append(formatTokens(selected.outputTokens))
+                    append("   ")
+                    append(stringResource(R.string.stats_page_cached_input_tokens))
+                    append(' ')
+                    append(formatTokens(selected.cachedTokens))
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        } else {
+            Text(
+                text = stringResource(R.string.stats_page_chart_hint),
+                style = MaterialTheme.typography.labelSmall,
+                color = labelColor,
+            )
+        }
+
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val availableWidth = (maxWidth - leftMargin - rightMargin).coerceAtLeast(1.dp)
+            val maxTicks = (availableWidth.value / 42f).toInt().coerceIn(3, 6)
+            val tickIndices = remember(points.size, maxTicks) { xTickIndices(points.size, maxTicks) }
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(chartHeight)
+                    .pointerInput(points, leftMargin) {
+                        detectTapGestures { offset ->
+                            if (points.isEmpty()) return@detectTapGestures
+                            val left = leftMargin.toPx()
+                            val right = size.width - rightMargin.toPx()
+                            if (offset.x < left || offset.x > right) return@detectTapGestures
+                            val ratio = if (points.size == 1) {
+                                0f
+                            } else {
+                                ((offset.x - left) / (right - left)).coerceIn(0f, 1f)
+                            }
+                            selectedIndex = (ratio * (points.size - 1)).roundToInt()
+                                .coerceIn(0, points.lastIndex)
+                        }
+                    },
+            ) {
+            val left = leftMargin.toPx()
+            val right = size.width - rightMargin.toPx()
+            val top = topMargin.toPx()
+            val bottom = size.height - bottomMargin.toPx()
+            val plotWidth = (right - left).coerceAtLeast(1f)
+            val plotHeight = (bottom - top).coerceAtLeast(1f)
+            val dash = PathEffect.dashPathEffect(
+                intervals = floatArrayOf(4.dp.toPx(), 4.dp.toPx()),
+                phase = 0f,
+            )
+            fun x(index: Int): Float =
+                if (points.size == 1) left + plotWidth / 2
+                else left + plotWidth * index / (points.size - 1)
+
+            fun y(value: Long): Float =
+                bottom - plotHeight * (value.toFloat() / maxValue.toFloat()).coerceIn(0f, 1f)
+
+            // Horizontal and vertical dashed grid, matching the selected range ticks.
+            listOf(0f, 0.5f, 1f).forEach { fraction ->
+                val lineY = bottom - plotHeight * fraction
+                drawLine(
+                    color = gridColor,
+                    start = Offset(left, lineY),
+                    end = Offset(right, lineY),
+                    strokeWidth = 1.dp.toPx(),
+                    pathEffect = dash,
+                )
+            }
+            tickIndices.forEach { index ->
+                val lineX = x(index)
+                drawLine(
+                    color = gridColor,
+                    start = Offset(lineX, top),
+                    end = Offset(lineX, bottom),
+                    strokeWidth = 1.dp.toPx(),
+                    pathEffect = dash,
+                )
+            }
+            // Solid axes.
+            drawLine(
+                color = axisColor,
+                start = Offset(left, top),
+                end = Offset(left, bottom),
+                strokeWidth = 1.dp.toPx(),
+            )
+            drawLine(
+                color = axisColor,
+                start = Offset(left, bottom),
+                end = Offset(right, bottom),
+                strokeWidth = 1.dp.toPx(),
+            )
+
+            selectedIndex?.let { index ->
+                drawLine(
+                    color = selectionColor,
+                    start = Offset(x(index), top),
+                    end = Offset(x(index), bottom),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            }
+
+            if (points.size > 1 && areaValues.any { it > 0 }) {
+                val area = Path().apply {
+                    areaValues.forEachIndexed { index, value ->
+                        if (index == 0) moveTo(x(index), y(value))
+                        else lineTo(x(index), y(value))
+                    }
+                    lineTo(x(points.lastIndex), bottom)
+                    lineTo(x(0), bottom)
+                    close()
+                }
+                drawPath(path = area, color = areaColor.copy(alpha = 0.12f))
+            }
+
+            fun drawSeries(values: List<Long>, color: Color) {
+                if (values.isEmpty()) return
+                val line = Path()
+                values.forEachIndexed { index, value ->
+                    if (index == 0) line.moveTo(x(index), y(value))
+                    else line.lineTo(x(index), y(value))
+                }
+                drawPath(
+                    path = line,
+                    color = color,
+                    style = Stroke(
+                        width = 2.2.dp.toPx(),
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round,
+                    ),
+                )
+                if (values.size == 1) {
+                    drawCircle(
+                        color = color,
+                        radius = 3.5.dp.toPx(),
+                        center = Offset(x(0), y(values.first())),
+                    )
+                }
+                selectedIndex?.let { index ->
+                    val point = values.getOrNull(index) ?: return
+                    drawCircle(
+                        color = color,
+                        radius = 3.5.dp.toPx(),
+                        center = Offset(x(index), y(point)),
+                    )
+                }
+            }
+
+            drawSeries(points.map { it.inputTokens }, inputColor)
+            drawSeries(points.map { it.outputTokens }, outputColor)
+            drawSeries(points.map { it.cachedTokens }, cacheColor)
+
+            val xLabelBaseline = size.height - 7.dp.toPx()
+            tickIndices.forEach { index ->
+                labelPaint.textAlign = when {
+                    index == 0 -> Paint.Align.LEFT
+                    index == points.lastIndex -> Paint.Align.RIGHT
+                    else -> Paint.Align.CENTER
+                }
+                val drawX = when (labelPaint.textAlign) {
+                    Paint.Align.LEFT -> left
+                    Paint.Align.RIGHT -> right
+                    else -> x(index)
+                }
+                drawContext.canvas.nativeCanvas.drawText(
+                    points[index].label,
+                    drawX,
+                    xLabelBaseline,
+                    labelPaint,
+                )
+            }
+
+            labelPaint.textAlign = Paint.Align.RIGHT
+            listOf(0f, 0.5f, 1f).forEach { fraction ->
+                val value = (maxValue * fraction).toLong()
+                val lineY = bottom - plotHeight * fraction
+                val baseline = (lineY + labelTextSize / 3f)
+                    .coerceIn(top + labelTextSize, bottom)
+                drawContext.canvas.nativeCanvas.drawText(
+                    formatAxisTokens(value),
+                    left - 6.dp.toPx(),
+                    baseline,
+                    labelPaint,
+                )
+            }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BreakdownCard(
+    stats: AppStats,
+    inputColor: Color,
+    outputColor: Color,
+    cacheColor: Color,
+) {
+    val totals = stats.totals
+    val total = totals.totalTokens.coerceAtLeast(1)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CustomColors.cardColorsOnSurfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.stats_page_breakdown),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            BreakdownRow(
+                label = stringResource(R.string.stats_page_input_tokens),
+                value = totals.promptTokens,
+                total = total,
+                color = inputColor,
+            )
+            BreakdownRow(
+                label = stringResource(R.string.stats_page_output_tokens),
+                value = totals.completionTokens,
+                total = total,
+                color = outputColor,
+            )
+            BreakdownRow(
+                label = stringResource(R.string.stats_page_cached_input_tokens),
+                value = totals.cachedTokens,
+                total = total,
+                color = cacheColor,
+            )
+            val compression = stats.sources.firstOrNull { it.source == "compress" }
+            if (compression != null && compression.requests > 0) {
                 HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 8.dp),
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
                 )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                rowItems.forEach { (label, value) ->
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = value,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-                if (rowItems.size == 1) {
-                    Spacer(Modifier.weight(1f))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.stats_page_compression_cost),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.stats_page_compression_cost_value,
+                            formatTokens(compression.totalTokens),
+                            compression.requests,
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         }
-    }
-}
-
-private data class TokenBucket(
-    val start: LocalDate,
-    val end: LocalDate,
-    val tokens: Long,
-)
-
-// 近 7 天逐日柱状，避免 30 天图把高峰挤到角落
-private fun tokenBuckets(
-    tokensPerDay: Map<LocalDate, Long>,
-    today: LocalDate = LocalDate.now(),
-): List<TokenBucket> {
-    val days = 7
-    return (0 until days).map { index ->
-        val day = today.minusDays((days - 1 - index).toLong())
-        TokenBucket(day, day, tokensPerDay[day] ?: 0L)
     }
 }
 
 @Composable
-private fun DailyTokenBars(tokensPerDay: Map<LocalDate, Long>) {
-    val buckets = tokenBuckets(tokensPerDay)
-    val maxValue = buckets.maxOf { it.tokens }.coerceAtLeast(1L)
-    val chartHeight = 96.dp
-    val dateFormat = DateTimeFormatter.ofPattern("MM/dd")
-    val primary = MaterialTheme.colorScheme.primary
-    val emptyBar = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Column(
-                modifier = Modifier
-                    .width(36.dp)
-                    .height(chartHeight),
-                verticalArrangement = Arrangement.SpaceBetween,
-                horizontalAlignment = Alignment.End,
-            ) {
-                Text(
-                    text = formatAxisTokens(maxValue),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = labelColor,
-                )
-                Text(
-                    text = formatAxisTokens(maxValue / 2),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = labelColor,
-                )
-                Text(
-                    text = "0",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = labelColor,
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Row(
+private fun BreakdownRow(
+    label: String,
+    value: Long,
+    total: Long,
+    color: Color,
+) {
+    val fraction = (value.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                buckets.forEach { bucket ->
-                    val fraction = bucket.tokens.toFloat() / maxValue.toFloat()
-                    val barHeight = if (bucket.tokens > 0) {
-                        (chartHeight * fraction).coerceAtLeast(8.dp)
-                    } else {
-                        6.dp
-                    }
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        Text(
-                            text = if (bucket.tokens > 0) formatTokens(bucket.tokens) else " ",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Medium,
-                            color = if (bucket.tokens > 0) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                labelColor
-                            },
-                            maxLines = 1,
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .widthIn(max = 28.dp)
-                                .fillMaxWidth()
-                                .height(barHeight)
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(
-                                    if (bucket.tokens > 0) {
-                                        Brush.verticalGradient(
-                                            listOf(primary, primary.copy(alpha = 0.45f))
-                                        )
-                                    } else {
-                                        Brush.verticalGradient(listOf(emptyBar, emptyBar))
-                                    }
-                                ),
-                        )
-                    }
-                }
-            }
+            )
+            Text(
+                text = "${formatTokens(value)}  ${"%.1f%%".format(fraction * 100)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 44.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                .height(5.dp)
+                .clip(RoundedCornerShape(3.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            buckets.forEach { bucket ->
-                Text(
-                    text = bucket.end.format(dateFormat),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = labelColor,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
-                )
-            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(fraction)
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(color),
+            )
         }
     }
+}
+
+@Composable
+private fun rangeLabel(range: StatsRange): String = when (range) {
+    StatsRange.TODAY -> stringResource(R.string.stats_page_range_today)
+    StatsRange.LAST_7 -> stringResource(R.string.stats_page_range_7d)
+    StatsRange.LAST_30 -> stringResource(R.string.stats_page_range_30d)
+    StatsRange.LAST_90 -> stringResource(R.string.stats_page_range_90d)
+    StatsRange.ALL -> stringResource(R.string.stats_page_range_all)
+}
+
+private fun xTickIndices(size: Int, maxTicks: Int): List<Int> {
+    if (size <= 1) return listOf(0)
+    if (size <= maxTicks) return (0 until size).toList()
+    if (size == 24) return listOf(0, 6, 12, 18, 23)
+    val ticks = maxTicks.coerceAtLeast(3)
+    return (0 until ticks)
+        .map { it * (size - 1) / (ticks - 1) }
+        .distinct()
 }
 
 private fun formatCacheRate(cachedTokens: Long, promptTokens: Long): String {
-    // promptTokens 已归一化为「总输入含缓存部分」（Claude 在 provider 层相加，OpenAI/DeepSeek/Gemini 本身包含），
-    // 分母不能再叠加 cached，否则命中率被系统性低估（33.2K/38.2K=86.9% 会算成 46.5%）
     if (promptTokens <= 0L) return "0.00%"
-    val rate = cachedTokens.toDouble() / promptTokens.toDouble() * 100.0
-    return "%.2f%%".format(rate.coerceAtMost(100.0))
+    return "%.2f%%".format((cachedTokens.toDouble() / promptTokens.toDouble() * 100.0).coerceAtMost(100.0))
 }
 
 private fun formatCount(count: Long): String = when {

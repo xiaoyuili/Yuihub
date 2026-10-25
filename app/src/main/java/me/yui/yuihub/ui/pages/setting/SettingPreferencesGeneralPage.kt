@@ -29,14 +29,16 @@ import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.DisplaySetting
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.CardGroup
-import me.yui.yuihub.ui.hooks.rememberSharedPreferenceBoolean
 import me.yui.yuihub.ui.theme.CustomColors
 import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
 import kotlin.math.roundToInt
 
 @Composable
-fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
+fun SettingPreferencesGeneralPage(
+    vm: SettingVM = koinViewModel(),
+    titleRes: Int = R.string.setting_page_preferences_general,
+) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     var displaySetting by remember(settings) { mutableStateOf(settings.displaySetting) }
 
@@ -45,19 +47,28 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
         vm.updateSettings(settings.copy(displaySetting = setting))
     }
 
+    // 搜索跳转锚点：CardGroup 的 item 是普通 builder，不能在里面调 composable，先在这里算好
+    val anchorMessageJumper = Modifier.settingsAnchor("appearance.interaction.message_jumper")
+    val anchorAutoScroll = Modifier.settingsAnchor("appearance.interaction.auto_scroll")
+    val anchorBackgroundEffect = Modifier.settingsAnchor("appearance.interaction.background_effect")
+    val anchorBlurRadius = Modifier.settingsAnchor("appearance.interaction.blur_radius")
+    val anchorPasteAsFile = Modifier.settingsAnchor("appearance.interaction.paste_as_file")
+    val anchorPasteThreshold = Modifier.settingsAnchor("appearance.interaction.paste_threshold")
+    val anchorVolumeScroll = Modifier.settingsAnchor("appearance.interaction.volume_scroll")
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(stringResource(R.string.setting_page_preferences_general))
+                    Text(stringResource(titleRes))
                 },
                 navigationIcon = {
                     BackButton()
                 },
-                colors = CustomColors.topBarColors
+                colors = CustomColors.pageTopBarColors
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageBackground
     ) { contentPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -65,37 +76,12 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                var createNewConversationOnStart by rememberSharedPreferenceBoolean(
-                    "create_new_conversation_on_start",
-                    true
-                )
                 CardGroup(
                     modifier = Modifier.padding(horizontal = 8.dp),
                 ) {
                     item(
-                        headlineContent = { Text(stringResource(R.string.setting_display_page_create_new_conversation_on_start_title)) },
-                        supportingContent = { Text(stringResource(R.string.setting_display_page_create_new_conversation_on_start_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = createNewConversationOnStart,
-                                onCheckedChange = { createNewConversationOnStart = it }
-                            )
-                        },
-                    )
-                    item(
-                        headlineContent = { Text(stringResource(R.string.setting_display_page_send_on_enter_title)) },
-                        supportingContent = { Text(stringResource(R.string.setting_display_page_send_on_enter_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = displaySetting.sendOnEnter,
-                                onCheckedChange = {
-                                    updateDisplaySetting(displaySetting.copy(sendOnEnter = it))
-                                }
-                            )
-                        },
-                    )
-                    item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_show_message_jumper_title)) },
+                        modifier = anchorMessageJumper,
                         supportingContent = { Text(stringResource(R.string.setting_display_page_show_message_jumper_desc)) },
                         trailingContent = {
                             Switch(
@@ -122,6 +108,7 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                     }
                     item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_enable_auto_scroll_title)) },
+                        modifier = anchorAutoScroll,
                         supportingContent = { Text(stringResource(R.string.setting_display_page_enable_auto_scroll_desc)) },
                         trailingContent = {
                             Switch(
@@ -133,21 +120,8 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                         },
                     )
                     item(
-                        headlineContent = { Text(stringResource(R.string.setting_display_page_use_app_icon_style_loading_indicator_title)) },
-                        supportingContent = {
-                            Text(stringResource(R.string.setting_display_page_use_app_icon_style_loading_indicator_desc))
-                        },
-                        trailingContent = {
-                            Switch(
-                                checked = displaySetting.useAppIconStyleLoadingIndicator,
-                                onCheckedChange = {
-                                    updateDisplaySetting(displaySetting.copy(useAppIconStyleLoadingIndicator = it))
-                                }
-                            )
-                        },
-                    )
-                    item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_background_effect_title)) },
+                        modifier = anchorBackgroundEffect,
                         supportingContent = { Text(stringResource(R.string.setting_display_page_background_effect_desc)) },
                         trailingContent = {
                             Switch(
@@ -158,32 +132,40 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                             )
                         },
                     )
-                    item(
-                        headlineContent = { Text(stringResource(R.string.setting_display_page_enable_message_generation_haptic_effect_title)) },
-                        supportingContent = { Text(stringResource(R.string.setting_display_page_enable_message_generation_haptic_effect_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = displaySetting.enableMessageGenerationHapticEffect,
-                                onCheckedChange = {
-                                    updateDisplaySetting(displaySetting.copy(enableMessageGenerationHapticEffect = it))
+                    if (displaySetting.enableBlurEffect) {
+                        item(
+                            headlineContent = { Text(stringResource(R.string.setting_display_page_blur_radius)) },
+                            modifier = anchorBlurRadius,
+                            supportingContent = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    // 拖动只改本地草稿，松手再落库（同背景透明度）
+                                    var blurDraft by remember(displaySetting.inputBarBlurRadius) {
+                                        mutableFloatStateOf(displaySetting.inputBarBlurRadius)
+                                    }
+                                    Slider(
+                                        value = blurDraft,
+                                        onValueChange = { blurDraft = it },
+                                        onValueChangeFinished = {
+                                            updateDisplaySetting(
+                                                displaySetting.copy(inputBarBlurRadius = blurDraft)
+                                            )
+                                        },
+                                        valueRange = 0f..40f,
+                                        steps = 7,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Text(text = "${blurDraft.roundToInt()} dp")
                                 }
-                            )
-                        },
-                    )
-                    item(
-                        headlineContent = { Text(stringResource(R.string.setting_display_page_skip_crop_image_title)) },
-                        supportingContent = { Text(stringResource(R.string.setting_display_page_skip_crop_image_desc)) },
-                        trailingContent = {
-                            Switch(
-                                checked = displaySetting.skipCropImage,
-                                onCheckedChange = {
-                                    updateDisplaySetting(displaySetting.copy(skipCropImage = it))
-                                }
-                            )
-                        },
-                    )
+                            },
+                        )
+                    }
                     item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_paste_long_text_as_file_title)) },
+                        modifier = anchorPasteAsFile,
                         supportingContent = { Text(stringResource(R.string.setting_display_page_paste_long_text_as_file_desc)) },
                         trailingContent = {
                             Switch(
@@ -197,6 +179,7 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                     if (displaySetting.pasteLongTextAsFile) {
                         item(
                             headlineContent = { Text(stringResource(R.string.setting_display_page_paste_long_text_threshold_title)) },
+                            modifier = anchorPasteThreshold,
                             supportingContent = {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -218,6 +201,7 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                     }
                     item(
                         headlineContent = { Text(stringResource(R.string.setting_display_page_volume_key_scroll_title)) },
+                        modifier = anchorVolumeScroll,
                         supportingContent = { Text(stringResource(R.string.setting_display_page_volume_key_scroll_desc)) },
                         trailingContent = {
                             Switch(

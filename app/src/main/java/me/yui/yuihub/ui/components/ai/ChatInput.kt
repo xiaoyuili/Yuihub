@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -37,18 +38,24 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -71,6 +78,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalFocusManager
@@ -89,11 +97,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.dokar.sonner.ToastType
 import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.glass.GlassDefaults
-import dev.chrisbanes.haze.glass.GlassStyle
-import dev.chrisbanes.haze.glass.OpticalSizeValue
-import dev.chrisbanes.haze.glass.hazeGlass
-import dev.chrisbanes.haze.glass.material3.Material3
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.hazeBlur
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -109,6 +114,7 @@ import me.rerere.hugeicons.stroke.Fullscreen
 import me.rerere.hugeicons.stroke.ComputerTerminal01
 import me.rerere.hugeicons.stroke.Zap
 import me.yui.yuihub.R
+import me.yui.yuihub.data.ai.RequestBreakdown
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.getCurrentAssistant
 import me.yui.yuihub.data.datastore.getCurrentChatModel
@@ -127,6 +133,7 @@ import me.yui.yuihub.service.MessageQueueState
 import me.yui.yuihub.service.QueuedMessage
 import me.yui.yuihub.ui.hooks.ChatInputState
 import me.yui.yuihub.ui.theme.LocalDarkMode
+import me.yui.yuihub.ui.theme.LocalGlassTheme
 import me.yui.yuihub.utils.AUTO_COMPRESS_THRESHOLD_RATIO
 import me.yui.yuihub.utils.formatContextLength
 import me.yui.yuihub.ui.components.ui.permission.PermissionManager
@@ -156,6 +163,7 @@ fun ChatInput(
     onCancelClick: () -> Unit,
     onSendClick: () -> Unit,
     onLongSendClick: () -> Unit,
+    onCompressCommand: (() -> Unit)? = null,
     messageQueue: MessageQueueState = MessageQueueState(),
     resizeForIme: Boolean = true,
     // 当前计划（方案 E：常驻输入栏上方的细条）；为空时不渲染
@@ -165,7 +173,6 @@ fun ChatInput(
     onFinishEditQueuedMessage: (Uuid, List<UIMessagePart>?) -> Unit = { _, _ -> },
     onResumeMessageQueue: () -> Unit = {},
     // 手动压缩（/压缩）进行中：输入框上方显示提示条
-    manualCompressionInProgress: Boolean = false,
 ) {
     val toaster = LocalToaster.current
     val assistant = settings.getCurrentAssistant()
@@ -182,6 +189,13 @@ fun ChatInput(
     }
     val glassShadowColor = Color.Black.copy(alpha = if (isDark) 0.45f else 0.22f)
     val glassEffectEnabled = settings.displaySetting.enableBlurEffect && !isListScrolling
+    val glassTheme = LocalGlassTheme.current
+    // 玻璃主题即使关闭输入栏模糊，也不能回退成不透明白底
+    val inputSurfaceColor = when {
+        glassEffectEnabled -> Color.Transparent
+        glassTheme -> hazeTintColor.copy(alpha = 0.55f)
+        else -> hazeTintColor
+    }
     // 滚动时移除模糊/玻璃层，改由不透明度控制，视觉上更轻且省一层离屏渲染
     val inputAlpha by animateFloatAsState(
         targetValue = if (isListScrolling) 0.1f else 1f,
@@ -199,6 +213,27 @@ fun ChatInput(
         bottomEnd = themeShape.bottomEnd,
         bottomStart = themeShape.bottomStart,
     )
+    // 半透明底色下投影会从底色透出，把输入栏压成“灰边 + 亮芯”两块；
+    // 只有实色底色时才画外围柔性阴影（两层不同半径/偏移叠加，比单层更柔）
+    val inputShadowModifier = if (inputSurfaceColor.alpha >= 1f) {
+        Modifier
+            .shadow(
+                elevation = 3.dp,
+                shape = containerShape,
+                clip = false,
+                ambientColor = glassShadowColor,
+                spotColor = glassShadowColor,
+            )
+            .shadow(
+                elevation = 14.dp,
+                shape = containerShape,
+                clip = false,
+                ambientColor = glassShadowColor.copy(alpha = glassShadowColor.alpha * 0.55f),
+                spotColor = glassShadowColor.copy(alpha = glassShadowColor.alpha * 0.55f),
+            )
+    } else {
+        Modifier
+    }
     val modelListState = rememberModelListState(
         modelId = assistant.chatModelId ?: settings.chatModelId,
         providers = settings.providers,
@@ -219,48 +254,19 @@ fun ChatInput(
 
     Surface(
         color = Color.Transparent,
+        modifier = modifier,
     ) {
         Column(
-            modifier = modifier
+            modifier = Modifier
                 .then(if (resizeForIme) Modifier.imePadding() else Modifier)
                 .navigationBarsPadding()
                 .padding(horizontal = 8.dp)
                 .padding(bottom = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 计划细条：常驻在输入框上方，收起一行高度，点开看完整清单；
+            // 任务状态条：输入栏左上方一行图标 + 当前步骤，点图标向上展开完整清单；
             // 与输入栏共用同一条淡化动画，滚动列表时一起半透明
-            PlanBar(todos = planTodos, alpha = inputAlpha)
-
-            // 手动压缩进行中：输入框上方提示条（否则压缩期间无任何反馈）
-            AnimatedVisibility(
-                visible = manualCompressionInProgress,
-                enter = expandVertically(expandFrom = Alignment.Bottom) + fadeIn(),
-                exit = shrinkVertically(shrinkTowards = Alignment.Bottom) + fadeOut(),
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Text(
-                            text = stringResource(R.string.chat_manual_compression_in_progress),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
+            PlanBar(todos = planTodos, alpha = inputAlpha, running = loading)
 
             // 推理强度面板：位于计划条下方、输入框上方；
             // 打开时自下而上推出（底部对齐向上展开），关闭时向下收回
@@ -283,36 +289,17 @@ fun ChatInput(
                 modifier = Modifier
                     .fillMaxWidth()
                     .graphicsLayer { alpha = inputAlpha }
-                    // 柔性外围阴影：两层不同半径/偏移叠加，比单层 shadow 更柔、边缘不硬
-                    .shadow(
-                        elevation = 3.dp,
-                        shape = containerShape,
-                        clip = false,
-                        ambientColor = glassShadowColor,
-                        spotColor = glassShadowColor,
-                    )
-                    .shadow(
-                        elevation = 14.dp,
-                        shape = containerShape,
-                        clip = false,
-                        ambientColor = glassShadowColor.copy(alpha = glassShadowColor.alpha * 0.55f),
-                        spotColor = glassShadowColor.copy(alpha = glassShadowColor.alpha * 0.55f),
-                    )
+                    // 柔性外围阴影（半透明底色下不画，否则投影会透出来形成灰边）
+                    .then(inputShadowModifier)
                     .clip(containerShape)
                     .then(
                         if (glassEffectEnabled) {
-                            Modifier.hazeGlass(
+                            Modifier.hazeBlur(
                                 input = HazeInput.Sources(hazeState),
-                                style = GlassStyle.Material3(
-                                    containerColor = hazeTintColor,
-                                    tint = hazeTintColor.copy(alpha = 0.72f),
-                                ) {
-                                    // Keep background text from competing with the input text.
-                                    optics(GlassDefaults.optics.copy(
-                                        blurRadius = OpticalSizeValue.Fixed(16.dp),
-                                        depth = OpticalSizeValue.Fixed(0.5f),
-                                    ))
-                                    shape(containerShape)
+                                style = HazeBlurStyle {
+                                    blurRadius(settings.displaySetting.inputBarBlurRadius.dp)
+                                    backgroundColor(hazeTintColor.copy(alpha = 0.32f))
+                                    noiseFactor(0.02f)
                                 },
                             )
                         } else Modifier
@@ -321,7 +308,7 @@ fun ChatInput(
                 tonalElevation = 0.dp,
                 border = BorderStroke(1.dp, glassBorderColor),
                 // 开启玻璃效果时底色透明，否则不透明 haze 层会被盖住看不出效果
-                color = if (glassEffectEnabled) Color.Transparent else hazeTintColor,
+                color = inputSurfaceColor,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -342,6 +329,7 @@ fun ChatInput(
                         state = state,
                         completionProviders = completionProviders,
                         onSendMessage = { sendMessage() },
+                        onCompressCommand = onCompressCommand,
                     )
 
                     Row(
@@ -385,8 +373,7 @@ fun ChatInput(
 
                             contextUsage?.let { usage ->
                                 ContextUsageBarButton(
-                                    usedTokens = usage.usedTokens,
-                                    windowTokens = usage.windowTokens,
+                                    usage = usage,
                                     thresholdRatio = settings.autoCompressThreshold,
                                 )
                             }
@@ -517,6 +504,7 @@ private fun TextInputRow(
     state: ChatInputState,
     completionProviders: List<ChatCompletionProvider>,
     onSendMessage: () -> Unit,
+    onCompressCommand: (() -> Unit)? = null,
 ) {
     val settings = LocalSettings.current
     val filesManager: FilesManager = koinInject()
@@ -636,13 +624,19 @@ private fun TextInputRow(
             CompletionPopup(
                 completionList = list,
                 onItemClick = { item ->
-                    state.applyCompletion(list.replacementRange, item)
-                    completionList = null
+                    if (item.label == "/压缩" && onCompressCommand != null) {
+                        state.clearInput()
+                        completionList = null
+                        onCompressCommand()
+                    } else {
+                        state.applyCompletion(list.replacementRange, item)
+                        completionList = null
+                    }
                 },
             )
         }
 
-        TextField(
+        BasicTextField(
             state = state.textContent,
             modifier = Modifier
                 .fillMaxWidth()
@@ -651,10 +645,6 @@ private fun TextInputRow(
                 .onFocusChanged {
                     isFocused = it.isFocused
                 },
-            shape = MaterialTheme.shapes.largeIncreased,
-            placeholder = {
-                Text(stringResource(R.string.chat_input_placeholder))
-            },
             lineLimits = TextFieldLineLimits.MultiLine(maxHeightInLines = 5),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.Sentences,
@@ -665,23 +655,40 @@ private fun TextInputRow(
                     onSendMessage()
                 }
             },
-            colors = TextFieldDefaults.colors().copy(
-                unfocusedIndicatorColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
+            textStyle = LocalTextStyle.current.copy(
+                color = MaterialTheme.colorScheme.onSurface,
             ),
-            trailingIcon = {
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            decorator = TextFieldDecorator { innerTextField ->
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
+                        .padding(horizontal = 4.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    if (isFocused) {
-                        IconButton(
-                            onClick = {
-                                isFullScreen = !isFullScreen
-                            }) {
-                            Icon(HugeIcons.Fullscreen, null)
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (state.textContent.text.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.chat_input_placeholder),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        innerTextField()
+                    }
+                    // 固定高度槽位：聚焦时出现全屏按钮，不能改变输入行高度
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isFocused) {
+                            IconButton(
+                                onClick = {
+                                    isFullScreen = !isFullScreen
+                                }) {
+                                Icon(HugeIcons.Fullscreen, null)
+                            }
                         }
                     }
                 }
@@ -842,19 +849,60 @@ private fun FullScreenEditor(
 }
 
 
+@Composable
+private fun ContextMetric(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
+    }
+}
+
+internal fun formatCompactTokens(tokens: Long): String = when {
+    tokens >= 1_000_000_000 -> "%.2fB".format(tokens / 1_000_000_000.0)
+    tokens >= 1_000_000 -> "%.2fM".format(tokens / 1_000_000.0)
+    tokens >= 1_000 -> "%.1fK".format(tokens / 1_000.0)
+    else -> tokens.toString()
+}
+
 data class ContextUsage(
     val usedTokens: Int,
     val windowTokens: Int,
-)
+    val conversationPromptTokens: Long = 0L,
+    val conversationCompletionTokens: Long = 0L,
+    val conversationCachedTokens: Long = 0L,
+    val conversationRequests: Int = 0,
+    val breakdown: RequestBreakdown? = null,
+    val lastPromptTokens: Int = 0,
+    val lastCachedTokens: Int = 0,
+) {
+    val conversationTotalTokens: Long
+        get() = conversationPromptTokens + conversationCompletionTokens
+}
 
 // 上下文占用：渐变圆环 + 环心百分比数字（不带 % 符号）；点击弹出具体用量
 @Composable
 private fun ContextUsageBarButton(
-    usedTokens: Int,
-    windowTokens: Int,
+    usage: ContextUsage,
     thresholdRatio: Float = AUTO_COMPRESS_THRESHOLD_RATIO,
 ) {
+    val usedTokens = usage.usedTokens
+    val windowTokens = usage.windowTokens
     var showPopup by remember { mutableStateOf(false) }
+    var showBreakdown by remember { mutableStateOf(false) }
     val fraction = if (windowTokens > 0) {
         (usedTokens.toFloat() / windowTokens).coerceIn(0f, 1f)
     } else {
@@ -939,15 +987,112 @@ private fun ContextUsageBarButton(
     DropdownMenu(
         expanded = showPopup,
         onDismissRequest = { showPopup = false },
+        modifier = Modifier.width(308.dp),
+        shape = RoundedCornerShape(24.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        shadowElevation = 12.dp,
     ) {
-        Text(
-            text = stringResource(
-                R.string.chat_context_usage_tooltip,
-                formatContextLength(usedTokens),
-                formatContextLength(windowTokens),
-            ),
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            style = MaterialTheme.typography.bodySmall,
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.chat_context_usage_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = stringResource(
+                                R.string.chat_context_usage_tooltip,
+                                formatContextLength(usedTokens),
+                                formatContextLength(windowTokens),
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Text(
+                        text = "$percent%",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isWarning) errorColor else primary,
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { fraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp),
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(R.string.chat_context_usage_conversation_total),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = formatCompactTokens(usage.conversationTotalTokens),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ContextMetric(
+                        label = stringResource(R.string.stats_page_input_tokens),
+                        value = formatCompactTokens(usage.conversationPromptTokens),
+                        modifier = Modifier.weight(1f),
+                    )
+                    ContextMetric(
+                        label = stringResource(R.string.stats_page_output_tokens),
+                        value = formatCompactTokens(usage.conversationCompletionTokens),
+                        modifier = Modifier.weight(1f),
+                    )
+                    ContextMetric(
+                        label = stringResource(R.string.stats_page_cached_input_tokens),
+                        value = formatCompactTokens(usage.conversationCachedTokens),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = stringResource(
+                            R.string.chat_context_usage_requests,
+                            usage.conversationRequests,
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = stringResource(R.string.chat_request_breakdown_button),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                showPopup = false
+                                showBreakdown = true
+                            }
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+            }
+    }
+
+    if (showBreakdown) {
+        RequestBreakdownSheet(
+            usage = usage,
+            onDismiss = { showBreakdown = false },
         )
     }
 }

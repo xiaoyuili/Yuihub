@@ -39,16 +39,14 @@ fun createSubagentTool(
     description = buildString {
         append(
             """
-        Delegate a self-contained subtask to a fresh child agent (empty history; shares workspace, model and tools).
-        Use only when a task is truly independent and long-running (e.g. broad research spanning many lookups); do not spawn for simple questions or single-step lookups — answer directly instead.
-        The prompt must stand alone - include all files, constraints and expected output format. Children cannot spawn children.
-        By default this call BLOCKS until the child finishes and returns structured JSON: status (ok | empty_output | error | timeout), result, toolCalls, toolCallsDetail, startedAt/endedAt/durationMs, files, sessionId.
-        With async=true it returns {status:"running", taskId} immediately; fetch the result later with poll_agent, and optionally cancel with cancel_agent. In async mode taskId equals the child's sessionId (they are the same id).
-        All spawned agents (sync and async) stay listed by list_agents for about 30 minutes after they finish, so a lost result can be re-discovered there; pass its sessionId/taskId to followup_agent to continue.
-        File hand-off: children write produced files under /workspace/subagents/ (they create it if missing) and return the paths; when you instruct a child where to put files, use /workspace/subagents/ (or a subpath of it) so parent and child agree on the location. If the child returns a path, use it as-is rather than assuming a directory.
-        Optional timeoutMs cancels a runaway child (status=timeout, partial result preserved); maxToolCalls caps its tool round-trips.
-        To ask a finished child agent follow-up questions, pass its sessionId to followup_agent instead of spawning again.
-        Multiple spawn_agent calls in one turn run in parallel (up to 4 concurrently).
+        Delegate a self-contained, long-running subtask to a fresh child agent (empty history; shares workspace, model and tools).
+        Default to doing the work yourself. Use this only when the task is genuinely independent and large enough to need many tool calls, or when the user explicitly asks for subagents or parallel agents.
+        NEVER use it for a simple question, a single lookup, a small edit, or work you can finish in 1-3 direct tool calls.
+        The prompt must stand alone: include all files, constraints and the expected output format. Children cannot spawn children.
+        By default this call blocks until the child finishes and returns structured JSON: status (ok | empty_output | error | timeout), result, toolCalls, toolCallsDetail, timestamps, files, sessionId.
+        With async=true it returns {status:"running", taskId}; fetch it later with poll_agent, and optionally cancel with cancel_agent.
+        Finished agents stay listed by list_agents for about 30 minutes; pass the sessionId to followup_agent for follow-up questions instead of spawning again.
+        Child files go under /workspace/subagents/ and are returned as exact paths.
             """.trimIndent()
         )
         if (personas.isNotEmpty()) {
@@ -65,6 +63,13 @@ fun createSubagentTool(
                 append('\n')
             }
         }
+    },
+    systemPrompt = { _, _ ->
+        """
+        # Subagent policy
+        Do the work yourself by default. Call spawn_agent only when the task is genuinely independent, expected to require many tool calls, or the user explicitly asks for subagents/parallel agents.
+        Do not delegate simple questions, single lookups, small edits, or tasks you can finish in 1-3 tool calls. Do not delegate merely because a specialist exists or to avoid doing the work yourself.
+        """.trimIndent()
     },
     parameters = {
         InputSchema.Obj(

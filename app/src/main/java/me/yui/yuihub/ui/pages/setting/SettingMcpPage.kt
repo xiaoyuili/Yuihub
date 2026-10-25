@@ -1,6 +1,8 @@
 package me.yui.yuihub.ui.pages.setting
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,6 +65,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -72,6 +76,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -162,10 +167,10 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                         Icon(HugeIcons.Add01, null)
                     }
                 },
-                colors = CustomColors.topBarColors
+                colors = CustomColors.pageTopBarColors
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageBackground
     ) { innerPadding ->
         val mcpManager = koinInject<McpManager>()
         val status by mcpManager.syncingStatus.collectAsStateWithLifecycle()
@@ -194,6 +199,30 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                     bottom = innerPadding.calculateBottomPadding() + 16.dp,
                 )
             ) {
+                if (mcpConfigs.isNotEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = stringResource(
+                                    R.string.extensions_hub_mcp_connected,
+                                    status.values.count { it == McpStatus.Connected },
+                                    mcpConfigs.size,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                text = stringResource(R.string.extensions_count_items, mcpConfigs.size),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
                 items(mcpConfigs, key = { it.id }) { mcpConfig ->
                     McpServerItem(
                         item = mcpConfig,
@@ -223,6 +252,13 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                         text = stringResource(R.string.setting_mcp_page_add_one_to_get_started),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    Button(
+                        onClick = {
+                            creationState.open(McpServerConfig.StreamableHTTPServer())
+                        }
+                    ) {
+                        Text(stringResource(R.string.setting_mcp_page_add))
+                    }
                 }
             }
         }
@@ -318,34 +354,47 @@ private fun McpServerItem(
         modifier = modifier
     ) {
         Card(
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
             colors = CardDefaults.cardColors(
-                containerColor = CustomColors.listItemColors.containerColor
+                containerColor = CustomColors.groupedCardSurface
             )
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                when (status) {
-                    McpStatus.Idle -> Icon(HugeIcons.MessageBlocked, null)
-                    McpStatus.Connecting -> CircularProgressIndicator(
-                        modifier = Modifier.size(
-                            24.dp
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when (status) {
+                        McpStatus.Idle -> Icon(HugeIcons.MessageBlocked, null)
+                        McpStatus.Connecting -> CircularProgressIndicator(
+                            modifier = Modifier.size(
+                                20.dp
+                            ),
+                            strokeWidth = 2.dp,
                         )
-                    )
 
-                    McpStatus.Connected -> Icon(HugeIcons.McpServer, null)
-                    is McpStatus.Reconnecting -> CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp)
-                    )
-                    is McpStatus.Error -> Icon(HugeIcons.AlertCircle, null)
-                    McpStatus.NeedsAuthorization -> Icon(HugeIcons.AlertCircle, null)
-                    McpStatus.Authorizing -> CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp)
-                    )
+                        McpStatus.Connected -> Icon(HugeIcons.McpServer, null)
+                        is McpStatus.Reconnecting -> CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        is McpStatus.Error -> Icon(HugeIcons.AlertCircle, null)
+                        McpStatus.NeedsAuthorization -> Icon(HugeIcons.AlertCircle, null)
+                        McpStatus.Authorizing -> CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                        )
+                    }
                 }
 
                 Column(
@@ -358,7 +407,7 @@ private fun McpServerItem(
                     ) {
                         Text(
                             text = item.commonOptions.name,
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
                         )
                         val dotColor =
                             if (item.commonOptions.enable) MaterialTheme.extendColors.green6 else MaterialTheme.extendColors.red6
@@ -452,6 +501,28 @@ private fun McpServerConfigModal(state: EditState<McpServerConfig>) {
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(
+                                if (config.commonOptions.name.isBlank()) R.string.setting_mcp_page_add
+                                else R.string.setting_mcp_page_edit
+                            ),
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        Text(
+                            text = stringResource(R.string.setting_mcp_page_dialog_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = { state.dismiss() }) {
+                        Icon(HugeIcons.Cancel01, contentDescription = stringResource(R.string.cancel))
+                    }
+                }
                 SecondaryTabRow(
                     selectedTabIndex = pagerState.currentPage,
                     containerColor = Color.Transparent
@@ -505,7 +576,7 @@ private fun McpServerConfigModal(state: EditState<McpServerConfig>) {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
                 ) {
-                    TextButton(
+                    Button(
                         onClick = {
                             if (config.commonOptions.name.isNotBlank() && isValidMcpName(config.commonOptions.name)) {
                                 state.confirm()

@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +61,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -86,11 +88,10 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import androidx.core.net.toUri
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.launch
 import kotlinx.datetime.TimeZone
@@ -124,10 +125,6 @@ private val flavour by lazy {
     GFMFlavourDescriptor(
         makeHttpsAutoLinks = true, useSafeLinks = true
     )
-}
-
-private val parser by lazy {
-    MarkdownParser(flavour)
 }
 
 private val INLINE_LATEX_REGEX = Regex("\\\\\\((.+?)\\\\\\)")
@@ -236,7 +233,7 @@ private fun ASTNode.containsHtml(): Boolean {
 
 private fun parseMarkdown(content: String): MarkdownParseResult {
     val preprocessed = preProcess(content)
-    val astTree = parser.buildMarkdownTreeFromString(preprocessed)
+    val astTree = MarkdownParser(flavour).buildMarkdownTreeFromString(preprocessed)
     return MarkdownParseResult(preprocessed, astTree, astTree.containsHtml())
 }
 
@@ -254,20 +251,28 @@ fun MarkdownBlock(
     style: TextStyle = LocalTextStyle.current,
     onClickCitation: (String) -> Unit = {}
 ) {
-    var (data, setData) = remember { mutableStateOf(parseMarkdown(content)) }
-
-    // 监听内容变化，重新解析AST树
-    // 这里在后台线程解析AST树, 防止频繁更新的时候掉帧
+    var parsed by remember { mutableStateOf<MarkdownParseResult?>(null) }
     val updatedContent by rememberUpdatedState(content)
     LaunchedEffect(Unit) {
         snapshotFlow { updatedContent }
             .distinctUntilChanged()
-            // 首个值就是当前的 content，已在 remember 里同步解析过，避免重复解析
-            .drop(1)
-            .mapLatest { parseMarkdown(it) }
-            .catch { exception -> exception.printStackTrace() }
-            .flowOn(Dispatchers.Default)
-            .collect { setData(it) }
+            .mapLatest { text ->
+                withContext(Dispatchers.Default) {
+                    try {
+                        parseMarkdown(text)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        android.util.Log.w("Markdown", "Parse failed: ${e.javaClass.simpleName}")
+                        null
+                    }
+                }
+            }
+            .collect { parsed = it }
+    }
+    val data = parsed ?: run {
+        Text(content, modifier = modifier.padding(horizontal = 4.dp), style = style)
+        return
     }
 
     if (data.hasHtml) {
@@ -905,6 +910,7 @@ private fun TableNode(node: ASTNode, content: String, modifier: Modifier = Modif
     val clipboardManager = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val toaster = LocalToaster.current
 
     // 表格原始markdown文本（用于复制）和CSV内容（用于下载）
@@ -968,17 +974,17 @@ private fun TableNode(node: ASTNode, content: String, modifier: Modifier = Modif
                                 // 表格长度由用户数据决定，超长时直接写剪贴板会因 Binder 事务过大闪退
                                 when (clipboardManager.setClipEntrySafely("table", tableMarkdown)) {
                                     SafeCopyResult.COPIED -> toaster.show(
-                                        context.getString(R.string.copied),
+                                        resources.getString(R.string.copied),
                                         type = ToastType.Success,
                                     )
 
                                     SafeCopyResult.TOO_LARGE -> toaster.show(
-                                        context.getString(R.string.code_block_copy_too_large),
+                                        resources.getString(R.string.code_block_copy_too_large),
                                         type = ToastType.Error,
                                     )
 
                                     SafeCopyResult.FAILED -> toaster.show(
-                                        context.getString(R.string.code_block_copy_failed),
+                                        resources.getString(R.string.code_block_copy_failed),
                                         type = ToastType.Error,
                                     )
                                 }

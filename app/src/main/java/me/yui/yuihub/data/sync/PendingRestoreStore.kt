@@ -1,129 +1,291 @@
 package me.yui.yuihub.data.sync
 
-import android.util.Log
+import android.content.Context
 import androidx.sqlite.db.SupportSQLiteDatabase
 import io.requery.android.database.sqlite.SQLiteDatabase
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import me.yui.yuihub.data.datastore.Settings
+import me.yui.yuihub.data.datastore.restoreSettingsBeforeStartup
+import me.yui.yuihub.data.datastore.settingsDataStoreFile
+import me.yui.yuihub.data.db.AppDatabase
+import me.yui.yuihub.utils.JsonInstant
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 
-private const val TAG = "PendingRestoreStore"
-
-/**
- * 待完成的数据库安装（恢复续传）。
- *
- * 为什么需要：恢复时的数据库安装要经历「关闭当前库 → 校验暂存库 → 搬进 databases/」，
- * 中间任何一步被系统杀进程（低内存、用户强杀、国产 ROM 清后台），
- * 用户看到的就是「恢复到一半」。把暂存库放进**持久目录**（filesDir，不是会被系统清理的 cacheDir）
- * 并留下待办标记后，下次启动可以在数据库被打开之前把这次安装补完。
- *
- * 只处理数据库这一项：设置走 DataStore 的单文件原子写、附件等文件是幂等覆盖，
- * 重做一次的成本与风险都远低于数据库被半途替换。
- */
 object PendingRestoreStore {
-    /** 持久暂存目录（filesDir 下，不受 cache 清理影响） */
     private const val PENDING_DIR = "restore_pending"
     private const val STAGED_DB = "staged.db"
     private const val MARKER = "pending.marker"
+    private const val ROLLBACK_DB = "rollback.db"
+    private const val ROLLBACK_SETTINGS = "rollback_settings.pb"
+    private const val APPLIED_MARKER = "applied.marker"
+    private const val APPLIED_DIR = "restore_applied"
+    private val json = Json { ignoreUnknownKeys = true }
+
+    @Serializable
+    private data class Attachment(val path: String, val size: Long)
+
+    @Serializable
+    private data class Manifest(
+        val databaseSize: Long? = null,
+        val settingsSize: Long? = null,
+        val attachments: List<Attachment> = emptyList(),
+    )
 
     fun pendingDir(filesDir: File): File = File(filesDir, PENDING_DIR)
-
+    private fun appliedDir(filesDir: File): File = File(filesDir, APPLIED_DIR).apply { mkdirs() }
     private fun stagedDbFile(filesDir: File): File = File(pendingDir(filesDir), STAGED_DB)
-
     private fun markerFile(filesDir: File): File = File(pendingDir(filesDir), MARKER)
 
-    /** 是否有一份待完成的数据库安装 */
     fun hasPending(filesDir: File): Boolean = markerFile(filesDir).exists()
 
-    /**
-     * 把已解好的暂存库登记为「待安装」。
-     *
-     * 先落暂存文件、最后写标记：标记存在即代表暂存文件已就绪，
-     * 不存在「标记在但文件缺失」的中间态。
-     */
-    fun stage(filesDir: File, staged: File): Boolean = runCatching {
-        val dir = pendingDir(filesDir).apply { mkdirs() }
-        if (!dir.isDirectory) error("Cannot create pending restore directory")
-        stagedDbFile(filesDir).let { target ->
-            if (target.exists()) target.delete()
-            staged.copyTo(target, overwrite = true)
-        }
-        markerFile(filesDir).writeText(staged.length().toString())
-        Log.i(TAG, "stage: staged database ready (${stagedDbFile(filesDir).length()} bytes)")
-        true
-    }.onFailure { Log.e(TAG, "stage failed", it) }
-        .getOrDefault(false)
+    fun hasApplied(filesDir: File): Boolean = File(filesDir, "$APPLIED_DIR/$APPLIED_MARKER").exists()
 
-    /** 清除待办状态（安装成功或放弃时调用） */
+    @Synchronized
+    fun stage(
+        filesDir: File,
+        staged: File? = null,
+        settings: String? = null,
+        attachments: Map<File, File> = emptyMap(),
+        checkActive: () -> Unit = {},
+    ): Boolean {
+        check(!hasPending(filesDir)) { "A restore is already pending; restart the app first" }
+        if (staged != null) check(staged.isFile && staged.length() > 0L) { "Staged database is missing or empty" }
+        val dir = pendingDir(filesDir)
+        check(dir.isDirectory || dir.mkdirs()) { "Cannot create pending restore directory" }
+        val markerTemp = File(dir, "$MARKER.new")
+        try {
+            staged?.let { copySynced(it, stagedDbFile(filesDir), checkActive) }
+            val settingsFile = File(dir, "settings.json")
+            settings?.let {
+                val bytes = it.toByteArray(Charsets.UTF_8)
+                check(bytes.size.toLong() <= SETTINGS_LIMIT) { "Pending settings are too large" }
+                FileOutputStream(settingsFile).use { output ->
+                    output.write(bytes)
+                    output.fd.sync()
+                }
+            }
+            val entries = attachments.entries.mapIndexed { index, (source, target) ->
+                checkActive()
+                val relative = target.canonicalFile.relativeTo(filesDir.canonicalFile).invariantSeparatorsPath
+                resolveTarget(filesDir, relative)
+                copySynced(source, File(dir, "attachment_$index"), checkActive)
+                Attachment(relative, source.length())
+            }
+            val manifest = Manifest(staged?.length(), settings?.let { settingsFile.length() }, entries)
+            val markerBytes = json.encodeToString(manifest).toByteArray(Charsets.UTF_8)
+            check(markerBytes.size.toLong() <= SETTINGS_LIMIT) { "Restore manifest is too large" }
+            FileOutputStream(markerTemp).use { output ->
+                output.write(markerBytes)
+                output.fd.sync()
+            }
+            checkActive()
+            check(markerTemp.renameTo(markerFile(filesDir))) { "Cannot persist restore marker" }
+            return true
+        } finally {
+            markerTemp.delete()
+        }
+    }
+
     fun clear(filesDir: File) {
-        stagedDbFile(filesDir).delete()
-        markerFile(filesDir).delete()
+        val marker = markerFile(filesDir)
+        check(!marker.exists() || marker.delete()) { "Cannot clear restore marker" }
+        pendingDir(filesDir).deleteRecursively()
     }
 
-    /**
-     * 若存在待完成的安装则立即完成它。
-     *
-     * 必须在数据库/任何 Room 消费者打开之前调用（当前在 Application.onCreate 的 startKoin 之前），
-     * 否则 Room 已经持有旧文件，替换会引发难以预期的状态。
-     *
-     * @return 是否执行了安装
-     */
-    fun applyIfPending(filesDir: File, databaseFile: File): Boolean {
+    suspend fun applyIfPending(context: Context, databaseFile: File): Boolean {
+        val filesDir = context.filesDir
         if (!hasPending(filesDir)) return false
-        val staged = stagedDbFile(filesDir)
-        return runCatching {
-            if (!staged.exists() || staged.length() == 0L) {
-                Log.w(TAG, "applyIfPending: staged database missing, discarding pending restore")
-                clear(filesDir)
-                return@runCatching false
-            }
-
-            // 与恢复流程同款校验：不接受损坏的库
-            if (!integrityOk(staged)) {
-                Log.e(TAG, "applyIfPending: staged database failed integrity check, discarding")
-                clear(filesDir)
-                return@runCatching false
-            }
-
-            // 清理可能残留的临时文件（上次被杀留下的）
-            val temp = File(databaseFile.parentFile, "${databaseFile.name}.restoring")
-            if (temp.exists()) temp.delete()
-
-            // 旧 sidecar 必须先清：残留 WAL 会被新库重放
-            listOf("-wal", "-shm").forEach { suffix ->
-                val sidecar = File(databaseFile.parentFile, databaseFile.name + suffix)
-                if (sidecar.exists()) sidecar.delete()
-            }
-
-            databaseFile.parentFile?.mkdirs()
-            FileInputStream(staged).use { input ->
-                FileOutputStream(temp).use { output -> input.copyTo(output) }
-            }
-            if (!temp.renameTo(databaseFile)) {
-                temp.delete()
-                error("Could not install the pending database")
-            }
-
-            clear(filesDir)
-            Log.i(TAG, "applyIfPending: pending database installed (${databaseFile.length()} bytes)")
-            true
-        }.onFailure { Log.e(TAG, "applyIfPending failed", it) }
-            .getOrDefault(false)
-    }
-
-    private fun integrityOk(dbFile: File): Boolean {
-        // 裸连接没有 libsimple tokenizer，须走逐表校验（跳过 FTS 虚拟表）
-        val error = SQLiteDatabase.openDatabase(
-            dbFile.absolutePath,
-            null,
-            SQLiteDatabase.OPEN_READONLY,
-        ).use { db ->
-            DbIntegrityChecker.check(db)
+        val manifest = readManifest(filesDir)
+        val settings = manifest.settingsSize?.let { size ->
+            val file = File(pendingDir(filesDir), "settings.json")
+            check(size in 1..SETTINGS_LIMIT && file.isFile && file.length() == size) { "Pending settings are incomplete" }
+            JsonInstant.decodeFromString<Settings>(file.readText())
         }
-        return error == null
+        // 安装前保留当前库与设置的副本；应用若在确认前崩溃，下一次启动自动回滚。
+        val settingsFile = settingsDataStoreFile(context)
+        val rollbackDir = appliedDir(filesDir)
+        val rollbackDb = File(rollbackDir, ROLLBACK_DB)
+        val rollbackSettings = File(rollbackDir, ROLLBACK_SETTINGS)
+        val hadDatabase = copyDatabaseSet(databaseFile, rollbackDb)
+        val hadSettings = settingsFile.isFile && runCatching {
+            copySynced(settingsFile, rollbackSettings)
+            true
+        }.getOrDefault(false)
+        applyPending(filesDir, databaseFile, clearPending = false) { staged ->
+            SQLiteDatabase.openDatabase(staged.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                val version = db.query("PRAGMA user_version").use { if (it.moveToFirst()) it.getInt(0) else 0 }
+                check(version in 1..AppDatabase.DATABASE_VERSION) { "Pending database is from an incompatible app version" }
+                check(DbIntegrityChecker.check(db) == null) { "Pending database failed integrity check" }
+            }
+        }
+        settings?.let { restoreSettingsBeforeStartup(context, it) }
+        writeAppliedMarker(filesDir, hadDatabase, hadSettings)
+        clear(filesDir)
+        return true
     }
 
-    /** 供 LocalBackupService 复用同一套校验实现 */
+    /** App 启动成功后确认恢复，删除回滚副本；未确认时下次启动会自动回滚。 */
+    fun confirmApplied(filesDir: File) {
+        File(filesDir, APPLIED_DIR).deleteRecursively()
+    }
+
+    /** 上次恢复后应用未确认启动成功：还原恢复前的数据库与设置。 */
+    fun rollbackIfUnconfirmed(context: Context, databaseFile: File) {
+        val filesDir = context.filesDir
+        val dir = appliedDir(filesDir)
+        val marker = File(dir, APPLIED_MARKER)
+        if (!marker.exists()) return
+        val payload = runCatching { json.decodeFromString<RollbackMarker>(marker.readText()) }.getOrNull()
+            ?: RollbackMarker()
+        if (payload.hadDatabase) {
+            val rollbackDb = File(dir, ROLLBACK_DB)
+            check(rollbackDb.isFile) { "Rollback database is missing" }
+            restoreDatabaseSet(rollbackDb, databaseFile)
+        } else {
+            deleteDatabaseSet(databaseFile)
+        }
+        val settingsFile = settingsDataStoreFile(context)
+        if (payload.hadSettings) {
+            val rollbackSettings = File(dir, ROLLBACK_SETTINGS)
+            check(rollbackSettings.isFile) { "Rollback settings are missing" }
+            copySynced(rollbackSettings, settingsFile)
+        } else {
+            settingsFile.delete()
+        }
+        confirmApplied(filesDir)
+    }
+
+    @Serializable
+    private data class RollbackMarker(
+        val hadDatabase: Boolean = false,
+        val hadSettings: Boolean = false,
+    )
+
+    private fun writeAppliedMarker(filesDir: File, hadDatabase: Boolean, hadSettings: Boolean) {
+        val marker = File(appliedDir(filesDir), APPLIED_MARKER)
+        val bytes = json.encodeToString(RollbackMarker(hadDatabase, hadSettings)).toByteArray(Charsets.UTF_8)
+        FileOutputStream(marker).use { output ->
+            output.write(bytes)
+            output.fd.sync()
+        }
+    }
+
+    private fun copyDatabaseSet(source: File, target: File): Boolean {
+        val exists = source.isFile
+        if (!exists) return false
+        copySynced(source, target)
+        listOf("-wal", "-shm").forEach { suffix ->
+            val sidecar = File(source.path + suffix)
+            if (sidecar.isFile) copySynced(sidecar, File(target.path + suffix))
+        }
+        return true
+    }
+
+    private fun restoreDatabaseSet(rollback: File, databaseFile: File) {
+        val parent = databaseFile.parentFile!!
+        check(parent.isDirectory || parent.mkdirs()) { "Cannot create database directory" }
+        listOf("", "-wal", "-shm").forEach { suffix ->
+            File(databaseFile.path + suffix).delete()
+            val source = File(rollback.path + suffix)
+            if (source.isFile) copySynced(source, File(databaseFile.path + suffix))
+        }
+    }
+
+    private fun deleteDatabaseSet(databaseFile: File) {
+        listOf("", "-wal", "-shm").forEach { suffix -> File(databaseFile.path + suffix).delete() }
+    }
+
+    private fun readManifest(filesDir: File): Manifest {
+        val marker = markerFile(filesDir)
+        check(marker.length() <= SETTINGS_LIMIT) { "Restore manifest is too large" }
+        val text = marker.readText().trim()
+        return text.toLongOrNull()?.let { Manifest(databaseSize = it) }
+            ?: json.decodeFromString<Manifest>(text)
+    }
+
+    internal fun applyPending(
+        filesDir: File,
+        databaseFile: File,
+        clearPending: Boolean = true,
+        validate: (File) -> Unit,
+    ): Boolean {
+        if (!hasPending(filesDir)) return false
+        val manifest = readManifest(filesDir)
+        check(!clearPending || manifest.settingsSize == null) { "Settings require startup installation" }
+        val dir = pendingDir(filesDir)
+        val staged = stagedDbFile(filesDir)
+        manifest.databaseSize?.let { size ->
+            check(size > 0 && staged.isFile && staged.length() == size) { "Pending database is missing or incomplete" }
+            validate(staged)
+        }
+        manifest.settingsSize?.let { size ->
+            val file = File(dir, "settings.json")
+            check(size in 1..SETTINGS_LIMIT && file.isFile && file.length() == size) { "Pending settings are incomplete" }
+        }
+        val targets = manifest.attachments.mapIndexed { index, entry ->
+            val source = File(dir, "attachment_$index")
+            check(entry.size >= 0 && source.isFile && source.length() == entry.size) { "Pending attachment is incomplete" }
+            source to resolveTarget(filesDir, entry.path)
+        }
+        targets.forEach { (source, target) -> installFile(source, target) }
+        if (manifest.databaseSize != null) {
+            val parent = databaseFile.parentFile!!
+            check(parent.isDirectory || parent.mkdirs()) { "Cannot create database directory" }
+            val temp = File(parent, "${databaseFile.name}.restoring")
+            try {
+                copySynced(staged, temp)
+                // A failed install keeps the marker so no database consumer can observe altered sidecars.
+                listOf("-wal", "-shm").forEach { suffix ->
+                    val sidecar = File(parent, databaseFile.name + suffix)
+                    check(!sidecar.exists() || sidecar.delete()) { "Cannot remove stale database sidecar" }
+                }
+                check(temp.renameTo(databaseFile)) { "Could not install the pending database" }
+            } finally {
+                temp.delete()
+            }
+        }
+        if (clearPending) clear(filesDir)
+        return true
+    }
+
+    private fun resolveTarget(filesDir: File, path: String): File {
+        require(!path.startsWith('/') && '\\' !in path && path.substringBefore('/') in BACKED_UP_FILE_FOLDERS) { "Invalid pending attachment path" }
+        val filesRoot = filesDir.canonicalFile
+        val root = File(filesRoot, path.substringBefore('/')).canonicalFile
+        require(root.path.startsWith(filesRoot.path + File.separator)) { "Pending attachment root escapes files directory" }
+        val target = File(filesRoot, path).canonicalFile
+        require(target.path.startsWith(root.path + File.separator)) { "Pending attachment escapes directory" }
+        return target
+    }
+
+    private fun installFile(source: File, target: File) {
+        check(target.parentFile!!.isDirectory || target.parentFile!!.mkdirs()) { "Cannot create attachment directory" }
+        val temp = File.createTempFile("restore_", ".tmp", target.parentFile)
+        try {
+            copySynced(source, temp)
+            check(temp.renameTo(target)) { "Cannot install pending attachment" }
+        } finally {
+            temp.delete()
+        }
+    }
+
+    private fun copySynced(source: File, target: File, checkActive: () -> Unit = {}) {
+        source.inputStream().use { input ->
+            FileOutputStream(target).use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    checkActive()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                }
+                output.fd.sync()
+            }
+        }
+    }
+
     internal fun integrityCheck(db: SupportSQLiteDatabase): Boolean = runCatching {
         db.query("PRAGMA integrity_check").use { cursor ->
             cursor.moveToFirst() && cursor.getString(0) == "ok"

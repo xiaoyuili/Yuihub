@@ -107,10 +107,10 @@ fun SettingThemePage(vm: SettingVM = koinViewModel()) {
             TopAppBar(
                 title = { Text(stringResource(R.string.setting_page_theme_setting)) },
                 navigationIcon = { BackButton() },
-                colors = CustomColors.topBarColors
+                colors = CustomColors.pageTopBarColors
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageBackground
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),

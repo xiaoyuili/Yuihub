@@ -8,11 +8,8 @@ data class WorkspaceBindMount(
     val source: File,
     val target: String,
     /**
-     * 是否为只读挂载（语义标记）。
-     *
-     * PRoot 的 `-b` 不支持只读（`:ro` 会被当成目标路径的一部分，见 [prootBindSpec]），
-     * 因此该标记**不能**阻止写入：真实的写入拦截只发生在文件工具层（见 WorkspaceTools 的
-     * /upload 路径保护），而 **workspace_shell 不受约束，可通过 shell 命令绕过并删除原文件**。
+     * 文件工具拒绝写入；所有执行入口绑定独立快照，而不是原件。
+     * PRoot 本身没有只读 bind，也不是抵御任意宿主路径访问的强安全沙盒。
      */
     val readOnly: Boolean = false,
 ) {
@@ -25,9 +22,10 @@ data class WorkspaceBindMount(
      *
      * PRoot 的 `-b` 不支持 `:ro` 等权限后缀——早期版本会把它当作目标路径的一部分，
      * 导致挂载点变成字面名为 `/upload:ro` 的目录，`/upload` 反而不存在。
-     * readOnly 仅作为语义标记供工具层做写保护（PRoot 层无只读能力）。
+     * 调用前必须把只读原件替换成独立快照。
      */
     fun prootBindSpec(): String = buildString {
+        require(!readOnly) { "Read-only mount must be snapshotted before binding: $target" }
         append(source.absolutePath)
         append(':')
         append(target.trimEnd('/'))
@@ -49,7 +47,23 @@ class ProotShellRunner(
         val session: PersistentProotSession,
     )
 
-    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
+    private val snapshots = ReadOnlyMountSnapshots()
+    private val executionLocks = ConcurrentHashMap<String, Any>()
+
+    internal fun prepareExecutionContext(context: WorkspaceShellContext): WorkspaceShellContext = context.copy(
+        bindMounts = snapshots.prepare(
+            context.bindMounts,
+            File(context.linuxDir.parentFile, ReadOnlyMountSnapshots.DIRECTORY),
+            reuseUnchanged = !context.shellCompatibilityMode,
+        ),
+    )
+
+    override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult =
+        synchronized(executionLocks.getOrPut(context.root) { Any() }) {
+            executePrepared(prepareExecutionContext(context))
+        }
+
+    private fun executePrepared(context: WorkspaceShellContext): WorkspaceCommandResult {
         if (!context.linuxDir.hasUsableRootfs()) {
             return WorkspaceCommandResult(
                 exitCode = 127,
@@ -120,7 +134,8 @@ class ProotShellRunner(
                 session.execute(context)
             } catch (e: IOException) {
                 // 会话死亡(进程被系统杀/流断裂): 重建一次再试; 再失败则透出错误
-                if (sessions.remove(context.root, SessionEntry(mountsSignature, session))) {
+                val failed = sessions[context.root]
+                if (failed?.session === session && sessions.remove(context.root, failed)) {
                     session.destroy()
                 }
                 val fresh = launchSession(context, proot, loader)
@@ -243,7 +258,9 @@ class ProotShellRunner(
         isDirectory && File(this, "bin/sh").isFile
 
     fun destroySession(root: String) {
-        sessions.remove(root)?.session?.destroy()
+        synchronized(executionLocks.getOrPut(root) { Any() }) {
+            sessions.remove(root)?.session?.destroy()
+        }
     }
 
     fun destroyAllSessions() {

@@ -18,6 +18,9 @@ interface MemoryDAO {
     @Query("SELECT * FROM MemoryEntity WHERE id = :id")
     suspend fun getMemoryById(id: Int): MemoryEntity?
 
+    @Query("SELECT * FROM MemoryEntity WHERE id IN (:ids)")
+    suspend fun getMemoriesByIds(ids: List<Int>): List<MemoryEntity>
+
     @Insert
     suspend fun insertMemory(memory: MemoryEntity): Long
 
@@ -27,11 +30,20 @@ interface MemoryDAO {
     @Update
     suspend fun updateMemory(memory: MemoryEntity)
 
+    @Query("UPDATE MemoryEntity SET status = :status, archived_at = :archivedAt, updated_at = :now WHERE id IN (:ids)")
+    suspend fun setStatus(ids: List<Int>, status: String, archivedAt: Long?, now: Long)
+
+    @Query("UPDATE MemoryEntity SET hit_count = hit_count + 1, last_injected_at = :now WHERE id IN (:ids)")
+    suspend fun markInjected(ids: List<Int>, now: Long)
+
     @Query("DELETE FROM MemoryEntity WHERE id = :id")
     suspend fun deleteMemory(id: Int)
 
     @Query("DELETE FROM MemoryEntity WHERE id IN (:ids)")
     suspend fun deleteMemories(ids: List<Int>)
+
+    @Query("DELETE FROM MemoryEntity WHERE assistant_id = :assistantId AND status = 'archived'")
+    suspend fun deleteArchivedOfAssistant(assistantId: String)
 
     @Query("DELETE FROM MemoryEntity WHERE assistant_id = :assistantId")
     suspend fun deleteMemoriesOfAssistant(assistantId: String)

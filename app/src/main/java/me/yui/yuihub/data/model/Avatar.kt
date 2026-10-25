@@ -8,6 +8,9 @@ sealed class Avatar {
     data object Dummy : Avatar()
 
     @Serializable
+    data object Logo : Avatar()
+
+    @Serializable
     data class Emoji(val content: String) : Avatar()
 
     @Serializable

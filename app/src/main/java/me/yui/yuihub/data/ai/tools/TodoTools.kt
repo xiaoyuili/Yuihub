@@ -30,12 +30,16 @@ private val TODO_STATUSES = listOf("pending", "in_progress", "completed")
 fun createTodoTool(): Tool = Tool(
     name = TODO_TOOL_NAME,
     description = """
-        Create or update the task plan for the current work. Use it to break a multi-step task into
-        an explicit checklist and keep it current as you make progress.
+        Create or update the task checklist for the current work. It replaces any previous list and is
+        shown to the user live, so report progress step by step instead of only at the end.
 
         Rules:
-        - Call it BEFORE starting a multi-step task (3+ distinct steps), and again every time a step's
-          status changes. Skip it for simple single-step requests.
+        - Call it BEFORE the first step of a multi-step task (3+ distinct steps). Skip it for simple
+          single-step requests.
+        - Before starting a step, call it again and mark that step "in_progress". As soon as the step is
+          finished, call it again and mark it "completed" — before starting the next step.
+        - Never mark several steps completed in one call, and never wait until the whole task is done to
+          update: the user watches the list to see which step is running right now.
         - Always pass the FULL list (not just the changed items); previously sent items must be repeated.
         - Exactly one item may be "in_progress" at a time; mark an item "completed" only when it is
           truly done (tests passing, file written, etc.).
@@ -91,15 +95,38 @@ fun createTodoTool(): Tool = Tool(
         val inProgressCount = normalized.count {
             it["status"]?.jsonPrimitive?.contentOrNull == "in_progress"
         }
+        val inProgressItem = normalized.firstOrNull {
+            it["status"]?.jsonPrimitive?.contentOrNull == "in_progress"
+        }?.get("content")?.jsonPrimitive?.contentOrNull
+        val pendingItem = normalized.firstOrNull {
+            it["status"]?.jsonPrimitive?.contentOrNull == "pending"
+        }?.get("content")?.jsonPrimitive?.contentOrNull
         val payload = buildJsonObject {
             put("todos", JsonArray(normalized))
-            if (inProgressCount > 1) {
-                // 不报错：模型偶发多个 in_progress 时仍让它继续，但给出提示便于自我纠正
-                put(
+            // 状态提醒：弱模型常常只建清单、不再回来更新，这里把下一步该做什么直接回给模型
+            when {
+                inProgressCount > 1 -> put(
                     "warning",
                     "More than one item is in_progress ($inProgressCount). Keep exactly one."
                 )
+
+                inProgressCount == 0 && pendingItem != null -> put(
+                    "warning",
+                    "No item is in_progress. Mark the step you are about to start as in_progress."
+                )
             }
+            put(
+                "next",
+                when {
+                    inProgressItem != null ->
+                        "Working on \"$inProgressItem\". Call todo_write again the moment it is done: mark it completed and the next step in_progress."
+
+                    pendingItem != null ->
+                        "Call todo_write again before starting \"$pendingItem\": mark it in_progress."
+
+                    else -> "All steps are completed."
+                }
+            )
         }
         listOf(UIMessagePart.Text(payload.toString()))
     },

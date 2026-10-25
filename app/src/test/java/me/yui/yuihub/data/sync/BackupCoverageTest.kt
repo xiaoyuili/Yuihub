@@ -1,5 +1,6 @@
 package me.yui.yuihub.data.sync
 
+import kotlinx.serialization.json.Json
 import me.yui.yuihub.data.files.FileFolders
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -45,5 +46,28 @@ class BackupCoverageTest {
     @Test
     fun `backup list has no duplicates`() {
         assertEquals(BACKED_UP_FILE_FOLDERS.size, BACKED_UP_FILE_FOLDERS.toSet().size)
+    }
+
+    @Test
+    fun `every backed up folder maps to a selectable item`() {
+        assertEquals(
+            BACKED_UP_FILE_FOLDERS.toSet(),
+            BackupItem.FILE_ITEMS.mapNotNull { it.folder }.toSet(),
+        )
+    }
+
+    @Test
+    fun `manifest round trips and carries format version`() {
+        val manifest = BackupManifest(
+            appVersion = "2.5.8",
+            databaseVersion = 41,
+            items = BackupItem.ALL.map { it.name },
+            counts = mapOf("conversations" to 3),
+        )
+        val decoded = Json.decodeFromString<BackupManifest>(Json.encodeToString(manifest))
+        assertEquals(BackupManifest.FORMAT_VERSION, decoded.formatVersion)
+        assertEquals(41, decoded.databaseVersion)
+        assertEquals(3, decoded.counts["conversations"])
+        assertTrue(BackupItem.ALL.none { it.folder?.contains("workspace") == true })
     }
 }

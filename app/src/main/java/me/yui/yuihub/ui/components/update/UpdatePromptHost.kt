@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.core.content.edit
 import kotlinx.coroutines.delay
 import me.yui.yuihub.R
@@ -31,6 +32,7 @@ private const val STARTUP_CHECK_DELAY_MS = 4_000L
 @Composable
 fun UpdatePromptHost() {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val checker = koinInject<UpdateChecker>()
     val downloader = koinInject<UpdateDownloader>()
     val toaster = LocalToaster.current
@@ -76,12 +78,12 @@ fun UpdatePromptHost() {
                 when (downloader.install(context)) {
                     UpdateDownloader.InstallOutcome.LAUNCHED -> pendingUpdate = null
                     UpdateDownloader.InstallOutcome.NEED_PERMISSION -> toaster.show(
-                        context.getString(R.string.update_dialog_install_permission_needed),
+                        resources.getString(R.string.update_dialog_install_permission_needed),
                         type = ToastType.Warning,
                     )
                     // 安装包被清理（如用户在通知栏清掉了下载）时提示重新下载
                     UpdateDownloader.InstallOutcome.UNAVAILABLE -> toaster.show(
-                        context.getString(R.string.update_dialog_install_unavailable),
+                        resources.getString(R.string.update_dialog_install_unavailable),
                         type = ToastType.Error,
                     )
                 }

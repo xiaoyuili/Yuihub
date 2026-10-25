@@ -6,7 +6,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.util.Base64
 import android.util.Base64OutputStream
-import android.util.LruCache
 import androidx.core.net.toUri
 import me.rerere.ai.ui.UIMessagePart
 import java.io.ByteArrayOutputStream
@@ -17,10 +16,45 @@ data class EncodedImage(
     val mimeType: String
 )
 
-// 媒体编码结果缓存：历史消息里的图片/音视频每轮请求都会重新随消息列表发给供应商，
-// 如果每次都重新「解码→EXIF→压缩→Base64」，多图会话的首字延迟会随轮次线性恶化。
-// 以 文件路径+修改时间 为键缓存编码结果，与 DocumentAsPromptTransformer.parseCache 同思路。
-private val mediaEncodeCache = object : LruCache<String, String>(32) {}
+internal class MediaEncodingCache(
+    private val maxBytes: Int = 8 * 1024 * 1024,
+    private val maxEntryBytes: Int = 2 * 1024 * 1024,
+) {
+    private val entries = LinkedHashMap<String, EncodedImage>(16, 0.75f, true)
+    internal var sizeBytes: Int = 0
+        private set
+
+    private fun size(key: String, value: EncodedImage): Long =
+        (key.length.toLong() + value.base64.length + value.mimeType.length) * 2
+
+    @Synchronized
+    fun get(key: String): EncodedImage? = entries[key]
+
+    @Synchronized
+    fun put(key: String, value: EncodedImage) {
+        entries.remove(key)?.let { sizeBytes -= size(key, it).toInt() }
+        val bytes = size(key, value)
+        if (bytes > maxEntryBytes || bytes > maxBytes) return
+        entries[key] = value
+        sizeBytes += bytes.toInt()
+        val iterator = entries.iterator()
+        while (sizeBytes > maxBytes && iterator.hasNext()) {
+            val entry = iterator.next()
+            sizeBytes -= size(entry.key, entry.value).toInt()
+            iterator.remove()
+        }
+    }
+
+    @Synchronized
+    fun clear() {
+        entries.clear()
+        sizeBytes = 0
+    }
+}
+
+private val mediaEncodeCache = MediaEncodingCache()
+
+fun clearMediaEncodingCache() = mediaEncodeCache.clear()
 
 private fun mediaCacheKey(file: File): String =
     "${file.absolutePath}:${file.length()}:${file.lastModified()}"
@@ -62,17 +96,13 @@ fun UIMessagePart.Image.encodeBase64(withPrefix: Boolean = true): Result<Encoded
             }
             val mimeType = file.guessMimeType().getOrThrow()
             val cacheKey = "img:$withPrefix:${mediaCacheKey(file)}"
-            synchronized(mediaEncodeCache) { mediaEncodeCache.get(cacheKey) }?.let {
-                return Result.success(EncodedImage(base64 = it, mimeType = "image/jpeg"))
+            mediaEncodeCache.get(cacheKey)?.let {
+                return Result.success(it)
             }
             // 统一进行压缩处理
             val (encoded, outputMimeType) = file.compressAndEncode(mimeType)
             val base64 = if (withPrefix) "data:$outputMimeType;base64,$encoded" else encoded
-            synchronized(mediaEncodeCache) { mediaEncodeCache.put(cacheKey, base64) }
-            EncodedImage(
-                base64 = base64,
-                mimeType = outputMimeType
-            )
+            EncodedImage(base64, outputMimeType).also { mediaEncodeCache.put(cacheKey, it) }
         }
 
         this.url.startsWith("data:") -> {
@@ -98,12 +128,12 @@ fun UIMessagePart.Video.encodeBase64(withPrefix: Boolean = true): Result<String>
                 throw IllegalArgumentException("File does not exist: ${this.url}")
             }
             val cacheKey = "video:$withPrefix:${mediaCacheKey(file)}"
-            synchronized(mediaEncodeCache) { mediaEncodeCache.get(cacheKey) }?.let {
-                return Result.success(it)
+            mediaEncodeCache.get(cacheKey)?.let {
+                return Result.success(it.base64)
             }
             val encoded = file.encodeToBase64Streaming()
             val base64 = if (withPrefix) "data:video/mp4;base64,$encoded" else encoded
-            synchronized(mediaEncodeCache) { mediaEncodeCache.put(cacheKey, base64) }
+            mediaEncodeCache.put(cacheKey, EncodedImage(base64, "video/mp4"))
             base64
         }
 
@@ -121,12 +151,12 @@ fun UIMessagePart.Audio.encodeBase64(withPrefix: Boolean = true): Result<String>
                 throw IllegalArgumentException("File does not exist: ${this.url}")
             }
             val cacheKey = "audio:$withPrefix:${mediaCacheKey(file)}"
-            synchronized(mediaEncodeCache) { mediaEncodeCache.get(cacheKey) }?.let {
-                return Result.success(it)
+            mediaEncodeCache.get(cacheKey)?.let {
+                return Result.success(it.base64)
             }
             val encoded = file.encodeToBase64Streaming()
             val base64 = if (withPrefix) "data:audio/mp3;base64,$encoded" else encoded
-            synchronized(mediaEncodeCache) { mediaEncodeCache.put(cacheKey, base64) }
+            mediaEncodeCache.put(cacheKey, EncodedImage(base64, "audio/mp3"))
             base64
         }
 

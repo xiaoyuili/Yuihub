@@ -85,6 +85,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -141,9 +142,10 @@ import me.yui.yuihub.ui.components.ui.UIAvatar
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import me.yui.yuihub.ui.context.LocalToaster
+import me.yui.yuihub.ui.theme.LocalDarkMode
+import me.yui.yuihub.ui.theme.LocalGlassTheme
 import me.yui.yuihub.ui.context.Navigator
 import com.dokar.sonner.ToastType
-import me.yui.yuihub.ui.hooks.readBooleanPreference
 import me.yui.yuihub.ui.modifier.onClick
 import me.yui.yuihub.ui.pages.extensions.workspace.WorkspaceFileType
 import me.yui.yuihub.ui.pages.extensions.workspace.detectFileType
@@ -166,6 +168,7 @@ fun ChatDrawerContent(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val toaster = LocalToaster.current
     val repo = koinInject<ConversationRepository>()
 
@@ -199,9 +202,10 @@ fun ChatDrawerContent(
     val subagentManager: SubagentManager = koinInject()
     val subconversationCounts by drawerVm.subconversationCounts.collectAsStateWithLifecycle()
     val expandedSubagentIds by drawerVm.expandedSubagentIds.collectAsStateWithLifecycle()
-    val runningSubagentIds by subagentManager.runs
-        .map { runs -> runs.values.map { it.childId }.toSet() }
-        .collectAsStateWithLifecycle(initialValue = emptySet())
+    val runningSubagentIds by remember(subagentManager.runs) {
+        subagentManager.runs
+            .map { runs -> runs.values.map { it.childId }.toSet() }
+    }.collectAsStateWithLifecycle(initialValue = emptySet())
 
     // 侧滑页面板：当前助手绑定工作区、且该工作区在本机存在并已就绪时，提供「会话 / 文件」切换
     //（状态存 VM，从详情页返回时保留现场）
@@ -256,14 +260,7 @@ fun ChatDrawerContent(
         val updateJob = vm.updateSettings(newSettings)
         scope.launch {
             updateJob.join()
-            val id = if (context.readBooleanPreference("create_new_conversation_on_start", true)) {
-                Uuid.random()
-            } else {
-                repo.getConversationsOfAssistant(newSettings.assistantId)
-                    .first()
-                    .firstOrNull()
-                    ?.id ?: Uuid.random()
-            }
+            val id = Uuid.random()
             navigateToChatPage(navigator = navController, chatId = id)
         }
     }
@@ -284,8 +281,11 @@ fun ChatDrawerContent(
     var folderToRename by remember { mutableStateOf<Folder?>(null) }
     var folderToDelete by remember { mutableStateOf<Folder?>(null) }
 
+    val glassTheme = LocalGlassTheme.current
     ModalDrawerSheet(
-        modifier = modifier
+        modifier = modifier,
+        drawerContainerColor = if (glassTheme) Color.Transparent else DrawerDefaults.modalContainerColor,
+        drawerTonalElevation = 0.dp,
     ) {
         Column(
             modifier = Modifier.padding(8.dp),
@@ -452,7 +452,7 @@ fun ChatDrawerContent(
                 settingsLabel = stringResource(R.string.settings),
                 onImageGeneration = { navController.navigate(Screen.ImageGen) },
                 onFavorites = { navController.navigate(Screen.Favorite) },
-                onStats = { navController.navigate(Screen.Stats(chatId = current.id.toString())) },
+                onStats = { navController.navigate(Screen.Stats) },
                 onSettings = { navController.navigate(Screen.Setting) },
             )
         }
@@ -631,7 +631,7 @@ fun ChatDrawerContent(
                             folderToDelete = null
                             conversations.refresh()
                         } else {
-                            toaster.show(context.getString(R.string.chat_page_delete_folder_generating), type = ToastType.Warning)
+                            toaster.show(resources.getString(R.string.chat_page_delete_folder_generating), type = ToastType.Warning)
                         }
                     }
                 ) { Text(stringResource(R.string.chat_page_delete)) }
@@ -736,8 +736,12 @@ private fun DrawerAssistantCard(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceBright,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        color = if (LocalGlassTheme.current) {
+            MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.68f)
+        } else {
+            MaterialTheme.colorScheme.surfaceBright
+        },
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
         onClick = onOpenAssistantSettings,
     ) {
         Row(
@@ -801,7 +805,13 @@ private fun DrawerActionBar(
         modifier = modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(MaterialTheme.colorScheme.surfaceBright)
+            .background(
+                if (LocalGlassTheme.current) {
+                    MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.62f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceBright
+                }
+            )
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -809,25 +819,25 @@ private fun DrawerActionBar(
             )
             .padding(horizontal = 4.dp, vertical = 5.dp),
     ) {
-        DrawerActionStack(
+        DrawerActionItem(
             icon = HugeIcons.Image02,
             label = imageGenerationLabel,
             onClick = onImageGeneration,
             modifier = Modifier.weight(1f),
         )
-        DrawerActionStack(
+        DrawerActionItem(
             icon = HugeIcons.InLove,
             label = favoritesLabel,
             onClick = onFavorites,
             modifier = Modifier.weight(1f),
         )
-        DrawerActionStack(
+        DrawerActionItem(
             icon = HugeIcons.ChartColumn,
             label = statsLabel,
             onClick = onStats,
             modifier = Modifier.weight(1f),
         )
-        DrawerActionStack(
+        DrawerActionItem(
             icon = HugeIcons.Settings03,
             label = settingsLabel,
             onClick = onSettings,
@@ -836,34 +846,40 @@ private fun DrawerActionBar(
     }
 }
 
-/** 「图标在上、小字在下」的堆：靠小字自解释，不再依赖长按提示 */
+/** 「图标在上、小字在下」的等宽条目：靠小字自解释，点击反馈限制在圆角内 */
 @Composable
-private fun DrawerActionStack(
+private fun DrawerActionItem(
     icon: ImageVector,
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-        modifier = modifier
-            .clip(MaterialTheme.shapes.medium)
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+        color = Color.Transparent,
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            modifier = Modifier.size(17.dp),
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -1046,7 +1062,11 @@ private fun DrawerPanelToggle(
             .fillMaxWidth()
             .height(44.dp),
         shape = trackShape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = if (LocalGlassTheme.current) {
+            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.58f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
     ) {
         BoxWithConstraints(
             modifier = Modifier
@@ -1067,7 +1087,13 @@ private fun DrawerPanelToggle(
                     .fillMaxHeight()
                     .shadow(2.dp, knobShape)
                     .clip(knobShape)
-                    .background(MaterialTheme.colorScheme.surfaceBright),
+                    .background(
+                        if (LocalGlassTheme.current) {
+                            MaterialTheme.colorScheme.surfaceBright.copy(alpha = 0.82f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceBright
+                        }
+                    ),
             )
 
             Row(modifier = Modifier.fillMaxSize()) {
@@ -1142,6 +1168,7 @@ private fun WorkspaceFilesPanel(
 ) {
     val repository: WorkspaceRepository = koinInject()
     val context = LocalContext.current
+    val resources = LocalResources.current
     val toaster = LocalToaster.current
     val scope = rememberCoroutineScope()
     val searchingMode = searchQuery.trim().isNotEmpty()
@@ -1312,7 +1339,7 @@ private fun WorkspaceFilesPanel(
                         },
                         onCopyPath = {
                             context.writeClipboardText(entry.path)
-                            toaster.show(context.getString(R.string.copied), type = ToastType.Success)
+                            toaster.show(resources.getString(R.string.copied), type = ToastType.Success)
                         },
                         onLongClick = { actionTarget = entry },
                     )
@@ -1732,8 +1759,9 @@ fun ChatScalingDrawer(
     drawerContent: @Composable () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    // 用侧滑栏自身的容器色作为底色，收起时主页四周露出的部分与侧滑栏无缝衔接
-    val backdropColor = DrawerDefaults.modalContainerColor
+    // 玻璃主题下让主题渐变底色直接透出，普通主题继续用抽屉容器色
+    val glassTheme = LocalGlassTheme.current
+    val backdropColor = if (glassTheme) Color.Transparent else DrawerDefaults.modalContainerColor
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val drawerWidth = (maxWidth * ChatDrawerSpec.FRACTION).coerceAtMost(ChatDrawerSpec.MAX_WIDTH)
         val progress = remember { Animatable(if (open) 1f else 0f) }
@@ -1790,7 +1818,7 @@ fun ChatScalingDrawer(
                 progress = p,
                 scale = 1f - (1f - ChatDrawerSpec.CONTENT_SCALE_END) * p,
                 corner = ChatDrawerSpec.CORNER_RADIUS_END * p,
-                shadow = ChatDrawerSpec.SHADOW_END * p,
+                shadow = if (glassTheme) 0.dp else ChatDrawerSpec.SHADOW_END * p,
                 onTapWhenOpen = { if (p > 0.01f) onOpenChange(false) },
                 content = content,
             )
@@ -1826,6 +1854,15 @@ private fun ScaledHomePanel(
     onTapWhenOpen: () -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val glassTheme = LocalGlassTheme.current
+    val isDark = LocalDarkMode.current
+    val panelShape = RoundedCornerShape(corner)
+    // 玻璃主题下主页本身透明，投影只会糊成一条灰带；改用 1dp 描边勾出窗口边缘
+    val borderColor = if (isDark) {
+        Color.White.copy(alpha = 0.18f)
+    } else {
+        MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1838,7 +1875,16 @@ private fun ScaledHomePanel(
                 shadowElevation = shadow.toPx()
                 shape = RoundedCornerShape(corner)
                 clip = true
-            },
+            }
+            .then(
+                if (glassTheme) {
+                    Modifier.border(
+                        width = 1.dp,
+                        color = borderColor.copy(alpha = borderColor.alpha * progress),
+                        shape = panelShape,
+                    )
+                } else Modifier
+            ),
     ) {
         content()
         // 展开后主页被覆盖，点击任意处关闭

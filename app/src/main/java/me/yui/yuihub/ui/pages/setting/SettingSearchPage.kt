@@ -2,10 +2,13 @@ package me.yui.yuihub.ui.pages.setting
 
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
+import me.rerere.hugeicons.stroke.CheckmarkCircle02
 import me.rerere.hugeicons.stroke.PencilEdit01
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.MoreVertical
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,12 +16,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -28,6 +35,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -44,6 +53,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import me.yui.yuihub.R
@@ -51,6 +61,7 @@ import me.yui.yuihub.Screen
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.AutoAIIcon
 import me.yui.yuihub.ui.components.ui.FormItem
+import me.yui.yuihub.ui.components.ui.RikkaFormDialog
 import me.yui.yuihub.ui.components.ui.OutlinedNumberInput
 import me.yui.yuihub.ui.components.ui.Tag
 import me.yui.yuihub.ui.components.ui.TagType
@@ -92,21 +103,29 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                         )
                     }
                 },
-                colors = CustomColors.topBarColors
+                colors = CustomColors.pageTopBarColors
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageBackground
     ) {
         val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
             val fromIndex = from.index
             val toIndex = to.index
 
             if (fromIndex >= 0 && toIndex >= 0 && fromIndex < settings.searchServices.size && toIndex < settings.searchServices.size) {
+                val selectedId = settings.searchServices.getOrNull(settings.searchServiceSelected)?.id
                 val newServices = settings.searchServices.toMutableList().apply {
                     add(toIndex, removeAt(fromIndex))
                 }
+                val newSelected = selectedId
+                    ?.let { id -> newServices.indexOfFirst { it.id == id } }
+                    ?.takeIf { it >= 0 }
+                    ?: settings.searchServiceSelected
                 vm.updateSettings(
-                    settings.copy(searchServices = newServices)
+                    settings.copy(
+                        searchServices = newServices,
+                        searchServiceSelected = newSelected,
+                    )
                 )
             }
         }
@@ -120,23 +139,74 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
             state = lazyListState
         ) {
+            item("intro") {
+                Text(
+                    text = stringResource(R.string.setting_page_search_intro),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            item("providers_header") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.setting_page_search_providers),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = settings.searchServices.size.toString(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            if (settings.searchServices.isEmpty()) {
+                item("empty") {
+                    Text(
+                        text = stringResource(R.string.setting_page_search_add_provider),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    )
+                }
+            }
+
             items(settings.searchServices, key = { it.id }) { service ->
                 ReorderableItem(
                     state = reorderableState,
                     key = service.id
                 ) { isDragging ->
+                    val serviceIndex = settings.searchServices.indexOf(service)
                     SearchProviderCard(
                         service = service,
+                        selected = serviceIndex == settings.searchServiceSelected,
+                        onSelect = {
+                            vm.updateSettings(settings.copy(searchServiceSelected = serviceIndex))
+                        },
                         onEdit = {
                             nav.navigate(Screen.SettingSearchDetail(service.id.toString()))
                         },
                         onDelete = {
                             if (settings.searchServices.size > 1) {
-                                val index = settings.searchServices.indexOf(service)
+                                val selectedId = settings.searchServices.getOrNull(settings.searchServiceSelected)?.id
                                 val newServices = settings.searchServices.toMutableList()
-                                newServices.removeAt(index)
+                                newServices.removeAt(serviceIndex)
+                                val newSelected = selectedId
+                                    ?.takeIf { it != service.id }
+                                    ?.let { id -> newServices.indexOfFirst { it.id == id } }
+                                    ?.takeIf { it >= 0 }
+                                    ?: 0
                                 vm.updateSettings(
-                                    settings.copy(searchServices = newServices)
+                                    settings.copy(
+                                        searchServices = newServices,
+                                        searchServiceSelected = newSelected,
+                                    )
                                 )
                             }
                         },
@@ -176,7 +246,8 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
                 showAddDialog = false
                 vm.updateSettings(
                     settings.copy(
-                        searchServices = listOf(options) + settings.searchServices
+                        searchServices = listOf(options) + settings.searchServices,
+                        searchServiceSelected = 0,
                     )
                 )
                 scope.launch {
@@ -196,74 +267,82 @@ private fun AddProviderDialog(
         mutableStateOf(SearchServiceOptions.TYPES.keys.first())
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(stringResource(R.string.setting_page_search_add_provider))
+    RikkaFormDialog(
+        title = stringResource(R.string.setting_page_search_add_provider),
+        subtitle = stringResource(R.string.setting_page_search_intro),
+        confirmText = stringResource(R.string.confirm),
+        dismissText = stringResource(R.string.cancel),
+        onConfirm = {
+            val instance = selectedType.primaryConstructor!!.callBy(mapOf())
+            onConfirm(instance)
         },
-        text = {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                items(SearchServiceOptions.TYPES.keys.toList()) { type ->
-                    val name = SearchServiceOptions.TYPES[type] ?: "Unknown"
-                    val isSelected = selectedType == type
-                    Card(
-                        onClick = { selectedType = type },
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceContainerLow
-                            }
-                        )
+        onDismiss = onDismiss,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 360.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            SearchServiceOptions.TYPES.forEach { (type, name) ->
+                val isSelected = selectedType == type
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { selectedType = type },
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (isSelected) {
+                        MaterialTheme.colorScheme.primaryContainer
+                    } else {
+                        CustomColors.groupedCardSurface
+                    },
+                    border = BorderStroke(
+                        1.dp,
+                        if (isSelected) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        },
+                    ),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            AutoAIIcon(
-                                name = name,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Text(
-                                text = name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = if (isSelected) {
-                                    MaterialTheme.colorScheme.onPrimaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurface
-                                }
+                        AutoAIIcon(name = name, modifier = Modifier.size(28.dp))
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (isSelected) {
+                            Icon(
+                                imageVector = HugeIcons.CheckmarkCircle02,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
                             )
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val instance = selectedType.primaryConstructor!!.callBy(mapOf())
-                    onConfirm(instance)
-                }
-            ) {
-                Text(stringResource(R.string.confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.cancel))
-            }
         }
-    )
+    }
 }
 
 @Composable
 private fun SearchProviderCard(
     service: SearchServiceOptions,
+    selected: Boolean,
+    onSelect: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     canDelete: Boolean,
@@ -273,9 +352,12 @@ private fun SearchProviderCard(
 
     Card(
         modifier = modifier,
+        onClick = onEdit,
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = CustomColors.listItemColors.containerColor
-        )
+            containerColor = CustomColors.groupedCardSurface
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
     ) {
         Row(
             modifier = Modifier
@@ -293,12 +375,27 @@ private fun SearchProviderCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = service.displayName,
-                    style = MaterialTheme.typography.titleMedium
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        text = service.displayName,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 15.sp),
+                    )
+                    if (selected) {
+                        Tag(type = TagType.SUCCESS) {
+                            Text(stringResource(R.string.setting_page_search_current))
+                        }
+                    }
+                }
                 SearchAbilityTagLine(options = service)
             }
+
+            RadioButton(
+                selected = selected,
+                onClick = onSelect,
+            )
 
             IconButton(onClick = { showMenu = true }) {
                 Icon(
@@ -309,6 +406,18 @@ private fun SearchProviderCard(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    if (!selected) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.setting_page_search_set_active)) },
+                            onClick = {
+                                showMenu = false
+                                onSelect()
+                            },
+                            leadingIcon = {
+                                Icon(HugeIcons.CheckmarkCircle02, contentDescription = null)
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.edit)) },
                         onClick = {
@@ -371,9 +480,11 @@ private fun CommonOptions(
         mutableStateOf(settings.searchCommonOptions)
     }
     Card(
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = CustomColors.listItemColors.containerColor
-        )
+            containerColor = CustomColors.groupedCardSurface
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
     ) {
         Column(
             modifier = Modifier

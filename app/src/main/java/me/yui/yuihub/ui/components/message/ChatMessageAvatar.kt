@@ -72,19 +72,19 @@ fun ChatMessageAssistantAvatar(
 ) {
     val settings = LocalSettings.current
     val showIcon = settings.displaySetting.showModelIcon
-    val useAssistantAvatar = assistant?.useAssistantAvatar == true
-    if (message.role == MessageRole.ASSISTANT && (model != null || useAssistantAvatar)) {
+    val useAssistantAvatar = assistant?.takeIf { settings.displaySetting.useAssistantAvatar }
+    if (message.role == MessageRole.ASSISTANT && (model != null || useAssistantAvatar != null)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
             modifier = modifier
         ) {
-            if (useAssistantAvatar) {
+            if (useAssistantAvatar != null) {
                 if (showIcon) {
                     UIAvatar(
-                        name = assistant.name,
+                        name = useAssistantAvatar.name,
                         modifier = Modifier.size(28.dp),
-                        value = assistant.avatar,
+                        value = useAssistantAvatar.avatar,
                         loading = loading,
                     )
                 }
@@ -95,7 +95,7 @@ fun ChatMessageAssistantAvatar(
                 ) {
                     if (settings.displaySetting.showModelName) {
                         Text(
-                            text = assistant.name.ifEmpty { stringResource(R.string.assistant_page_default_assistant) },
+                            text = useAssistantAvatar.name.ifEmpty { stringResource(R.string.assistant_page_default_assistant) },
                             style = MaterialTheme.typography.labelLargeEmphasized,
                             maxLines = 1,
                         )

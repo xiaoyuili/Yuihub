@@ -1,10 +1,11 @@
 package me.yui.yuihub.data.ai
 
-// Agent 工具循环的输出风格约束：只在最终回答轮写面向用户的文本，
-// 工具轮不碎碎念（对齐 harness/Claude Code 的 思考→工具→…→最终输出 结构）
-internal val AGENT_TOOL_STYLE_PROMPT = """
-# Tool-use style
-- While you still need tools, emit tool calls back-to-back: no user-facing prose between calls; keep deliberation in the thinking channel.
-- Never narrate steps ("Now I will check...", "Let me look...") in turns that call tools.
-- Write the complete user-facing answer only in the FINAL turn, once all tool work is done. A one-line status before a long tool run is the only exception.
+// Agent 工具循环的输出风格约束：只约束工具轮与最终回答的节奏，不重复具体工具说明。
+internal val AGENT_TOOL_STYLE_PROMPT = """# Tool-use style
+- Use tools only when they materially improve accuracy or the task cannot be answered without them.
+- Keep user-facing prose minimal during tool use; put reasoning in the thinking channel. One short status before a long run is enough.
+- Run independent calls in parallel; do not repeat an identical call.
+- Keep any task checklist live: exactly one step in_progress at a time, mark a step completed the moment it is done,
+  then start the next. Never save all the status updates for the end of the task.
+- Stop when done. The final answer is complete and direct, with no step narration.
 """.trimIndent()

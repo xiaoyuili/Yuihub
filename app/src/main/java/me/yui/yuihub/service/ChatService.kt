@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -30,9 +31,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import me.yui.yuihub.data.ai.prompts.buildMemorySnapshotText
+import me.yui.yuihub.data.ai.prompts.PromptId
+import me.yui.yuihub.data.ai.prompts.buildCoreMemorySnapshotText
+import me.yui.yuihub.data.ai.prompts.buildHitMemorySnapshotText
+import me.yui.yuihub.data.ai.prompts.buildRebaseMemorySnapshotText
+import me.yui.yuihub.data.ai.prompts.isPlainChatMode
+import me.yui.yuihub.data.ai.prompts.isPromptEnabled
 import me.yui.yuihub.data.ai.prompts.isMemorySnapshot
-import me.yui.yuihub.data.ai.prompts.withMemorySnapshot
+import me.yui.yuihub.data.ai.prompts.memorySnapshotKind
+import me.yui.yuihub.data.ai.prompts.withCoreSnapshot
+import me.yui.yuihub.data.ai.prompts.withoutCoreSnapshot
+import me.yui.yuihub.data.ai.prompts.withHitSnapshot
+import me.yui.yuihub.data.ai.prompts.withRebaseSnapshot
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -64,9 +74,11 @@ import me.yui.yuihub.AppScope
 import me.yui.yuihub.R
 import me.yui.yuihub.data.ai.GenerationChunk
 import me.yui.yuihub.data.ai.GenerationHandler
+import me.yui.yuihub.data.ai.RequestBreakdown
 import me.yui.yuihub.data.ai.mcp.McpManager
 import me.yui.yuihub.data.ai.memory.MemoryExtractor
 import me.yui.yuihub.data.ai.tools.createConversationTools
+import me.yui.yuihub.data.ai.tools.createHistoryTools
 import me.yui.yuihub.data.ai.tools.local.ASK_USER_TOOL_NAME
 import me.yui.yuihub.data.ai.tools.local.LocalTools
 import me.yui.yuihub.data.ai.tools.createSearchTools
@@ -79,8 +91,12 @@ import me.yui.yuihub.data.ai.tools.TODO_TOOL_NAME
 import me.yui.yuihub.data.ai.tools.createScheduledTaskTools
 import me.yui.yuihub.data.ai.tools.createSkillTools
 import me.yui.yuihub.data.ai.tools.createWorkspaceTools
+import me.yui.yuihub.data.ai.tools.AgentToolSet
 import me.yui.yuihub.data.ai.tools.SPAWN_AGENT_TOOL_NAME
+import me.yui.yuihub.data.ai.tools.CANCEL_AGENT_TOOL_NAME
 import me.yui.yuihub.data.ai.tools.FOLLOWUP_AGENT_TOOL_NAME
+import me.yui.yuihub.data.ai.tools.LIST_AGENTS_TOOL_NAME
+import me.yui.yuihub.data.ai.tools.POLL_AGENT_TOOL_NAME
 import me.yui.yuihub.data.ai.tools.AGENT_SESSION_NOT_FOUND
 import me.yui.yuihub.data.ai.tools.SUBAGENT_RESULT_INLINE_CHARS
 import me.yui.yuihub.data.ai.tools.createSubagentTool
@@ -98,8 +114,8 @@ import me.yui.yuihub.data.ai.transformers.PromptInjectionTransformer
 import me.yui.yuihub.data.ai.transformers.RegexOutputTransformer
 import me.yui.yuihub.data.ai.transformers.TemplateTransformer
 import me.yui.yuihub.data.ai.transformers.ThinkTagTransformer
-import me.yui.yuihub.data.ai.transformers.TimeReminderTransformer
 import me.yui.yuihub.data.ai.transformers.WorkspaceReminderTransformer
+import me.yui.yuihub.data.ai.prompts.DEFAULT_SUMMARY_MERGE_PROMPT
 import me.yui.yuihub.data.event.AppEvent
 import me.yui.yuihub.data.event.AppEventBus
 import me.yui.yuihub.data.datastore.Settings
@@ -124,6 +140,8 @@ import me.yui.yuihub.data.repository.ConversationRepository
 import me.yui.yuihub.data.repository.FolderRepository
 import me.yui.yuihub.data.repository.MemoryRepository
 import me.yui.yuihub.data.repository.ScheduledTaskRepository
+import me.yui.yuihub.data.repository.TokenUsageRepository
+import me.yui.yuihub.data.repository.TokenUsageSource
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.utils.AUTO_COMPRESS_RETAIN_RATIO
 import me.yui.yuihub.utils.AUTO_COMPRESS_TARGET_TOKENS
@@ -142,6 +160,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.selects.select
 
 private const val TAG = "ChatService"
+private const val SUMMARY_MERGE_TRIGGER = 4
 
 /** 生成检查点落库间隔（毫秒）：崩溃/被杀后最多丢失这段时长内的流式输出 */
 private const val GENERATION_CHECKPOINT_INTERVAL_MS = 2_000L
@@ -160,24 +179,6 @@ private val PARENT_ONLY_TOOL_NAMES = setOf(
     TODO_TOOL_NAME,
 )
 
-// 子代理平台限制声明 (P1-2): 经工具 systemPrompt 注入子代理系统提示,
-// 把「工具不存在」的隐式限制变成平台明确声明, 避免子代理把缺工具理解成环境缺失而自行排查。
-// P2-5: 同时声明沙箱预置缺口（无 python3 / shell 为 UTC / 无 tzdata / 产物目录约定）。
-// 交付目录为共享的 /workspace/subagents/（不再按 sessionId 建子目录），
-// 与 spawn_agent 工具说明中的同一约定保持一致，避免父代理指令与子代理自述冲突
-private const val CHILD_AGENT_PLATFORM_DECLARATION =
-    "<child_agent_constraints>\n" +
-        "You are a CHILD agent spawned by a parent agent. Platform restrictions:\n" +
-        "- You CANNOT spawn further child agents (spawn_agent) or follow up on other agents (followup_agent). These tools do not exist in your environment by design — do not search for them or work around them.\n" +
-        "- You have NO management tools: manage_skill, manage_mcp_server, scheduled_task and todo_write exist only for the parent agent. Report any desired change to them (including skill library edits) to the parent agent.\n" +
-        "- Tools requiring user approval are unavailable to you; report them to the parent agent instead.\n" +
-        "- ask_user is unavailable: there is no interactive user in your session.\n" +
-        "Sandbox environment facts (do NOT waste turns re-checking these):\n" +
-        "- python3 and node are NOT installed; if a task needs scripting, use bash/sh with Perl or awk (both preinstalled), or install a runtime with apt-get.\n" +
-        "- The shell clock is UTC (no tzdata). TZ=Asia/Shanghai date will show a wrong label; use get_time_info for the user's local time (+08:00).\n" +
-        "- /upload may not exist when there are no user uploads; treat ls errors there as empty, not broken.\n" +
-        "- Deliver produced files under /workspace/subagents/ (create it if missing). This is the shared drop-off directory for ALL subagents — do not create a per-session subfolder; return the exact paths to the parent.\n" +
-        "</child_agent_constraints>"
 
 internal fun backgroundTextGenerationParams(
     model: Model,
@@ -228,7 +229,6 @@ enum class ChatErrorSolution {
 
 private val inputTransformers by lazy {
     listOf(
-        TimeReminderTransformer,
         PromptInjectionTransformer,
         PlaceholderTransformer,
         DocumentAsPromptTransformer,
@@ -262,9 +262,10 @@ class ChatService(
     private val folderRepository: FolderRepository,
     private val subagentManager: SubagentManager,
     private val scheduledTaskRepository: ScheduledTaskRepository,
+    private val tokenUsageRepository: TokenUsageRepository,
 ) {
     // workspace 系统提示注入 (依赖 workspaceRepository, 故在类内构造)
-    private val workspaceReminderTransformer = WorkspaceReminderTransformer(workspaceRepository)
+    private val workspaceReminderTransformer = WorkspaceReminderTransformer(workspaceRepository, settingsStore)
 
     // 统一会话管理
     private val sessions = ConcurrentHashMap<Uuid, ConversationSession>()
@@ -307,22 +308,31 @@ class ChatService(
     private val _manualCompressionFlow = MutableSharedFlow<Pair<Uuid, String>>()
     val manualCompressionFlow: SharedFlow<Pair<Uuid, String>> = _manualCompressionFlow.asSharedFlow()
 
+    // 请求解剖：最近一次请求的提示词构成估算
+    private val _requestBreakdowns = MutableStateFlow<Map<Uuid, RequestBreakdown>>(emptyMap())
+
+    fun getRequestBreakdownFlow(conversationId: Uuid): Flow<RequestBreakdown?> =
+        _requestBreakdowns.map { it[conversationId] }
+
     // 正在手动压缩的会话集合（供输入栏显示「正在压缩上下文…」反馈）
     private val _compressingConversations = MutableStateFlow<Set<Uuid>>(emptySet())
     val compressingConversations: StateFlow<Set<Uuid>> = _compressingConversations.asStateFlow()
+
+    private val _compressionInProgress = MutableStateFlow<Set<Uuid>>(emptySet())
+    val compressionInProgress: StateFlow<Set<Uuid>> = _compressionInProgress.asStateFlow()
 
     // 生成检查点节流：上次落库时间。流式 chunk 频率很高，只在超过间隔时写库，
     // 既让崩溃后丢失的输出不超过一个间隔，又避免每 token 一次磁盘写入。
     private val lastCheckpointMs = ConcurrentHashMap<Uuid, Long>()
     private val checkpointInFlight = ConcurrentHashMap.newKeySet<Uuid>()
 
-    /**
-     * 生成过程中的检查点：将当前（含半截助手消息的）会话直接 upsert 到数据库。
-     *
-     * 与 [saveConversation] 不同，它只更新末尾节点与对话元信息，不删除其它节点，
-     * 因此可以高频调用。进程被杀后重新进入该会话即可看到断点前的输出。
-     */
-    private suspend fun checkpointConversation(conversationId: Uuid, messages: List<UIMessage>) {
+    /** 节流保存生成增量及受插入影响的后续节点，不删除历史节点。 */
+    private suspend fun checkpointConversation(
+        conversationId: Uuid,
+        messages: List<UIMessage>,
+        responseNodeId: Uuid? = null,
+    ) {
+        if (messages.isEmpty()) return
         val now = System.currentTimeMillis()
         val last = lastCheckpointMs[conversationId] ?: 0L
         if (now - last < GENERATION_CHECKPOINT_INTERVAL_MS) return
@@ -334,10 +344,16 @@ class ChatService(
             // 正在生成的助手消息 id：从本轮提交的消息里取（末尾必为待生成的助手消息）
             val generatingMessageId = messages.lastOrNull()?.id ?: return
             // 与最终保存走同一条 updateCurrentMessages 映射，保证检查点与收尾落库一致
-            val conversation = session.mutationLock.withLock {
-                session.state.value.updateCurrentMessages(messages)
+            session.mutationLock.withLock {
+                val conversation = session.state.value.updateCurrentMessages(messages, responseNodeId)
+                conversationRepo.checkpointGeneratingNode(
+                    conversationId,
+                    conversation,
+                    generatingMessageId,
+                    responseNodeId,
+                    messages.mapTo(hashSetOf()) { it.id },
+                )
             }
-            conversationRepo.checkpointGeneratingNode(conversationId, conversation, generatingMessageId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -730,8 +746,7 @@ class ChatService(
                         val conversation = session.state.value
                         val node = conversation.getMessageNodeByMessageId(message.id)
                             ?: return@launchGenerationJob
-                        val nodeIndex = conversation.messageNodes.indexOf(node)
-                        handleMessageComplete(conversationId, messageRange = 0..<nodeIndex)
+                        handleMessageComplete(conversationId, responseNodeId = node.id)
                     } else {
                         session.mutationLock.withLock {
                             saveConversation(conversationId, session.state.value)
@@ -838,15 +853,15 @@ class ChatService(
 
     private suspend fun handleMessageComplete(
         conversationId: Uuid,
-        messageRange: ClosedRange<Int>? = null
+        responseNodeId: Uuid? = null
     ) {
-        val settings = settingsStore.settingsFlow.first()
+        val settings = settingsStore.settingsFlowRaw.first()
         val initialConversation = getConversationFlow(conversationId).value
         val assistant = settings.getAssistantById(initialConversation.assistantId)
             ?: settings.getCurrentAssistant()
         val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId) ?: return
 
-        val senderName = if (assistant.useAssistantAvatar) {
+        val senderName = if (settings.displaySetting.useAssistantAvatar) {
             assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }
         } else {
             model.displayName
@@ -857,7 +872,7 @@ class ChatService(
 
             // memory tool
             if (!model.abilities.contains(ModelAbility.TOOL)) {
-                if (useExternalWebSearch || mcpManager.getAllAvailableTools().isNotEmpty()) {
+                if (useExternalWebSearch || mcpManager.getAllAvailableTools(initialConversation.mcpServersOverride ?: assistant.mcpServers).isNotEmpty()) {
                     addError(
                         IllegalStateException(context.getString(R.string.tools_warning)),
                         conversationId,
@@ -873,21 +888,36 @@ class ChatService(
             runCatching { prepareMemorySnapshot(conversationId, assistant) }
                 .onFailure { Log.w(TAG, "prepareMemorySnapshot failed", it) }
             val conversation = getConversationFlow(conversationId).value
+            val agentTools = buildAgentTools(
+                settings = settings,
+                assistant = assistant,
+                conversation = conversation,
+                useExternalWebSearch = useExternalWebSearch,
+                parentConversationId = conversationId,
+            )
 
             // start generating
             val session = getOrCreateSession(conversationId)
+            val responseNodeIndex = responseNodeId?.let { id ->
+                conversation.messageNodes.indexOfFirst { it.id == id }.also {
+                    check(it >= 0) { "Regeneration target no longer exists" }
+                }
+            }
             generationHandler.generateText(
                 settings = settings,
                 model = model,
                 processingStatus = session.processingStatus,
-                messages = if (messageRange != null) {
-                    // 重生成历史消息：保持原始轨迹（被压缩的原始消息仍在，上下文完整）
-                    conversation.currentMessages.let {
-                        it.subList(messageRange.start, messageRange.endInclusive + 1)
-                    }
+                messages = if (responseNodeIndex != null) {
+                    conversation.currentMessages.take(responseNodeIndex)
                 } else {
                     // 发送窗口：活跃压缩检查点作为新段起点，边界前旧前缀不发送（DSH 分段轨迹）
-                    conversation.requestWindowMessages()
+                    conversation.requestWindowMessages(
+                        if (settings.isPromptEnabled(PromptId.COMPACTION_CHECKPOINT)) {
+                            settings.compactionCheckpointPrompt
+                        } else {
+                            ""
+                        }
+                    )
                 },
                 assistant = assistant,
                 conversationId = conversationId,
@@ -895,20 +925,33 @@ class ChatService(
                 conversationModeInjectionIds = conversation.modeInjectionIds,
                 conversationLorebookIds = conversation.lorebookIds,
                 workspaceCwd = conversation.workspaceCwd,
-                inputTransformers = buildList {
-                    addAll(inputTransformers)
-                    add(templateTransformer)
-                    add(workspaceReminderTransformer)
+                inputTransformers = if (settings.isPlainChatMode()) {
+                    emptyList()
+                } else {
+                    buildList {
+                        addAll(inputTransformers)
+                        add(templateTransformer)
+                        add(workspaceReminderTransformer)
+                    }
                 },
                 outputTransformers = outputTransformers,
-                tools = buildAgentTools(
-                    settings = settings,
-                    assistant = assistant,
-                    conversation = conversation,
-                    useExternalWebSearch = useExternalWebSearch,
-                    parentConversationId = conversationId,
-                ),
-                onCheckpoint = { checkpointConversation(conversationId, it) },
+                tools = agentTools.tools,
+                extraTools = agentTools.extraTools,
+                onUsage = { usage ->
+                    model.findProvider(settings.providers)?.let { provider ->
+                        tokenUsageRepository.record(
+                            conversationId = conversationId.toString(),
+                            provider = provider,
+                            model = model,
+                            source = TokenUsageSource.CHAT,
+                            usage = usage,
+                        )
+                    }
+                },
+                onRequestBreakdown = { breakdown ->
+                    _requestBreakdowns.update { it + (conversationId to breakdown) }
+                },
+                onCheckpoint = { checkpointConversation(conversationId, it, responseNodeId) },
             ).onCompletion {
                 // 可能被取消了，或者意外结束，兜底更新；NonCancellable 保证取消场景下兜底也执行
                 val updatedConversation = withContext(NonCancellable) {
@@ -943,7 +986,7 @@ class ChatService(
                         session.mutationLock.withLock {
                             updateConversation(
                                 conversationId,
-                                session.state.value.updateCurrentMessages(chunk.messages)
+                                session.state.value.updateCurrentMessages(chunk.messages, responseNodeId)
                             )
                         }
 
@@ -998,35 +1041,49 @@ class ChatService(
         conversation: Conversation,
         useExternalWebSearch: Boolean,
         parentConversationId: Uuid,
-    ): List<Tool> {
+        allowConversationAccess: Boolean = true,
+    ): AgentToolSet {
+        if (settings.isPlainChatMode()) return AgentToolSet.Empty
+        val effectiveSkills = conversation.enabledSkillsOverride ?: assistant.enabledSkills
+        val effectiveMcpServers = conversation.mcpServersOverride ?: assistant.mcpServers
+        val effectiveLocalTools = conversation.localToolsOverride ?: assistant.localTools
+        val workspaceToolset = createWorkspaceToolsIfReady(
+            assistant.workspaceId?.toString(),
+            conversation.workspaceCwd,
+        )
         val tools = buildList {
-        if (useExternalWebSearch) {
-            addAll(createSearchTools(settings))
-        }
-        addAll(localTools.getTools(assistant.localTools))
-        if (assistant.enableRecentChatsReference) {
-            addAll(createConversationTools(conversationRepo, assistant.id))
-        }
-        addAll(createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), conversation.workspaceCwd))
-        if (assistant.enabledSkills.isNotEmpty()) {
+            if (useExternalWebSearch) {
+                addAll(createSearchTools(settings))
+            }
+            addAll(localTools.getTools(effectiveLocalTools))
+            if (allowConversationAccess && assistant.enableRecentChatsReference) {
+                addAll(createConversationTools(conversationRepo, assistant.id))
+            }
+            if (allowConversationAccess && conversation.activeCompressions().isNotEmpty()) {
+                addAll(createHistoryTools(conversationRepo, conversation.id))
+            }
+            addAll(workspaceToolset.tools)
+            if (effectiveSkills.isNotEmpty()) {
+                addAll(
+                    createSkillTools(
+                        enabledSkills = effectiveSkills,
+                        allSkills = skillManager.listSkills(),
+                        prompt = if (settings.isPromptEnabled(PromptId.SKILLS)) settings.skillsPrompt else null,
+                    )
+                )
+            }
+            addAll(createSkillManageTools(skillManager))
+            addAll(createMcpManageTools(mcpManager, settingsStore))
+            add(createTodoTool())
             addAll(
-                createSkillTools(
-                    enabledSkills = assistant.enabledSkills,
-                    allSkills = skillManager.listSkills(),
+                createScheduledTaskTools(
+                    repository = scheduledTaskRepository,
+                    assistantId = assistant.id,
+                    onRunNow = { task -> scheduledTaskRepository.runNow(task) },
+                    prompt = if (settings.isPromptEnabled(PromptId.SCHEDULED_TASK)) settings.scheduledTaskPrompt else "",
                 )
             )
-        }
-        addAll(createSkillManageTools(skillManager))
-        addAll(createMcpManageTools(mcpManager, settingsStore))
-        add(createTodoTool())
-        addAll(
-            createScheduledTaskTools(
-                repository = scheduledTaskRepository,
-                assistantId = assistant.id,
-                onRunNow = { task -> scheduledTaskRepository.runNow(task) },
-            )
-        )
-        mcpManager.getAllAvailableTools().forEach { (serverId, serverName, tool) ->
+            mcpManager.getAllAvailableTools(effectiveMcpServers).forEach { (serverId, serverName, tool) ->
             add(
                 Tool(
                     name = "mcp__${serverName}__${tool.name}",
@@ -1039,49 +1096,51 @@ class ChatService(
                 )
             )
         }
-        add(
-            createSubagentTool(
-                personas = settings.subagentPersonas,
-            ) { description, prompt, async, timeoutMs, maxToolCalls, personaName ->
-                runChildAgent(
-                    parentConversationId = parentConversationId,
-                    settings = settings,
-                    assistant = assistant,
-                    conversation = conversation,
-                    useExternalWebSearch = useExternalWebSearch,
-                    description = description,
-                    prompt = prompt,
-                    async = async,
-                    timeoutMs = timeoutMs,
-                    maxToolCalls = maxToolCalls,
-                    personaName = personaName,
-                )
-            }
-        )
-        add(
-            createPollAgentTool { taskId -> pollChildAgent(taskId) }
-        )
-        add(
-            createCancelAgentTool { taskId -> cancelChildAgent(taskId) }
-        )
-        add(
-            createListAgentsTool { listChildAgents(parentConversationId) }
-        )
-        add(
-            createFollowupAgentTool { sessionId, message ->
-                followUpChildAgent(
-                    sessionId = sessionId,
-                    message = message,
-                    settings = settings,
-                    assistant = assistant,
-                    conversation = conversation,
-                    useExternalWebSearch = useExternalWebSearch,
-                )
-            }
-        )
+        if (settings.isPromptEnabled(PromptId.CHILD_AGENT)) {
+            add(
+                createSubagentTool(
+                    personas = settings.subagentPersonas,
+                ) { description, prompt, async, timeoutMs, maxToolCalls, personaName ->
+                    runChildAgent(
+                        parentConversationId = parentConversationId,
+                        settings = settings,
+                        assistant = assistant,
+                        conversation = conversation,
+                        useExternalWebSearch = useExternalWebSearch,
+                        description = description,
+                        prompt = prompt,
+                        async = async,
+                        timeoutMs = timeoutMs,
+                        maxToolCalls = maxToolCalls,
+                        personaName = personaName,
+                    )
+                }
+            )
+            add(
+                createPollAgentTool { taskId -> pollChildAgent(taskId) }
+            )
+            add(
+                createCancelAgentTool { taskId -> cancelChildAgent(taskId) }
+            )
+            add(
+                createListAgentsTool { listChildAgents(parentConversationId) }
+            )
+            add(
+                createFollowupAgentTool { sessionId, message ->
+                    followUpChildAgent(
+                        sessionId = sessionId,
+                        message = message,
+                        settings = settings,
+                        assistant = assistant,
+                        conversation = conversation,
+                        useExternalWebSearch = useExternalWebSearch,
+                    )
+                }
+            )
+        }
         createVisionToolIfReady(settings, assistant, conversation)?.let(::add)
         }
-        return tools
+        return AgentToolSet(tools = tools, extraTools = workspaceToolset.extraTools)
     }
 
     // harness spawn-in-process：子 agent 继承 workspace/model/tools，禁止再派生子 agent；
@@ -1311,7 +1370,11 @@ class ChatService(
         cancelSignal: CompletableDeferred<Unit>? = null,
         persona: SubagentPersona? = null,
     ): String {
-        val model = settings.findModelById(assistant.chatModelId ?: settings.chatModelId)
+        val effectivePersona = persona ?: conversation.subagentPersonaId?.let { personaId ->
+            settings.subagentPersonas.find { it.id == personaId }
+        }
+        val model = effectivePersona?.modelId?.let { settings.findModelById(it) }
+            ?: settings.findModelById(assistant.chatModelId ?: settings.chatModelId)
             ?: error("Model not found for child agent")
         // 追问时把新消息追加到既有子会话；首轮则建新子会话（title=description，继承父配置）
         val baseConversation = if (isFollowUp) {
@@ -1329,6 +1392,7 @@ class ChatService(
                 lorebookIds = conversation.lorebookIds,
                 workspaceCwd = conversation.workspaceCwd,
                 parentConversationId = parentConversationId,
+                subagentPersonaId = effectivePersona?.id,
             ).updateCurrentMessages(userMessages)
         }
         // 生成开始前落库：抽屉树立即出现子代理行；失败/取消也保留已产生的轨迹
@@ -1339,37 +1403,59 @@ class ChatService(
             updateConversation(childId, baseConversation)
         }
 
-        val childTools = buildChildAgentTools(
-            settings = settings,
-            assistant = assistant,
-            conversation = baseConversation,
-            useExternalWebSearch = useExternalWebSearch,
-            parentConversationId = parentConversationId,
-            persona = persona,
-        )
-        val startedAtMs = System.currentTimeMillis()
-        // 角色提示词追加到系统提示尾部（不依赖 allowConversationSystemPrompt 开关，子代理一定会生效）
-        val childAssistant = if (persona != null && persona.systemPrompt.isNotBlank()) {
+        // 角色提示词追加到系统提示尾部；模型与推理强度为空时跟随主对话
+        val childAssistant = if (effectivePersona != null && effectivePersona.systemPrompt.isNotBlank()) {
             assistant.copy(
+                reasoningLevel = effectivePersona.reasoningLevel ?: assistant.reasoningLevel,
                 systemPrompt = buildString {
                     if (assistant.systemPrompt.isNotBlank()) {
                         append(assistant.systemPrompt)
                         append("\n\n")
                     }
                     append("<agent_role name=\"")
-                    append(persona.name)
+                    append(effectivePersona.name)
                     append("\">\n")
-                    append(persona.systemPrompt)
+                    append(effectivePersona.systemPrompt)
                     append("\n</agent_role>")
-                }
+                },
             )
         } else {
-            assistant
+            assistant.copy(reasoningLevel = effectivePersona?.reasoningLevel ?: assistant.reasoningLevel)
         }
+        val childAssistantWithModel = childAssistant.copy(chatModelId = model.id)
+        val childTools = buildChildAgentTools(
+            settings = settings,
+            assistant = childAssistantWithModel,
+            conversation = baseConversation,
+            useExternalWebSearch = useExternalWebSearch,
+            parentConversationId = parentConversationId,
+            persona = effectivePersona,
+        )
+        val startedAtMs = System.currentTimeMillis()
         // P1-1 方案A: 生成前扫一次 /workspace，结束时 diff 出 shell 等非工具写入
         val workspaceSnapshotBefore = withContext(Dispatchers.IO) { snapshotWorkspaceFiles() }
         var latest: List<UIMessage> = baseConversation.currentMessages
         var failed: Throwable? = null
+        // 子会话「生成中」标记：
+        // 1) 子会话页能显示等待/停止状态（否则发消息按钮一直是灰白空闲态）；
+        // 2) initializeConversation 看到 isGenerating 就不会用 DB 快照覆盖内存里的实时消息；
+        // 3) 在子会话页点停止 = 取消 marker → 转成子代理的取消信号，走正常的部分结果收尾。
+        val effectiveCancel = cancelSignal ?: CompletableDeferred()
+        val childFinished = CompletableDeferred<Unit>()
+        var finishedNormally = false
+        val childSession = getOrCreateSession(childId)
+        val runMarker = appScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) {
+                    if (!finishedNormally) effectiveCancel.complete(Unit)
+                    // 等子代理把部分结果落库后再结束，避免停止后状态滞后
+                    withTimeoutOrNull(5_000) { childFinished.await() }
+                }
+            }
+        }
+        childSession.setJob(runMarker, cancelPrevious = false)
         subagentManager.start(
             childId = childId,
             parentConversationId = parentConversationId,
@@ -1377,32 +1463,47 @@ class ChatService(
         )
         try {
             // P0-2 c): timeout / cancel 任意一个触发即终止生成；用 select 竞速，胜出方决定终止类型。
-            // timeoutMs 不设且无 cancelSignal 时直接收集（零开销路径）
             val collectBlock: suspend () -> Unit = {
                 generationHandler.generateText(
                     settings = settings,
                     model = model,
                     messages = baseConversation.currentMessages,
-                    assistant = childAssistant.copy(streamOutput = false),
+                    // 子会话也是真实会话：跟随助手的流式设置，用户点开能看到逐 token 输出与逐步工具调用
+                    assistant = childAssistantWithModel,
                     conversationId = childId,
                     conversationSystemPrompt = baseConversation.customSystemPrompt,
                     conversationModeInjectionIds = baseConversation.modeInjectionIds,
                     conversationLorebookIds = baseConversation.lorebookIds,
                     workspaceCwd = baseConversation.workspaceCwd,
-                    inputTransformers = buildList {
-                        addAll(inputTransformers)
-                        add(templateTransformer)
-                        add(workspaceReminderTransformer)
+                    inputTransformers = if (settings.isPlainChatMode()) {
+                        emptyList()
+                    } else {
+                        buildList {
+                            addAll(inputTransformers)
+                            add(templateTransformer)
+                            add(workspaceReminderTransformer)
+                        }
                     },
                     outputTransformers = outputTransformers,
-                    tools = childTools,
+                    tools = childTools.tools,
+                    extraTools = childTools.extraTools,
+                    onUsage = { usage ->
+                        model.findProvider(settings.providers)?.let { provider ->
+                            tokenUsageRepository.record(
+                                conversationId = childId.toString(),
+                                provider = provider,
+                                model = model,
+                                source = TokenUsageSource.CHAT,
+                                usage = usage,
+                            )
+                        }
+                    },
                     maxSteps = maxToolCalls?.plus(1)?.coerceAtMost(CHILD_AGENT_MAX_STEPS) ?: CHILD_AGENT_MAX_STEPS,
                 ).collect { chunk ->
                     when (chunk) {
                         is GenerationChunk.Messages -> {
                             latest = chunk.messages
                             // 流式写回子会话 session（抽屉树/子会话页实时可见），与其它写者串行
-                            val childSession = getOrCreateSession(childId)
                             childSession.mutationLock.withLock {
                                 updateConversation(
                                     childId,
@@ -1415,39 +1516,32 @@ class ChatService(
                     }
                 }
             }
-            when {
-                timeoutMs == null && cancelSignal == null -> collectBlock()
-                else -> withTimeoutOrNull(timeoutMs ?: Long.MAX_VALUE) {
-                    if (cancelSignal == null) {
-                        collectBlock()
-                    } else {
-                        // cancel 与正常结束竞速：select 任一方胜出立即返回，无悬空子协程。
-                        // P1 缺陷修复：原实现 scope 内的 cancel 监听协程挂在 await() 上，
-                        // collect 结束后 scope 仍要等它 → executeChildAgent 永久挂起，
-                        // 异步任务终态永远落不了地（症状：工作已完成但 poll 一直 running，
-                        // 直到 cancel_agent 才解锁终态）。
-                        // 语义：collect 已完成时 onJoin 优先（首个就绪子句胜出），
-                        // 完成后才到达的 cancel 不会把已完成的任务标成 CANCELLED。
-                        try {
-                            coroutineScope {
-                                val collectJob = launch { collectBlock() }
-                                val cancelled = select<Boolean> {
-                                    collectJob.onJoin { false }
-                                    cancelSignal.onAwait { true }
-                                }
-                                if (cancelled) {
-                                    collectJob.cancel()
-                                    throw ChildAgentCancelledException(null)
-                                }
-                            }
-                        } catch (e: ChildAgentCancelledException) {
-                            throw e
+            withTimeoutOrNull(timeoutMs ?: Long.MAX_VALUE) {
+                // cancel 与正常结束竞速：select 任一方胜出立即返回，无悬空子协程。
+                // P1 缺陷修复：原实现 scope 内的 cancel 监听协程挂在 await() 上，
+                // collect 结束后 scope 仍要等它 → executeChildAgent 永久挂起，
+                // 异步任务终态永远落不了地（症状：工作已完成但 poll 一直 running，
+                // 直到 cancel_agent 才解锁终态）。
+                // 语义：collect 已完成时 onJoin 优先（首个就绪子句胜出），
+                // 完成后才到达的 cancel 不会把已完成的任务标成 CANCELLED。
+                try {
+                    coroutineScope {
+                        val collectJob = launch { collectBlock() }
+                        val cancelled = select<Boolean> {
+                            collectJob.onJoin { false }
+                            effectiveCancel.onAwait { true }
+                        }
+                        if (cancelled) {
+                            collectJob.cancel()
+                            throw ChildAgentCancelledException(null)
                         }
                     }
-                } ?: run {
-                    // withTimeoutOrNull 返回 null = 超时
-                    failed = ChildAgentTimeoutException(null)
+                } catch (e: ChildAgentCancelledException) {
+                    throw e
                 }
+            } ?: run {
+                // withTimeoutOrNull 返回 null = 超时
+                failed = ChildAgentTimeoutException(null)
             }
         } catch (e: ChildAgentTimeoutException) {
             failed = e
@@ -1459,12 +1553,17 @@ class ChatService(
             // 取消向上传播（CME 语义不变），其它异常转为结构化 error 返回给父代理（P0-1）
             failed = e
         } finally {
+            // 先收掉「生成中」标记，再落库，避免 UI 先看到空闲才开始闪动；
+            // 置 true 表示这次是自然收尾，marker 的 finally 不应再发取消信号
+            finishedNormally = true
+            childFinished.complete(Unit)
+            runMarker.cancel()
+            childSession.setJob(null, cancelPrevious = false)
             subagentManager.finish(childId)
-            withContext(NonCancellable) { saveChildAgentFinal(childId) }
+            withContext(NonCancellable) { saveChildAgentFinal(childId, latest) }
         }
         val failure = failed
         if (failure is CancellationException) throw failure
-        conversationRepo.recordTokenUsage(parentConversationId.toString(), latest)
         return buildChildAgentResultJson(
             childId = childId,
             description = description,
@@ -1627,10 +1726,18 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
     RuntimeException("Child agent cancelled")
 
     /** 子代理结束后把内存态落库（收尾 reasoning、刷新 updateAt），与主会话收尾一致 */
-    private suspend fun saveChildAgentFinal(childId: Uuid) {
+    private suspend fun saveChildAgentFinal(
+        childId: Uuid,
+        latestMessages: List<UIMessage>? = null,
+    ) {
         val session = sessions[childId] ?: return
         session.mutationLock.withLock {
-            val current = session.state.value
+            val base = session.state.value
+            val current = if (latestMessages != null) {
+                base.updateCurrentMessages(latestMessages)
+            } else {
+                base
+            }
             val finished = current.copy(
                 messageNodes = current.messageNodes.map { node ->
                     node.copy(messages = node.messages.map { it.finishReasoning() })
@@ -1687,14 +1794,17 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
         useExternalWebSearch: Boolean,
         parentConversationId: Uuid,
         persona: SubagentPersona? = null,
-    ): List<Tool> =
-        buildAgentTools(
+    ): AgentToolSet {
+        val parent = buildAgentTools(
             settings = settings,
             assistant = assistant,
             conversation = conversation,
             useExternalWebSearch = useExternalWebSearch,
             parentConversationId = parentConversationId,
+            allowConversationAccess = false,
         )
+
+        fun sanitize(tools: List<Tool>): List<Tool> = tools
             // ISSUE-04: 管理类工具仅限主代理。子代理往往无人监督批量运行，改共享配置
             // （MCP 注册表、技能库、定时任务）或覆盖主会话待办属于越权面；
             // 直接从工具集中剔除，而不是保留后拒绝——避免模型误以为自己拥有这些能力。
@@ -1702,6 +1812,9 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                 tool.name !in PARENT_ONLY_TOOL_NAMES &&
                     tool.name != SPAWN_AGENT_TOOL_NAME &&
                     tool.name != FOLLOWUP_AGENT_TOOL_NAME &&
+                    tool.name != POLL_AGENT_TOOL_NAME &&
+                    tool.name != CANCEL_AGENT_TOOL_NAME &&
+                    tool.name != LIST_AGENTS_TOOL_NAME &&
                     tool.name != ASK_USER_TOOL_NAME
             }
             .map { tool ->
@@ -1723,11 +1836,15 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                 }
             }
             .map { tool ->
-                // P1-2: 给子代理的第一个工具附加平台限制声明, 经 tool.systemPrompt 注入系统提示。
+                // P1-2: 给子代理的第一个工具附加平台限制声明，经 tool.systemPrompt 注入系统提示。
                 // 选型说明: 选「声明式拒绝」而非「下发 spawn_agent 再返回 rejected」——
                 // 声明在会话开始即可见, 不浪费一次注定失败的调用轮
                 if (tool.name == "workspace_read_file") {
-                    tool.copy(systemPrompt = { _, _ -> CHILD_AGENT_PLATFORM_DECLARATION })
+                    tool.copy(
+                        systemPrompt = { _, _ ->
+                            if (settings.isPromptEnabled(PromptId.CHILD_AGENT)) settings.childAgentPrompt else ""
+                        }
+                    )
                 } else {
                     tool
                 }
@@ -1740,6 +1857,12 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                     tools.filter { it.name in persona.allowedTools }
                 }
             }
+
+        return AgentToolSet(
+            tools = sanitize(parent.tools),
+            extraTools = { sanitize(parent.extraTools()) },
+        )
+    }
 
     /**
      * 聊天模型无视觉能力且用户配置了视觉模型时，提供 vision_analyze 工具。
@@ -1763,18 +1886,21 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
             workspaceRepository = workspaceRepository,
             filesManager = filesManager,
             context = context,
+            conversationId = conversation.id.toString(),
+            tokenUsageRepository = tokenUsageRepository,
+            systemPrompt = if (settings.isPromptEnabled(PromptId.VISION)) settings.visionPrompt else "",
         )
     }
 
-    private suspend fun createWorkspaceToolsIfReady(workspaceId: String?, cwd: String? = null): List<Tool> {
-        if (workspaceId.isNullOrBlank()) return emptyList()
-        val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
+    private suspend fun createWorkspaceToolsIfReady(workspaceId: String?, cwd: String? = null): AgentToolSet {
+        if (workspaceId.isNullOrBlank()) return AgentToolSet.Empty
+        val workspace = workspaceRepository.getById(workspaceId) ?: return AgentToolSet.Empty
         if (workspace.shellStatus != WorkspaceShellStatus.READY.name) {
             Log.d(
                 TAG,
                 "createWorkspaceToolsIfReady: skip workspace tools, workspace=$workspaceId, status=${workspace.shellStatus}"
             )
-            return emptyList()
+            return AgentToolSet.Empty
         }
         return createWorkspaceTools(workspaceId, workspaceRepository, cwd)
     }
@@ -1947,6 +2073,7 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
 
         runCatching {
             val settings = settingsStore.settingsFlow.first()
+            if (!settings.isPromptEnabled(PromptId.TITLE)) return@runCatching
             val model = settings.getTitleModelOrDefault()
                 ?: throw IllegalStateException(context.getString(R.string.error_title_model_not_found))
             val provider = model.findProvider(settings.providers)
@@ -1966,6 +2093,15 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                 ),
                 params = backgroundTextGenerationParams(model, conversationId, settings.titleModelReasoningLevel),
             )
+            result.usage?.let { usage ->
+                tokenUsageRepository.record(
+                    conversationId = conversationId.toString(),
+                    provider = provider,
+                    model = model,
+                    source = TokenUsageSource.TITLE,
+                    usage = usage,
+                )
+            }
 
             // 生成完，conversation可能不是最新了，因此需要重新获取
             getOrCreateSession(conversationId).mutationLock.withLock {
@@ -1990,18 +2126,101 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
     // ---- 记忆快照 ----
 
     /**
-     * 准备记忆快照：内容有变化时作为合成 USER 消息落库（插入在最新用户消息之前），
-     * 保证请求前缀跨轮字节级稳定、持续命中供应商前缀缓存；内容未变化时不产生任何写入。
+     * 准备记忆注入：
+     * - 首轮：核心记忆快照插在首条用户消息之前（不动用户 prompt）；
+     * - 后续：每条用户消息前做关键词命中，注入一次并记入已见；
+     * - 压缩后：置位的重注入在最新用户消息前补回核心 + 本会话写过的记忆。
+     * 任一步失败只写日志，不影响生成。
      */
     private suspend fun prepareMemorySnapshot(conversationId: Uuid, assistant: Assistant) {
         if (!assistant.enableMemory) return
+        val settings = settingsStore.settingsFlow.value
+        if (settings.isPlainChatMode()) return
+        if (!settings.isPromptEnabled(PromptId.MEMORY_SNAPSHOT)) return
         val session = getOrCreateSession(conversationId)
-        val memories = memoryRepository.selectForPrompt(assistant.id.toString())
         session.mutationLock.withLock {
             val conversation = session.state.value
-            if (memories.isEmpty() && conversation.messageNodes.none { it.currentMessage.isMemorySnapshot() }) return
-            val updatedNodes = conversation.messageNodes.withMemorySnapshot(buildMemorySnapshotText(memories)) ?: return
-            saveConversation(conversationId, conversation.copy(messageNodes = updatedNodes))
+            val nodes = conversation.messageNodes
+            val assistantId = assistant.id.toString()
+            val conversationKey = conversationId.toString()
+            val workspaceId = assistant.workspaceId?.toString()
+            val userNodes = nodes.filter {
+                it.currentMessage.role == MessageRole.USER && !it.currentMessage.isMemorySnapshot()
+            }
+            val lastUserNode = userNodes.lastOrNull() ?: return@withLock
+            val lastUserMessage = lastUserNode.currentMessage
+            val isFirstTurn = userNodes.size <= 1
+
+            val core = memoryRepository.buildCoreBlock(
+                assistantId = assistantId,
+                workspaceId = workspaceId,
+                charBudget = settings.memoryCoreCharBudget,
+            )
+            val memorySession = memoryRepository.getSession(conversationKey)
+            var updated = nodes
+            var changed = false
+
+            if (memorySession?.reinjectPending == true) {
+                val written = memoryRepository.writtenIds(conversationKey)
+                val recent = memoryRepository.getMemoriesByIds(written.takeLast(8))
+                val text = buildRebaseMemorySnapshotText(core, recent)
+                memoryRepository.clearReinjectPending(conversationKey)
+                memoryRepository.setCoreHash(conversationKey, core?.hash ?: "")
+                updated.withRebaseSnapshot(text)?.let {
+                    updated = it
+                    changed = true
+                }
+                memoryRepository.recordUsage(assistantId, conversationKey, core?.ids.orEmpty(), "injected")
+                if (changed) saveConversation(conversationId, conversation.copy(messageNodes = updated))
+                return@withLock
+            }
+
+            val coreHash = core?.hash ?: ""
+            if (core == null) {
+                if (conversation.messageNodes.any { it.currentMessage.memorySnapshotKind() == "core" }) {
+                    updated.withoutCoreSnapshot()?.let {
+                        updated = it
+                        changed = true
+                        memoryRepository.setCoreHash(conversationKey, "")
+                    }
+                }
+            } else if (memorySession?.lastCoreHash != coreHash) {
+                val text = buildCoreMemorySnapshotText(core, settings.memorySnapshotPrompt)
+                updated.withCoreSnapshot(text)?.let {
+                    updated = it
+                    changed = true
+                    memoryRepository.setCoreHash(conversationKey, coreHash)
+                    memoryRepository.recordUsage(assistantId, conversationKey, core.ids, "injected")
+                }
+            }
+
+            if (!isFirstTurn) {
+                val hits = memoryRepository.selectHits(
+                    assistantId = assistantId,
+                    conversationId = conversationKey,
+                    workspaceId = workspaceId,
+                    query = lastUserMessage.toText(),
+                    topK = settings.memoryHitTopK,
+                    charBudget = settings.memoryHitCharBudget,
+                )
+                if (hits.isNotEmpty()) {
+                    val text = buildHitMemorySnapshotText(hits, lastUserMessage.id)
+                    updated.withHitSnapshot(text, lastUserMessage.id)?.let {
+                        updated = it
+                        changed = true
+                        memoryRepository.recordUsage(
+                            assistantId,
+                            conversationKey,
+                            hits.map { hit -> hit.id },
+                            "injected",
+                        )
+                    }
+                }
+            }
+
+            if (changed) {
+                saveConversation(conversationId, conversation.copy(messageNodes = updated))
+            }
         }
     }
 
@@ -2020,6 +2239,7 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
         if (conversation.windowNodes().size <= 2) return
 
         val settings = settingsStore.settingsFlow.first()
+        if (!settings.isPromptEnabled(PromptId.COMPRESS)) return
         if (!settings.autoCompressEnabled) return
         val model = settings.findModelById(assistant.chatModelId)
             ?: settings.getCurrentChatModel()
@@ -2053,6 +2273,7 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                     return@launch
                 }
                 val settings = settingsStore.settingsFlow.first()
+                if (!settings.isPromptEnabled(PromptId.COMPRESS)) return@launch
                 val assistant = settings.getAssistantById(conversation.assistantId)
                     ?: settings.getCurrentAssistant()
                 val model = settings.findModelById(assistant.chatModelId)
@@ -2087,13 +2308,18 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
         windowTokens: Int,
         keepVerbatim: Boolean,
     ): String {
+        _compressionInProgress.update { it + conversationId }
+        val compressionStartedAt = System.nanoTime()
+        try {
         return runCatching {
             val provider = model.findProvider(settings.providers) ?: return@runCatching ""
             val providerHandler = providerManager.getProviderByType(provider)
 
             val maxMessagesPerChunk = 256
-            // 只压缩发送窗口内的历史（prior checkpoint 已包含更早内容，参与合并）
-            val allNodes = conversation.windowNodes()
+            // 重新读取最新会话：压缩期间可能刚完成上一条助手回复或刚发送新消息，
+            // 不能拿调用方传入的旧快照计算窗口并回写。
+            val compressionSource = conversationRepo.getConversationById(conversationId) ?: conversation
+            val allNodes = compressionSource.windowNodes()
             val allMessages = allNodes.map { it.currentMessage }
 
             // 保留策略（harness retainRatio）：从尾部往前累加，预算 = 窗口 × retainRatio，至少留 2 条；
@@ -2110,15 +2336,13 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                 }
             }
             val nodesToKeep = allNodes.takeLast(keepCount)
-            val nodesToCompress = allNodes.drop(nodesToKeep.size)
+            val nodesToCompress = compressionSource.compressionNodes(keepCount)
             if (nodesToCompress.isEmpty()) return@runCatching ""
             val messagesToCompress = nodesToCompress.map { it.currentMessage }
 
-            // 旧检查点作为 prior checkpoint 参与合并（harness：合并重写而非追加）
-            val priorSummary = conversation.compressionSummaries.lastOrNull()?.content.orEmpty()
-            val priorContext = if (priorSummary.isNotBlank()) {
-                "PRIOR CHECKPOINT (merge this with the new conversation into one consolidated checkpoint):\n$priorSummary"
-            } else ""
+            // 旧摘要不再参与重写：每个摘要段保持不可变，请求时按段发送。
+            // 只有后续 mergeSummaryTiers() 才会把过多的旧段合并成更高层摘要。
+            val priorContext = ""
 
             fun splitMessages(messages: List<UIMessage>): List<List<UIMessage>> {
                 if (messages.size <= maxMessagesPerChunk) return listOf(messages)
@@ -2141,6 +2365,15 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                     messages = listOf(UIMessage.user(prompt)),
                     params = backgroundTextGenerationParams(model, conversationId),
                 )
+                result.usage?.let { usage ->
+                    tokenUsageRepository.record(
+                        conversationId = conversationId.toString(),
+                        provider = provider,
+                        model = model,
+                        source = TokenUsageSource.COMPRESS,
+                        usage = usage,
+                    )
+                }
                 return result.message.toText().trim().takeIf { it.isNotBlank() }
                     ?: throw IllegalStateException("Failed to generate compressed summary")
             }
@@ -2160,13 +2393,43 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                 ?: return@runCatching ""
             val newCompression = CompressionSummary(
                 content = combined,
-                messageCount = messagesToCompress.size + conversation.compressionSummaries.sumOf { it.messageCount },
+                messageCount = messagesToCompress.size,
+                startNodeId = nodesToCompress.firstOrNull()?.id,
                 boundaryNodeId = boundaryNodeId,
+                tier = 1,
+                active = true,
+                originalTokens = estimateTokenCount(messagesToCompress),
+                summaryTokens = estimateTokenCount(listOf(UIMessage.user(combined))),
+                durationMs = ((System.nanoTime() - compressionStartedAt) / 1_000_000).coerceAtLeast(0),
                 // 手动压缩不隐藏聊天页历史（只缩减发送上下文）
                 manual = !keepVerbatim,
             )
             getOrCreateSession(conversationId).mutationLock.withLock {
-                saveConversation(conversationId, conversation.copy(compressionSummaries = listOf(newCompression)))
+                // 只用最新消息节点，摘要按追加合并；避免压缩期间新增消息被旧快照覆盖。
+                val latest = getOrCreateSession(conversationId).state.value
+                val currentById = latest.messageNodes.associateBy { it.id }
+                if (nodesToCompress.any { currentById[it.id]?.currentMessage != it.currentMessage }) {
+                    return@runCatching ""
+                }
+                saveConversation(
+                    conversationId,
+                    latest.copy(
+                        compressionSummaries = latest.compressionSummaries + newCompression
+                    )
+                )
+            }
+            runCatching {
+                // 压缩后允许记忆重新命中，并在下一条用户消息前补回核心/本会话写过的记忆
+                memoryRepository.clearSeen(conversationId.toString())
+                memoryRepository.setReinjectPending(conversationId.toString())
+            }.onFailure {
+                Log.w(TAG, "reset memory seen state after compaction failed", it)
+            }
+            runCatching {
+                mergeSummaryTiers(conversationId, settings, model)
+            }.onFailure {
+                if (it is CancellationException) throw it
+                Log.w(TAG, "mergeSummaryTiers failed; keeping segment summaries active", it)
             }
             Log.i(
                 TAG,
@@ -2180,6 +2443,7 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
             )
             combined
         }.onFailure { error ->
+            if (error is CancellationException) throw error
             Log.w(TAG, "compressToSummary: auto compaction failed", error)
             addError(
                 error = error,
@@ -2188,6 +2452,82 @@ internal class ChildAgentCancelledException(val partialResultJson: String?) :
                 solution = ChatErrorSolution.CheckModelSettings,
             )
         }.getOrDefault("")
+        } finally {
+            _compressionInProgress.update { it - conversationId }
+        }
+    }
+
+    /**
+     * 段摘要过多时，只把较旧的段合并成更高层摘要；最新段保持原样，
+     * 避免每次都重写整个历史。合并失败时子摘要继续生效。
+     */
+    private suspend fun mergeSummaryTiers(
+        conversationId: Uuid,
+        settings: Settings,
+        model: Model,
+    ) {
+        val conversation = conversationRepo.getConversationById(conversationId) ?: return
+        val active = conversation.activeCompressions().filterNot { it.manual }
+        if (active.size < SUMMARY_MERGE_TRIGGER) return
+        val children = active.dropLast(1)
+        if (children.size < 2) return
+        val provider = model.findProvider(settings.providers) ?: return
+        val providerHandler = providerManager.getProviderByType(provider)
+        val summaryInput = children.mapIndexed { index, summary ->
+            "--- checkpoint ${index + 1} (tier ${summary.tier}) ---\n${summary.content}"
+        }.joinToString("\n\n")
+        val prompt = DEFAULT_SUMMARY_MERGE_PROMPT.applyPlaceholders(
+            "target_tokens" to AUTO_COMPRESS_TARGET_TOKENS.toString(),
+            "summaries" to summaryInput,
+        )
+        val result = providerHandler.generateText(
+            providerSetting = provider,
+            messages = listOf(UIMessage.user(prompt)),
+            params = backgroundTextGenerationParams(model, conversationId),
+        )
+        result.usage?.let { usage ->
+            tokenUsageRepository.record(
+                conversationId = conversationId.toString(),
+                provider = provider,
+                model = model,
+                source = TokenUsageSource.COMPRESS,
+                usage = usage,
+            )
+        }
+        val mergedContent = result.message.toText().trim()
+        if (mergedContent.isBlank()) return
+        val lastChild = children.last()
+        val parent = CompressionSummary(
+            content = mergedContent,
+            messageCount = children.sumOf { it.messageCount },
+            startNodeId = children.first().startNodeId,
+            boundaryNodeId = lastChild.boundaryNodeId,
+            tier = (children.maxOf { it.tier } + 1),
+            active = true,
+            parentSummaryIds = children.map { it.id },
+            originalTokens = children.sumOf { it.originalTokens },
+            summaryTokens = estimateTokenCount(listOf(UIMessage.user(mergedContent))),
+            durationMs = children.sumOf { it.durationMs },
+            manual = false,
+        )
+        val childIds = children.map { it.id }.toSet()
+        getOrCreateSession(conversationId).mutationLock.withLock {
+            val latest = getOrCreateSession(conversationId).state.value
+            val latestActiveIds = latest.activeCompressions()
+                .filterNot { it.manual }
+                .map { it.id }
+                .toSet()
+            if (!latestActiveIds.containsAll(childIds)) return@withLock
+            val updatedSummaries = latest.compressionSummaries.map { summary ->
+                if (summary.id in childIds) summary.copy(active = false) else summary
+            } + parent
+            saveConversation(conversationId, latest.copy(compressionSummaries = updatedSummaries))
+        }
+        Log.i(
+            TAG,
+            "mergeSummaryTiers: merged ${children.size} checkpoints into tier ${parent.tier} " +
+                "(${parent.originalTokens} -> ${parent.summaryTokens} est. tokens)"
+        )
     }
 
     // ---- 对话状态更新 ----

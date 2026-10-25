@@ -1,16 +1,24 @@
 package me.yui.yuihub.ui.pages.setting
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -40,6 +48,7 @@ import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.ui.components.nav.BackButton
 import me.yui.yuihub.ui.components.ui.CardGroup
 import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.ui.theme.EntryAccents
 import me.yui.yuihub.utils.SystemPermissions
 import me.yui.yuihub.utils.plus
 import org.koin.compose.koinInject
@@ -55,6 +64,12 @@ fun SettingPermissionsPage() {
     val settingsStore: SettingsStore = koinInject()
 
     var refreshKey by remember { mutableStateOf(0) }
+    // 搜索跳转锚点：CardGroup 的 item 是普通 builder，不能在里面调 composable，先在这里算好
+    val anchorNotification = Modifier.settingsAnchor("preferences.permissions.notification")
+    val anchorBattery = Modifier.settingsAnchor("preferences.permissions.battery")
+    val anchorBackground = Modifier.settingsAnchor("preferences.permissions.background")
+    val anchorStorage = Modifier.settingsAnchor("preferences.permissions.storage")
+    val anchorInstallApps = Modifier.settingsAnchor("preferences.permissions.install_apps")
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) refreshKey++
@@ -83,16 +98,24 @@ fun SettingPermissionsPage() {
     }
     // 保活需同时满足：已豁免电池优化 + 通知可用（前台服务要有可见通知）
     val backgroundEnabled = batteryExempt && notificationEnabled
+    val permissionStates = listOf(
+        notificationEnabled,
+        batteryExempt,
+        backgroundEnabled,
+        storageEnabled,
+        installUnknownAppsEnabled,
+    )
+    val enabledCount = permissionStates.count { it }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.setting_permissions_title)) },
                 navigationIcon = { BackButton() },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -100,15 +123,59 @@ fun SettingPermissionsPage() {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = CustomColors.groupedCardSurface,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                    ),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.setting_permissions_section),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.setting_permissions_summary,
+                                    enabledCount,
+                                    permissionStates.size,
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        LinearProgressIndicator(
+                            progress = { enabledCount.toFloat() / permissionStates.size },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp),
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        )
+                    }
+                }
+            }
+
+            item {
                 CardGroup(
                     modifier = Modifier.padding(horizontal = 8.dp),
-                    title = { Text(stringResource(R.string.setting_permissions_title)) },
+                    title = { Text(stringResource(R.string.setting_permissions_section)) },
                 ) {
                     item(
-                        leadingContent = { Icon(HugeIcons.Notification01, null) },
+                        leadingContent = { SettingIcon(HugeIcons.Notification01, EntryAccents.Cyan) },
                         headlineContent = {
                             Text(stringResource(R.string.setting_permissions_notification))
                         },
+                        modifier = anchorNotification,
                         supportingContent = {
                             Text(stringResource(R.string.setting_permissions_notification_desc))
                         },
@@ -123,10 +190,11 @@ fun SettingPermissionsPage() {
                         },
                     )
                     item(
-                        leadingContent = { Icon(HugeIcons.BatteryCharging01, null) },
+                        leadingContent = { SettingIcon(HugeIcons.BatteryCharging01, EntryAccents.Amber) },
                         headlineContent = {
                             Text(stringResource(R.string.setting_permissions_battery_optimization))
                         },
+                        modifier = anchorBattery,
                         supportingContent = {
                             Text(stringResource(R.string.setting_permissions_battery_optimization_desc))
                         },
@@ -141,10 +209,11 @@ fun SettingPermissionsPage() {
                         },
                     )
                     item(
-                        leadingContent = { Icon(HugeIcons.Zap, null) },
+                        leadingContent = { SettingIcon(HugeIcons.Zap, EntryAccents.Indigo) },
                         headlineContent = {
                             Text(stringResource(R.string.setting_permissions_background))
                         },
+                        modifier = anchorBackground,
                         supportingContent = {
                             Text(
                                 text = stringResource(R.string.setting_permissions_background_desc),
@@ -162,10 +231,11 @@ fun SettingPermissionsPage() {
                         },
                     )
                     item(
-                        leadingContent = { Icon(HugeIcons.Folder01, null) },
+                        leadingContent = { SettingIcon(HugeIcons.Folder01, EntryAccents.Blue) },
                         headlineContent = {
                             Text(stringResource(R.string.setting_permissions_storage))
                         },
+                        modifier = anchorStorage,
                         supportingContent = {
                             Text(stringResource(R.string.setting_permissions_storage_desc))
                         },
@@ -180,10 +250,11 @@ fun SettingPermissionsPage() {
                         },
                     )
                     item(
-                        leadingContent = { Icon(HugeIcons.AppStore, null) },
+                        leadingContent = { SettingIcon(HugeIcons.AppStore, EntryAccents.Rose) },
                         headlineContent = {
                             Text(stringResource(R.string.setting_permissions_install_unknown_apps))
                         },
+                        modifier = anchorInstallApps,
                         supportingContent = {
                             Text(stringResource(R.string.setting_permissions_install_unknown_apps_desc))
                         },

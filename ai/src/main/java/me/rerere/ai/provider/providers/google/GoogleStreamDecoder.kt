@@ -153,7 +153,7 @@ internal class GoogleStreamDecoder(
             }
         }
         else -> {
-            Log.w(TAG, "parsePart: unknown message part type: $part")
+            Log.w(TAG, "parsePart: unknown message part type")
             null
         }
     }

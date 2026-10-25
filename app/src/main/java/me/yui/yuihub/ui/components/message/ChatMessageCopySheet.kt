@@ -1,5 +1,7 @@
 package me.yui.yuihub.ui.components.message
 
+import androidx.activity.compose.BackHandler
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,8 +20,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,10 +44,11 @@ fun ChatMessageCopySheet(
     val context = LocalContext.current
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
-        sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)),
+        sheetState = me.yui.yuihub.ui.components.ui.rememberGuardedModalBottomSheetState(),
         sheetGesturesEnabled = false,
         dragHandle = null,
     ) {
+        BackHandler { onDismissRequest() }
         Column(
             modifier = Modifier
                 .fillMaxSize()

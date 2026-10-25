@@ -1,9 +1,12 @@
 package me.yui.yuihub.ui.pages.chat
 
+import androidx.activity.compose.LocalActivity
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.File01
 import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.ArrowDown01
+import me.rerere.hugeicons.stroke.ArrowRight01
+import me.rerere.hugeicons.stroke.CheckmarkCircle02
 import me.rerere.hugeicons.stroke.ArrowUp01
 import me.rerere.hugeicons.stroke.ArrowDownDouble
 import me.rerere.hugeicons.stroke.ArrowUpDouble
@@ -24,6 +27,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -47,6 +51,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalFloatingToolbar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Card
 import androidx.compose.material3.IconButton
@@ -70,22 +75,25 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalScrollCaptureInProgress
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.zIndex
+import dev.chrisbanes.haze.HazeInput
 import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -96,6 +104,7 @@ import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.getAssistantById
 import me.yui.yuihub.data.model.Avatar
+import me.yui.yuihub.data.model.CompressionSummary
 import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.model.MessageNode
 import me.yui.yuihub.service.ChatError
@@ -112,6 +121,7 @@ import me.yui.yuihub.ui.components.ui.Tooltip
 import me.yui.yuihub.ui.hooks.ImeLazyListAutoScroller
 import me.yui.yuihub.ui.theme.ChatFontProvider
 import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.ui.theme.LocalGlassTheme
 import me.yui.yuihub.utils.plus
 import kotlin.math.roundToInt
 import kotlin.uuid.Uuid
@@ -120,6 +130,22 @@ private const val TAG = "ChatList"
 private const val LoadingIndicatorKey = "LoadingIndicator"
 private const val ScrollBottomKey = "ScrollBottomKey"
 
+private sealed interface ChatStreamItem {
+    val key: String
+
+    data class MessageItem(val node: MessageNode) : ChatStreamItem {
+        override val key: String = "msg_${node.id}"
+    }
+
+    data class CompressionItem(val summary: CompressionSummary) : ChatStreamItem {
+        override val key: String = "compress_${summary.id}"
+    }
+
+    data class CompressionRunningItem(val manual: Boolean) : ChatStreamItem {
+        override val key: String = "compress_running"
+    }
+}
+
 @Composable
 fun ChatList(
     innerPadding: PaddingValues,
@@ -127,15 +153,18 @@ fun ChatList(
     state: LazyListState,
     loading: Boolean,
     processingStatus: String? = null,
+    compressionInProgress: Boolean = false,
+    manualCompressionInProgress: Boolean = false,
+    onCompressionClick: (CompressionSummary) -> Unit = {},
     previewMode: Boolean,
     settings: Settings,
     hazeState: HazeState,
+    compressionHazeState: HazeState = hazeState,
     errors: List<ChatError> = emptyList(),
     onDismissError: (Uuid) -> Unit = {},
     onClearAllErrors: () -> Unit = {},
     onRegenerate: (UIMessage) -> Unit = {},
     onEdit: (UIMessage) -> Unit = {},
-    onForkMessage: (UIMessage) -> Unit = {},
     onDelete: (UIMessage) -> Unit = {},
     onUpdateMessage: (MessageNode) -> Unit = {},
     onJumpToMessage: (Int) -> Unit = {},
@@ -171,14 +200,17 @@ fun ChatList(
                 state = state,
                 loading = loading,
                 processingStatus = processingStatus,
+                compressionInProgress = compressionInProgress,
+                manualCompressionInProgress = manualCompressionInProgress,
+                onCompressionClick = onCompressionClick,
                 settings = settings,
                 hazeState = hazeState,
+                compressionHazeState = compressionHazeState,
                 errors = errors,
                 onDismissError = onDismissError,
                 onClearAllErrors = onClearAllErrors,
                 onRegenerate = onRegenerate,
                 onEdit = onEdit,
-                onForkMessage = onForkMessage,
                 onDelete = onDelete,
                 onUpdateMessage = onUpdateMessage,
                 animatedVisibilityScope = this@AnimatedContent,
@@ -200,14 +232,17 @@ private fun ChatListNormal(
     state: LazyListState,
     loading: Boolean,
     processingStatus: String? = null,
+    compressionInProgress: Boolean = false,
+    manualCompressionInProgress: Boolean = false,
+    onCompressionClick: (CompressionSummary) -> Unit = {},
     settings: Settings,
     hazeState: HazeState,
+    compressionHazeState: HazeState = hazeState,
     errors: List<ChatError>,
     onDismissError: (Uuid) -> Unit,
     onClearAllErrors: () -> Unit,
     onRegenerate: (UIMessage) -> Unit,
     onEdit: (UIMessage) -> Unit,
-    onForkMessage: (UIMessage) -> Unit,
     onDelete: (UIMessage) -> Unit,
     onUpdateMessage: (MessageNode) -> Unit,
     animatedVisibilityScope: AnimatedVisibilityScope,
@@ -222,7 +257,7 @@ private fun ChatListNormal(
     val loadingState by rememberUpdatedState(loading)
     var isRecentScroll by remember { mutableStateOf(false) }
     val density = LocalDensity.current
-    val activity = LocalContext.current as? me.yui.yuihub.RouteActivity
+    val activity = LocalActivity.current as? me.yui.yuihub.RouteActivity
 
     DisposableEffect(Unit) {
         val listener: (Boolean) -> Boolean = { isVolumeUp ->
@@ -277,19 +312,37 @@ private fun ChatListNormal(
             .flatMap { it.models }
             .associateBy { it.id }
     }
-    // 记忆快照是模型侧上下文，不在界面展示；自动压缩边界之前的旧历史同样隐藏
-    // （请求侧由 requestWindowMessages 替换为检查点，检查点作为独立行渲染在列表顶部）；
-    // 手动压缩（uiCompression 为 null）不隐藏任何历史
-    val visibleNodes = remember(conversation.messageNodes, conversation.compressionSummaries) {
-        val boundaryIndex = conversation.uiCompression()
-            ?.let { cp -> conversation.messageNodes.indexOfFirst { it.id == cp.boundaryNodeId } }
-            ?.takeIf { it >= 0 }
-        conversation.messageNodes
-            .drop((boundaryIndex ?: -1) + 1)
-            .filter { !it.currentMessage.isMemorySnapshot() }
+    // 压缩只改变发送给模型的窗口，不裁剪聊天页历史；否则会出现“压缩后旧消息消失”。
+    val visibleNodes = remember(conversation.messageNodes) {
+        conversation.messageNodes.filter { !it.currentMessage.isMemorySnapshot() }
     }
     val lastNodeId = visibleNodes.lastOrNull()?.id
-    val activeCheckpoint = conversation.uiCompression()
+    val streamItems = remember(
+        visibleNodes,
+        conversation.compressionSummaries,
+        compressionInProgress,
+        manualCompressionInProgress,
+    ) {
+        val compactions = conversation.activeCompressions()
+        val byBoundary = compactions.groupBy { it.boundaryNodeId }
+        val placed = mutableSetOf<Uuid>()
+        buildList {
+            visibleNodes.forEach { node ->
+                add(ChatStreamItem.MessageItem(node))
+                byBoundary[node.id]?.forEach { summary ->
+                    add(ChatStreamItem.CompressionItem(summary))
+                    placed += summary.id
+                }
+            }
+            // 边界节点被记忆快照等过滤掉时，仍把压缩事件放在末尾，不能吞掉。
+            compactions.filterNot { it.id in placed }.forEach { summary ->
+                add(ChatStreamItem.CompressionItem(summary))
+            }
+            if (compressionInProgress) {
+                add(ChatStreamItem.CompressionRunningItem(manualCompressionInProgress))
+            }
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -347,7 +400,7 @@ private fun ChatListNormal(
                     .padding(top = innerPadding.calculateTopPadding()),
             ) {
             // 空对话（新会话）：整屏居中的分时问候，避免一整页空白
-            if (visibleNodes.isEmpty() && activeCheckpoint == null) {
+            if (streamItems.isEmpty()) {
                 item(key = "empty_greeting") {
                     Box(
                         modifier = Modifier
@@ -357,32 +410,43 @@ private fun ChatListNormal(
                     ) {
                         ChatEmptyGreeting(
                             assistantName = assistant?.name.orEmpty(),
-                            assistantAvatar = assistant?.avatar ?: Avatar.Dummy,
+                            assistantAvatar = assistant?.avatar ?: Avatar.Logo,
                         )
                     }
                 }
             }
-            // 活跃压缩检查点：新段起点渲染为「上下文压缩」流程行（harness 式），
-            // 边界前的旧历史已由 visibleNodes 隐藏（旧版本落库的检查点节点仍走下方分支渲染）
-            if (activeCheckpoint != null) {
-                item(key = "compaction_${activeCheckpoint.id}") {
-                    CompactionRow(
-                        title = stringResource(R.string.tool_ui_compress_context_title),
-                        summary = activeCheckpoint.content,
+            items(
+                items = streamItems,
+                key = { it.key },
+            ) { item ->
+                when (item) {
+                is ChatStreamItem.CompressionItem -> {
+                    CompressionStreamItem(
+                        summary = item.summary,
+                        running = false,
+                        settings = settings,
+                        hazeState = compressionHazeState,
+                        onClick = { onCompressionClick(item.summary) },
                     )
                 }
-            }
-            itemsIndexed(
-                items = visibleNodes,
-                key = { _, item -> item.id },
-            ) { _, node ->
+                is ChatStreamItem.CompressionRunningItem -> {
+                    CompressionStreamItem(
+                        summary = null,
+                        running = true,
+                        manual = item.manual,
+                        settings = settings,
+                        hazeState = compressionHazeState,
+                    )
+                }
+                is ChatStreamItem.MessageItem -> {
+                val node = item.node
                 if (node.currentMessage.isCompactionCheckpoint()) {
                     // 自动压缩检查点：渲染为可见的「上下文压缩」流程行（harness 式）
                     CompactionRow(
                         title = stringResource(R.string.tool_ui_compress_context_title),
                         summary = compactionCheckpointBody(node.currentMessage.toText()),
                     )
-                    return@itemsIndexed
+                    return@items
                 }
                 Column {
                     ListSelectableItem(
@@ -409,21 +473,8 @@ private fun ChatListNormal(
                             onEdit = {
                                 onEdit(node.currentMessage)
                             },
-                            onFork = {
-                                onForkMessage(node.currentMessage)
-                            },
                             onDelete = {
                                 onDelete(node.currentMessage)
-                            },
-                            onShare = {
-                                selecting = true  // 使用 CoroutineScope 延迟状态更新
-                                selectedItems.clear()
-                                selectedItems.addAll(
-                                    conversation.messageNodes
-                                        .subList(0, conversation.messageNodes.indexOf(node) + 1)
-                                        .filter { !it.currentMessage.isMemorySnapshot() }
-                                        .map { it.id }
-                                )
                             },
                             onUpdate = {
                                 onUpdateMessage(it)
@@ -439,6 +490,8 @@ private fun ChatListNormal(
                             onEditUserNickname = onEditUserNickname,
                         )
                     }
+                }
+                }
                 }
             }
 
@@ -671,12 +724,8 @@ private fun ChatListPreview(
     // 过滤消息，同时保留原始 index 避免后续 O(n) indexOf 查找
     // （与主列表同一窗口过滤：快照前旧历史隐藏，保证跳转序号对齐）
     val filteredMessages = remember(conversation.messageNodes, conversation.compressionSummaries, searchQuery) {
-        val boundaryIndex = conversation.uiCompression()
-            ?.let { cp -> conversation.messageNodes.indexOfFirst { it.id == cp.boundaryNodeId } }
-            ?.takeIf { it >= 0 }
         // 跳转目标索引与普通列表（已过滤快照）的序号对齐，避免快照导致跳转偏移
         val visibleNodes = conversation.messageNodes
-            .drop((boundaryIndex ?: -1) + 1)
             .filter { !it.currentMessage.isMemorySnapshot() }
             .mapIndexed { index, node -> index to node }
         if (searchQuery.isBlank()) {
@@ -890,3 +939,158 @@ private fun BoxScope.MessageJumper(
     }
 }
 
+@Composable
+private fun CompressionStreamItem(
+    summary: CompressionSummary?,
+    running: Boolean,
+    manual: Boolean = summary?.manual == true,
+    settings: Settings,
+    hazeState: HazeState,
+    onClick: (() -> Unit)? = null,
+) {
+    val glassEnabled = settings.displaySetting.enableBlurEffect || LocalGlassTheme.current
+    val glassBorder = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+    val glassTint = MaterialTheme.colorScheme.surfaceContainerLow
+    val glassModifier = if (glassEnabled) {
+        Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .hazeBlur(
+            input = HazeInput.Sources(hazeState),
+            style = HazeBlurStyle {
+                blurRadius(settings.displaySetting.inputBarBlurRadius.dp)
+                backgroundColor(glassTint.copy(alpha = 0.32f))
+                noiseFactor(0.02f)
+            },
+        )
+    } else Modifier
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (manual) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFF0A84FF),
+                ) {
+                    Text(
+                        text = stringResource(R.string.chat_compress_command),
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                    )
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(glassModifier)
+                .then(
+                    if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+                ),
+            shape = RoundedCornerShape(20.dp),
+            color = if (glassEnabled) Color.Transparent else MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(
+                1.dp,
+                if (glassEnabled) glassBorder else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
+            ),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                if (running) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 1.8.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                } else {
+                    Icon(
+                        imageVector = HugeIcons.CheckmarkCircle02,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (running) R.string.tool_ui_compress_in_progress
+                            else R.string.tool_ui_compress_complete
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        text = when {
+                            running -> stringResource(R.string.tool_ui_compress_in_progress_detail)
+                            summary != null -> compressionMeta(summary)
+                            else -> stringResource(R.string.tool_ui_compress_complete)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (onClick != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(1.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.compression_view),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Icon(
+                            imageVector = HugeIcons.ArrowRight01,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun compressionMeta(summary: CompressionSummary): String {
+    val parts = buildList {
+        if (summary.durationMs > 0) {
+            add(
+                stringResource(
+                    R.string.compression_duration,
+                    "%.1f".format(summary.durationMs / 1000.0),
+                )
+            )
+        }
+        if (summary.originalTokens > 0 && summary.summaryTokens > 0) {
+            add(
+                stringResource(
+                    R.string.compression_tokens,
+                    formatCompressionTokens(summary.originalTokens),
+                    formatCompressionTokens(summary.summaryTokens),
+                )
+            )
+        }
+    }
+    return if (parts.isEmpty()) stringResource(R.string.compression_view) else parts.joinToString(" · ")
+}
+
+private fun formatCompressionTokens(tokens: Int): String = when {
+    tokens >= 1_000_000 -> "%.1fM".format(tokens / 1_000_000.0)
+    tokens >= 1_000 -> "%.1fK".format(tokens / 1_000.0)
+    else -> tokens.toString()
+}

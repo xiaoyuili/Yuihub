@@ -15,6 +15,8 @@ import androidx.core.content.ContextCompat
 import me.yui.yuihub.KEEP_AWAKE_NOTIFICATION_CHANNEL_ID
 import me.yui.yuihub.R
 import me.yui.yuihub.RouteActivity
+import me.yui.yuihub.StartupState
+import me.yui.yuihub.YuiHubApp
 
 private const val TAG = "KeepAliveService"
 
@@ -67,6 +69,13 @@ class KeepAliveService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if ((application as? YuiHubApp)?.startupState?.value != StartupState.Ready) {
+            releaseWakeLock()
+            running = false
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             releaseWakeLock()
             stopForeground(STOP_FOREGROUND_REMOVE)

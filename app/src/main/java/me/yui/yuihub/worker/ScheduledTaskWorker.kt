@@ -1,5 +1,8 @@
 package me.yui.yuihub.worker
 
+import me.yui.yuihub.YuiHubApp
+import androidx.work.await
+import kotlinx.coroutines.CancellationException
 import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
@@ -26,12 +29,20 @@ class ScheduledTaskWorker(
     private val repository: ScheduledTaskRepository by inject()
 
     override suspend fun doWork(): Result {
+        if (!(applicationContext as YuiHubApp).awaitStartup()) return Result.retry()
         val taskId = inputData.getString(ScheduledTaskScheduler.KEY_TASK_ID)
         if (taskId.isNullOrBlank()) {
             Log.e(TAG, "doWork: missing task id")
             return Result.failure()
         }
-        val task = repository.getById(taskId)
+        val task = try {
+            repository.getById(taskId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "doWork: cannot load task $taskId", e)
+            return Result.retry()
+        }
         if (task == null) {
             Log.i(TAG, "doWork: task $taskId no longer exists, skip")
             return Result.success()
@@ -65,26 +76,29 @@ class ScheduledTaskWorker(
                 ScheduledTaskRunStatus.RUNNING.name,
                 conversationId.toString(),
             )
-            Result.success()
-        } catch (e: Exception) {
-            Log.e(TAG, "doWork: task $taskId failed", e)
-            repository.updateRunState(taskId, startedAt, ScheduledTaskRunStatus.FAILED.name, "")
-            Result.retry()
-        } finally {
-            // 单次任务执行后自动停用；周期任务重排下一次
-            runCatching {
-                if (task.scheduleType == ScheduleType.ONCE.name) {
-                    repository.disableAfterRun(taskId)
-                } else {
-                    repository.getById(taskId)?.let { latest ->
-                        repository.nextTriggerAt(latest)?.let { next ->
-                            ScheduledTaskScheduler.enqueueAt(applicationContext, taskId, next)
-                        }
+            if (task.scheduleType == ScheduleType.ONCE.name) {
+                repository.disableAfterRun(taskId)
+            } else {
+                repository.getById(taskId)?.let { latest ->
+                    if (latest.enabled) repository.nextTriggerAt(latest)?.let { next ->
+                        ScheduledTaskScheduler.enqueueAt(applicationContext, taskId, next, afterSuccess = true).await()
                     }
                 }
-            }.onFailure {
-                Log.e(TAG, "doWork: reschedule failed for task $taskId", it)
             }
+            Result.success()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "doWork: task $taskId failed", e)
+            try {
+                repository.updateRunState(taskId, startedAt, ScheduledTaskRunStatus.FAILED.name, "")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (stateError: Exception) {
+                Log.e(TAG, "doWork: cannot record failure for task $taskId", stateError)
+            }
+            Result.retry()
+        } finally {
             activeRuns.remove(taskId)
         }
     }

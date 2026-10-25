@@ -1,8 +1,5 @@
 package me.yui.yuihub.di
 
-import com.google.firebase.Firebase
-import com.google.firebase.analytics.analytics
-import com.google.firebase.crashlytics.crashlytics
 import kotlinx.serialization.json.Json
 import me.yui.yuihub.AppScope
 import me.yui.yuihub.data.ai.tools.local.LocalTools
@@ -33,14 +30,6 @@ val appModule = module {
 
     single<EmojiData> {
         EmojiUtils.loadEmoji(get())
-    }
-
-    single {
-        Firebase.crashlytics
-    }
-
-    single {
-        Firebase.analytics
     }
 
     single {
@@ -82,6 +71,7 @@ val appModule = module {
             folderRepository = get(),
             subagentManager = get(),
             scheduledTaskRepository = get(),
+            tokenUsageRepository = get(),
         )
     }
 }

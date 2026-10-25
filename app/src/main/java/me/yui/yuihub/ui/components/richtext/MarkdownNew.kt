@@ -68,11 +68,10 @@ import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import androidx.core.graphics.toColorInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Tick01
@@ -114,11 +113,9 @@ private val flavour by lazy {
     GFMFlavourDescriptor(makeHttpsAutoLinks = true, useSafeLinks = true)
 }
 
-private val parser by lazy { MarkdownParser(flavour) }
-
 private fun generateMarkdownHtml(content: String): String {
     val preprocessed = preProcess(content)
-    val tree = parser.buildMarkdownTreeFromString(preprocessed)
+    val tree = MarkdownParser(flavour).buildMarkdownTreeFromString(preprocessed)
     return HtmlGenerator(preprocessed, tree, flavour).generateHtml()
 }
 
@@ -131,31 +128,33 @@ fun MarkdownNew(
     style: TextStyle = LocalTextStyle.current,
     onClickCitation: (String) -> Unit = {},
 ) {
-    var html by remember {
-        mutableStateOf(
-            value = generateMarkdownHtml(content),
-        )
-    }
-
+    var document by remember { mutableStateOf<org.jsoup.nodes.Document?>(null) }
     val updatedContent by rememberUpdatedState(content)
     LaunchedEffect(Unit) {
         snapshotFlow { updatedContent }
             .distinctUntilChanged()
-            // 首个值已在 remember 里同步生成过，避免重复生成
-            .drop(1)
-            .mapLatest { generateMarkdownHtml(it) }
-            .catch { it.printStackTrace() }
-            .flowOn(Dispatchers.Default)
-            .collect { html = it }
+            .mapLatest { text ->
+                withContext(Dispatchers.Default) {
+                    try {
+                        Jsoup.parse(generateMarkdownHtml(text))
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        android.util.Log.w("Markdown", "HTML parse failed: ${e.javaClass.simpleName}")
+                        null
+                    }
+                }
+            }
+            .collect { document = it }
     }
-
-    val document = remember(html) {
-        runCatching { Jsoup.parse(html) }.getOrElse { Jsoup.parse("") }
+    val parsedDocument = document ?: run {
+        Text(content, modifier = modifier.padding(start = 4.dp), style = style)
+        return
     }
 
     ProvideTextStyle(style) {
         Column(modifier = modifier.padding(start = 4.dp)) {
-            document.body().childNodes().fastForEach { node ->
+            parsedDocument.body().childNodes().fastForEach { node ->
                 HtmlBodyNode(node = node, onClickCitation = onClickCitation)
             }
         }

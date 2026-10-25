@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.Clipboard
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -373,6 +374,7 @@ private fun HighlightCodeActions(
     onTogglePreviewMode: () -> Unit = {},
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val toaster = LocalToaster.current
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -442,17 +444,17 @@ private fun HighlightCodeActions(
                             // 事务过大闪退；按结果给出提示而不抛异常
                             when (clipboardManager.setClipEntrySafely("code", code)) {
                                 SafeCopyResult.COPIED -> toaster.show(
-                                    context.getString(R.string.copied),
+                                    resources.getString(R.string.copied),
                                     type = ToastType.Success,
                                 )
 
                                 SafeCopyResult.TOO_LARGE -> toaster.show(
-                                    context.getString(R.string.code_block_copy_too_large),
+                                    resources.getString(R.string.code_block_copy_too_large),
                                     type = ToastType.Error,
                                 )
 
                                 SafeCopyResult.FAILED -> toaster.show(
-                                    context.getString(R.string.code_block_copy_failed),
+                                    resources.getString(R.string.code_block_copy_failed),
                                     type = ToastType.Error,
                                 )
                             }

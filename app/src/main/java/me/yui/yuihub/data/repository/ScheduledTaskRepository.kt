@@ -28,6 +28,10 @@ class ScheduledTaskRepository(
     suspend fun getTasksForAssistant(assistantId: String): List<ScheduledTaskEntity> =
         dao.getByAssistant(assistantId)
 
+    /** 某个对话下创建的任务（对话页/输入栏视图） */
+    suspend fun getTasksForConversation(conversationId: String): List<ScheduledTaskEntity> =
+        dao.getByConversation(conversationId)
+
     suspend fun upsert(task: ScheduledTaskEntity) {
         dao.upsert(task)
         ScheduledTaskScheduler.rescheduleAll(context, this)

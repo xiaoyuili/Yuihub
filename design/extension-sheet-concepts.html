@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YuiHub · 扩展管理弹层方案</title>
+<style>
+  :root{
+    --blue:#0A84FF;
+    --ink:#111214;
+    --muted:#8E8E93;
+    --line:rgba(60,60,67,.12);
+    --card:#F7F8FA;
+    --sheet:#FFFFFF;
+    --rose:#F43F5E;
+    --amber:#F59E0B;
+    --violet:#8B5CF6;
+    --cyan:#06B6D4;
+    --green:#22C55E;
+    --indigo:#6366F1;
+    --spring:cubic-bezier(.2,.9,.2,1);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#E9EDF4;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Noto Sans SC","Microsoft YaHei",sans-serif}
+  button{font:inherit;color:inherit;border:0;background:none;padding:0;cursor:pointer}
+  .lab{min-height:100vh;padding:28px 22px 48px;display:flex;flex-direction:column;align-items:center;gap:18px}
+  .lab-head{width:min(820px,100%);display:flex;align-items:flex-end;justify-content:space-between;gap:20px}
+  .lab h1{font-size:22px;line-height:1.2;margin:0;letter-spacing:-.02em}
+  .lab p{margin:6px 0 0;color:#6C727F;font-size:12px;line-height:1.5}
+  .switcher{display:flex;padding:4px;border-radius:14px;background:rgba(255,255,255,.76);box-shadow:0 8px 24px rgba(31,45,61,.08);gap:3px}
+  .switcher button{height:34px;padding:0 14px;border-radius:11px;font-size:12px;font-weight:600;color:#69707C;outline:none;-webkit-tap-highlight-color:transparent;transition:background .25s var(--spring),color .25s,transform .2s}
+  .switcher button:active{transform:scale(.96)}
+  .switcher button.on{background:#fff!important;color:var(--ink);box-shadow:0 2px 8px rgba(31,45,61,.10)}
+  .stage{width:min(430px,100%);display:flex;justify-content:center;perspective:1200px}
+  .phone-wrap{display:none;width:390px;max-width:100%}
+  .phone-wrap.active{display:block;animation:phone-in .55s var(--spring) both}
+  @keyframes phone-in{from{opacity:0;transform:translateY(14px) scale(.985)}to{opacity:1;transform:none}}
+  .phone{position:relative;width:100%;height:844px;border-radius:46px;padding:10px;background:linear-gradient(145deg,#1E232B,#0E1116);box-shadow:0 30px 80px rgba(20,28,38,.25),0 2px 8px rgba(20,28,38,.18)}
+  .phone:before{content:"";position:absolute;inset:4px;border-radius:42px;border:1px solid rgba(255,255,255,.18);pointer-events:none}
+  .screen{position:relative;width:100%;height:100%;border-radius:37px;overflow:hidden;background:linear-gradient(160deg,#CBD9EA 0%,#DDE6F2 38%,#D6DDE8 100%)}
+  .statusbar{height:38px;padding:0 26px;display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:600;color:#20242A}
+  .status-icons{letter-spacing:2px;font-size:11px}
+  .appbar{height:72px;padding:0 22px;display:flex;align-items:center;gap:14px;color:#20242A}
+  .burgers{display:flex;flex-direction:column;gap:4px;width:20px}.burgers i{display:block;height:1.6px;background:#20242A;border-radius:2px}
+  .appbar .titles{flex:1;min-width:0}.appbar b{display:block;font-size:16px;line-height:1.2}.appbar small{display:block;margin-top:3px;font-size:10px;color:#5F6875}
+  .appbar .tool{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#20242A}
+  .chat-backdrop{position:absolute;inset:110px 0 0;padding:24px 22px;opacity:.34;filter:blur(.2px)}
+  .fake-bubble{height:54px;width:62%;margin-left:auto;border-radius:20px 20px 6px 20px;background:var(--blue)}
+  .fake-lines{margin-top:36px;width:76%;height:10px;border-radius:8px;background:#7E8B9A;margin-bottom:10px}.fake-lines.short{width:54%}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--sheet);border-radius:30px 30px 0 0;box-shadow:0 -18px 48px rgba(33,46,64,.16);overflow:hidden;max-height:calc(100% - 72px);transition:height .4s var(--spring),transform .5s var(--spring);height:auto}
+  .grabber-wrap{height:28px;display:flex;align-items:center;justify-content:center}
+  .grabber{width:40px;height:4px;border-radius:99px;background:#D7D9DE}
+  .sheet-scroll{max-height:calc(100% - 28px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}
+  .sheet-scroll::-webkit-scrollbar{display:none}
+  .pages{position:relative}
+  .page{display:none;padding:4px 18px 22px}
+  .page.active{display:block;animation:page-in .32s var(--spring) both}
+  @keyframes page-in{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:none}}
+  .page.detail.active{animation:detail-in .34s var(--spring) both}
+  @keyframes detail-in{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}
+  .page.leaving{animation:page-out .24s ease both}
+  @keyframes page-out{to{opacity:0;transform:translateX(-12px)}}
+  .sheet-head{display:flex;align-items:center;justify-content:space-between;padding:8px 4px 14px;gap:12px}
+  .sheet-head h2{margin:0;font-size:23px;letter-spacing:-.03em;line-height:1.2}
+  .scope{height:26px;padding:0 10px;border-radius:99px;background:#F2F4F7;color:#707887;font-size:11px;display:flex;align-items:center;font-weight:600}
+  .group{margin-top:12px}
+  .group:first-of-type{margin-top:2px}
+  .group-label{padding:0 5px 7px;color:#7F8794;font-size:11px;font-weight:700;letter-spacing:.02em}
+  .card{border-radius:22px;background:var(--card);border:1px solid rgba(60,60,67,.08);overflow:hidden}
+  .row{width:100%;min-height:58px;display:flex;align-items:center;gap:12px;padding:9px 14px;text-align:left;transition:background .2s,transform .16s var(--spring)}
+  .row:hover{background:rgba(255,255,255,.62)}
+  .row:active{transform:scale(.992);background:rgba(0,0,0,.025)}
+  .row + .row{box-shadow:inset 0 1px rgba(60,60,67,.08)}
+  .icon{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;flex:0 0 auto;transition:transform .2s var(--spring)}
+  .icon svg{width:20px;height:20px;stroke-width:1.7}
+  .icon.rose{background:rgba(244,63,94,.12);color:var(--rose)}.icon.amber{background:rgba(245,158,11,.14);color:var(--amber)}.icon.violet{background:rgba(139,92,246,.13);color:var(--violet)}.icon.cyan{background:rgba(6,182,212,.12);color:var(--cyan)}.icon.green{background:rgba(34,197,94,.12);color:var(--green)}.icon.indigo{background:rgba(99,102,241,.12);color:var(--indigo)}
+  .row:active .icon,.tile:active .icon{transform:scale(.9)}
+  .row-copy{flex:1;min-width:0}.row-title{display:block;font-size:15px;font-weight:600;line-height:1.2;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.row-sub{display:block;margin-top:2px;font-size:11.5px;color:#8A919D}
+  .chev{color:#AFB5BE;transition:transform .2s var(--egg,var(--spring))}.row:hover .chev{transform:translateX(3px)}
+  .detail-head{display:flex;align-items:center;gap:8px;min-height:52px;padding:2px 0 8px}
+  .back{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:#4F5865;transition:background .2s,transform .16s}.back:hover{background:#F3F4F6}.back:active{transform:scale(.92)}
+  .detail-head h3{margin:0;flex:1;font-size:21px;letter-spacing:-.03em}.detail-count{font-size:12px;color:#8A919D}
+  .tool-row{width:100%;min-height:60px;display:flex;align-items:center;gap:12px;padding:10px 14px;text-align:left}
+  .tool-row + .tool-row{box-shadow:inset 0 1px rgba(60,60,67,.08)}
+  .tool-copy{flex:1;min-width:0}.tool-title{display:block;font-size:14.5px;font-weight:600}.tool-desc{display:block;margin-top:2px;font-size:11.5px;line-height:1.35;color:#8A919D;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .switch{width:44px;height:27px;border-radius:99px;background:#DDE1E6;position:relative;flex:0 0 auto;transition:background .24s var(--spring)}.switch:after{content:"";position:absolute;left:3px;top:3px;width:21px;height:21px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.22);transition:transform .24s var(--spring)}.switch.on{background:var(--blue)}.switch.on:after{transform:translateX(17px)}
+  .tap-tip{margin:14px 4px 0;color:#8A919D;font-size:11px;line-height:1.45}
+
+  /* A: dense final */
+  [data-phone="a"] .row{min-height:50px;padding:7px 12px;gap:10px}
+  [data-phone="a"] .row-sub{display:none}
+  [data-phone="a"] .row-title{font-size:15px}
+  [data-phone="a"] .a-count{margin-left:auto;min-width:30px;height:22px;padding:0 8px;border-radius:99px;background:#fff;border:1px solid rgba(60,60,67,.08);display:grid;place-items:center;font-size:10.5px;color:#7C8490}
+  [data-phone="a"] .group{margin-top:10px}
+  [data-phone="a"] .group-label{padding-bottom:4px}
+
+  /* B: tiles */
+  .tile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px}
+  .tile{position:relative;min-height:98px;border-radius:22px;background:var(--card);border:1px solid rgba(60,60,67,.08);padding:12px 13px;text-align:left;display:flex;flex-direction:column;gap:9px;transition:transform .18s var(--spring),background .2s,box-shadow .2s}
+  .tile:hover{background:#fff;box-shadow:0 8px 24px rgba(35,48,65,.08)}.tile:active{transform:scale(.97)}
+  .tile .icon{width:40px;height:40px;border-radius:13px}
+  .tile-title{display:block;font-size:14.5px;font-weight:650;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tile-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:auto;color:#8A919D;font-size:11px}
+  .pill{height:22px;padding:0 8px;border-radius:99px;background:rgba(255,255,255,.7);display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:#727B88;border:1px solid rgba(60,60,67,.07)}
+  .tile .arrow{position:absolute;right:12px;top:14px;color:#B4BAC3;transition:transform .2s}.tile:hover .arrow{transform:translateX(2px)}
+  .tile.hero{grid-column:span 2;min-height:84px;flex-direction:row;align-items:center;gap:13px;background:linear-gradient(120deg,#F7F9FC,#EFF5FF);border-color:rgba(10,132,255,.12)}
+  .tile.hero .tile-copy{flex:1}.tile.hero .tile-title{font-size:15.5px}.tile.hero .tile-meta{justify-content:flex-start;margin-top:4px}
+  .tile.hero .arrow{position:static;margin-left:auto}
+
+  /* C: segmented */
+  .segmented{position:relative;display:grid;grid-template-columns:repeat(3,1fr);height:38px;padding:4px;border-radius:14px;background:#F1F3F6;margin:4px 0 14px}
+  .segmented .indicator{position:absolute;top:4px;bottom:4px;left:4px;width:calc((100% - 8px)/3);border-radius:11px;background:#fff;box-shadow:0 2px 8px rgba(31,45,61,.10);transition:transform .3s var(--spring)}
+  .seg-btn{position:relative;z-index:1;font-size:12px;font-weight:650;color:#7C8490;transition:color .2s}.seg-btn.on{color:#15181D}
+  .tab-panel{display:none}.tab-panel.active{display:block;animation:tab-in .28s var(--spring) both}@keyframes tab-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .section-rows{display:flex;flex-direction:column;gap:9px}.section-rows .card{border-radius:20px}
+  .c-row{min-height:56px}.c-row .row-sub{display:none}.c-row .count-badge{margin-left:auto;margin-right:4px;min-width:28px;height:22px;padding:0 8px;border-radius:99px;background:#fff;border:1px solid rgba(60,60,67,.08);display:grid;place-items:center;font-size:10.5px;color:#7C8490}
+  .c-row .chev{margin-left:2px}
+  .c-note{display:flex;align-items:center;gap:8px;margin:14px 4px 0;color:#8A919D;font-size:11px}.c-note i{width:5px;height:5px;border-radius:50%;background:var(--blue);display:block}
+
+  @media (max-width:520px){.phone{height:740px}.lab{padding:18px 12px 36px}.lab-head{align-items:flex-start;flex-direction:column;gap:12px}.switcher{align-self:stretch;justify-content:center}}
+  @media (prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.001ms!important;transition-duration:.001ms!important}}
+</style>
+</head>
+<body>
+<div class="lab">
+  <div class="lab-head">
+    <div>
+      <h1>扩展管理 · 输入栏“更多”</h1>
+      <p>只改输入栏内的扩展管理及其子页面；三种结构都包含本地工具子页和转场动画。</p>
+    </div>
+    <div class="switcher" role="tablist" aria-label="方案">
+      <button class="on" data-variant="a" role="tab" aria-selected="true">A 分组卡</button>
+      <button data-variant="b" role="tab">B 双列磁贴</button>
+      <button data-variant="c" role="tab">C 分段列表</button>
+    </div>
+  </div>
+
+  <div class="stage">
+    <!-- A -->
+    <div class="phone-wrap active" data-phone="a">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>16:11</span><span class="status-icons">▮▮ 4G ▰</span></div>
+        <div class="appbar"><span class="burgers"><i></i><i></i><i></i></span><span class="titles"><b>新聊天</b><small>基元 / neohorse-1-9b</small></span><span class="tool">☰</span><span class="tool">✎</span></div>
+        <div class="chat-backdrop"><div class="fake-bubble"></div><div class="fake-lines"></div><div class="fake-lines short"></div></div>
+        <div class="sheet" data-sheet>
+          <div class="grabber-wrap"><div class="grabber"></div></div>
+          <div class="sheet-scroll"><div class="pages">
+            <section class="page active" data-home>
+              <div class="sheet-head"><h2>扩展管理</h2><span class="scope">当前对话</span></div>
+              <div class="group"><div class="group-label">提示词与知识</div><div class="card">
+                <button class="row" data-open="mode" data-title="模式注入" data-count="0/0"><span class="icon rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m4 20 7-7m2-2 2-2m-4 4 2 2M14 4l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3Z"/></svg></span><span class="row-copy"><span class="row-title">模式注入</span><span class="row-sub">按位置注入提示词块</span></span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button class="row" data-open="lore" data-title="世界书" data-count="0/0"><span class="icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 4.5h10.5A3.5 3.5 0 0 1 19 8v11.5H8.5A3.5 3.5 0 0 1 5 16V4.5Z"/><path d="M5 16h14M9 8h6M9 11h4"/></svg></span><span class="row-copy"><span class="row-title">世界书</span><span class="row-sub">按关键词触发上下文</span></span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div></div>
+              <div class="group"><div class="group-label">智能体能力</div><div class="card">
+                <button class="row" data-open="skills" data-title="Skills" data-count="0/0"><span class="icon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 4h6v2.3a2.7 2.7 0 1 0 3 3.2V15H15.7a2.7 2.7 0 1 0-3.2 3H9v-4.7a2.7 2.7 0 1 0-3.2-3H9V4Z"/></svg></span><span class="row-copy"><span class="row-title">Skills</span><span class="row-sub">0/0</span></span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button class="row" data-open="mcp" data-title="MCP" data-count="0/0"><span class="icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M7 8h10M7 12h10M7 16h6"/><rect x="4" y="4" width="16" height="16" rx="4"/></svg></span><span class="row-copy"><span class="row-title">MCP</span><span class="row-sub">0/0</span></span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button class="row" data-open="local" data-title="本地工具" data-count="1/7"><span class="icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m14.5 6.5 3-3a4 4 0 0 0-5 5l-7 7a2 2 0 1 0 3 3l7-7a4 4 0 0 0 5-5l-3 3-3-3Z"/></svg></span><span class="row-copy"><span class="row-title">本地工具</span><span class="row-sub">时间、剪贴板、日历等</span></span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div></div>
+              <div class="group"><div class="group-label">自动化</div><div class="card">
+                <button class="row" data-open="sched" data-title="定时任务" data-count="0/0"><span class="icon indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></span><span class="row-copy"><span class="row-title">定时任务</span><span class="row-sub">0/0</span></span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div></div>
+              <div class="tap-tip">上滑查看全部 · 首次下拉收回展开态，再次下拉关闭</div>
+            </section>
+            <section class="page detail" data-detail></section>
+          </div></div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- B -->
+    <div class="phone-wrap" data-phone="b">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>16:11</span><span class="status-icons">▮▮ 4G ▰</span></div>
+        <div class="appbar"><span class="burgers"><i></i><i></i><i></i></span><span class="titles"><b>新聊天</b><small>基元 / neohorse-1-9b</small></span><span class="tool">☰</span><span class="tool">✎</span></div>
+        <div class="chat-backdrop"><div class="fake-bubble"></div><div class="fake-lines"></div><div class="fake-lines short"></div></div>
+        <div class="sheet" data-sheet>
+          <div class="grabber-wrap"><div class="grabber"></div></div>
+          <div class="sheet-scroll"><div class="pages">
+            <section class="page active" data-home>
+              <div class="sheet-head"><h2>扩展管理</h2><span class="scope">当前对话</span></div>
+              <button class="tile hero" data-open="local" data-title="本地工具" data-count="1/7"><span class="icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m14.5 6.5 3-3a4 4 0 0 0-5 5l-7 7a2 2 0 1 0 3 3l7-7a4 4 0 0 0 5-5l-3 3-3-3Z"/></svg></span><span class="tile-copy"><span class="tile-title">本地工具</span><span class="tile-meta"><span class="pill">已启用 1 / 7</span></span></span><svg class="arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg></button>
+              <div class="group"><div class="group-label">提示词与知识</div><div class="tile-grid">
+                <button class="tile" data-open="mode" data-title="模式注入" data-count="0/0"><span class="icon rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m4 20 7-7m2-2 2-2m-4 4 2 2M14 4l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3Z"/></svg></span><span class="tile-title">模式注入</span><span class="tile-meta"><span>按位置注入</span><span class="pill">0/0</span></span><svg class="arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button class="tile" data-open="lore" data-title="世界书" data-count="0/0"><span class="icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 4.5h10.5A3.5 3.5 0 0 1 19 8v11.5H8.5A3.5 3.5 0 0 1 5 16V4.5Z"/><path d="M5 16h14M9 8h6M9 11h4"/></svg></span><span class="tile-title">世界书</span><span class="tile-meta"><span>关键词触发</span><span class="pill">0/0</span></span><svg class="arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div></div>
+              <div class="group"><div class="group-label">智能体能力</div><div class="tile-grid">
+                <button class="tile" data-open="skills" data-title="Skills" data-count="0/0"><span class="icon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 4h6v2.3a2.7 2.7 0 1 0 3 3.2V15H15.7a2.7 2.7 0 1 0-3.2 3H9v-4.7a2.7 2.7 0 1 0-3.2-3H9V4Z"/></svg></span><span class="tile-title">Skills</span><span class="tile-meta"><span>0 个技能</span><span class="pill">0/0</span></span><svg class="arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button class="tile" data-open="mcp" data-title="MCP" data-count="0/0"><span class="icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M7 8h10M7 12h10M7 16h6"/><rect x="4" y="4" width="16" height="16" rx="4"/></svg></span><span class="tile-title">MCP</span><span class="tile-meta"><span>0 个服务</span><span class="pill">0/0</span></span><svg class="arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div></div>
+              <div class="group"><div class="group-label">自动化</div><div class="tile-grid">
+                <button class="tile" data-open="sched" data-title="定时任务" data-count="0/0"><span class="icon indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></span><span class="tile-title">定时任务</span><span class="tile-meta"><span>0 个任务</span><span class="pill">0/0</span></span><svg class="arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div></div>
+              <div class="tap-tip">磁贴更适合快速扫视；本地工具作为主入口置顶</div>
+            </section>
+            <section class="page detail" data-detail></section>
+          </div></div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- C -->
+    <div class="phone-wrap" data-phone="c">
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>16:11</span><span class="status-icons">▮▮ 4G ▰</span></div>
+        <div class="appbar"><span class="burgers"><i></i><i></i><i></i></span><span class="titles"><b>新聊天</b><small>基元 / neohorse-1-9b</small></span><span class="tool">☰</span><span class="tool">✎</span></div>
+        <div class="chat-backdrop"><div class="fake-bubble"></div><div class="fake-lines"></div><div class="fake-lines short"></div></div>
+        <div class="sheet" data-sheet>
+          <div class="grabber-wrap"><div class="grabber"></div></div>
+          <div class="sheet-scroll"><div class="pages">
+            <section class="page active" data-home>
+              <div class="sheet-head"><h2>扩展管理</h2><span class="scope">当前对话</span></div>
+              <div class="segmented"><span class="indicator" data-indicator></span><button class="seg-btn on" data-tab="0">提示词</button><button class="seg-btn" data-tab="1">能力</button><button class="seg-btn" data-tab="2">自动化</button></div>
+              <div class="tab-panel active" data-panel="0"><div class="section-rows"><div class="card">
+                <button class="row c-row" data-open="mode" data-title="模式注入" data-count="0/0"><span class="icon rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m4 20 7-7m2-2 2-2m-4 4 2 2M14 4l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3Z"/></svg></span><span class="row-copy"><span class="row-title">模式注入</span></span><span class="count-badge">0/0</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button class="row c-row" data-open="lore" data-title="世界书" data-count="0/0"><span class="icon amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 4.5h10.5A3.5 3.5 0 0 1 19 8v11.5H8.5A3.5 3.5 0 0 1 5 16V4.5Z"/><path d="M5 16h14M9 8h6M9 11h4"/></svg></span><span class="row-copy"><span class="row-title">世界书</span></span><span class="count-badge">0/0</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div></div></div>
+              <div class="tab-panel" data-panel="1"><div class="section-rows"><div class="card">
+                <button class="row c-row" data-open="skills" data-title="Skills" data-count="0/0"><span class="icon violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 4h6v2.3a2.7 2.7 0 1 0 3 3.2V15H15.7a2.7 2.7 0 1 0-3.2 3H9v-4.7a2.7 2.7 0 1 0-3.2-3H9V4Z"/></svg></span><span class="row-copy"><span class="row-title">Skills</span></span><span class="count-badge">0/0</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button class="row c-row" data-open="mcp" data-title="MCP" data-count="0/0"><span class="icon cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M7 8h10M7 12h10M7 16h6"/><rect x="4" y="4" width="16" height="16" rx="4"/></svg></span><span class="row-copy"><span class="row-title">MCP</span></span><span class="count-badge">0/0</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+                <button class="row c-row" data-open="local" data-title="本地工具" data-count="1/7"><span class="icon green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m14.5 6.5 3-3a4 4 0 0 0-5 5l-7 7a2 2 0 1 0 3 3l7-7a4 4 0 0 0 5-5l-3 3-3-3Z"/></svg></span><span class="row-copy"><span class="row-title">本地工具</span></span><span class="count-badge">1/7</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div></div></div>
+              <div class="tab-panel" data-panel="2"><div class="section-rows"><div class="card">
+                <button class="row c-row" data-open="sched" data-title="定时任务" data-count="0/0"><span class="icon indigo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></svg></span><span class="row-copy"><span class="row-title">定时任务</span></span><span class="count-badge">0/0</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m9 18 6-6-6-6"/></svg></button>
+              </div></div></div>
+              <div class="c-note"><i></i><span>分段切换不改变弹层高度，列表更短，操作更集中</span></div>
+            </section>
+            <section class="page detail" data-detail></section>
+          </div></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const TOOLS = [
+    ['JavaScript 引擎','使用 QuickJS 执行 JavaScript 代码，进行计算和脚本处理',false],
+    ['时间信息','从设备获取当前日期、星期、时间和时区信息',true],
+    ['剪贴板','读取或写入设备剪贴板中的纯文本',false],
+    ['询问用户','允许 AI 向你提问以获得更多信息',false],
+    ['屏幕时间','让 AI 读取你的应用屏幕使用时间',false],
+    ['日历','让 AI 查询和创建日历事件',false],
+    ['图表显示','让 AI 显示折线图、柱状图和散点图',false]
+  ];
+
+  function detailMarkup() {
+    return `<div class="detail-head"><button class="back" data-back aria-label="返回"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m15 18-6-6 6-6"/></svg></button><h3 data-detail-title>本地工具</h3><span class="detail-count" data-detail-count></span></div>
+      <div class="card" data-tool-list></div>
+      <div class="tap-tip">开关立即生效；权限类工具首次开启时会请求系统权限。</div>`;
+  }
+
+  function buildTools(container) {
+    container.innerHTML = TOOLS.map(([title, desc, on], i) =>
+      `<div class="tool-row"><span class="tool-copy"><span class="tool-title">${title}</span><span class="tool-desc">${desc}</span></span><button class="switch ${on ? 'on' : ''}" data-switch aria-label="${title}"></button></div>`
+    ).join('');
+  }
+
+  function animateHeight(sheet, mutate) {
+    const oldH = sheet.getBoundingClientRect().height;
+    mutate();
+    const active = sheet.querySelector('.page.active');
+    const newH = Math.min(sheet.parentElement.clientHeight - 72, active.offsetHeight + 28);
+    if (!oldH) { sheet.style.height = 'auto'; return; }
+    sheet.style.height = oldH + 'px';
+    requestAnimationFrame(() => {
+      sheet.style.height = newH + 'px';
+    });
+  }
+
+  document.querySelectorAll('[data-phone="a"] .row').forEach(row => {
+    const sub = row.querySelector('.row-sub');
+    if (!sub) return;
+    const pill = document.createElement('span');
+    pill.className = 'a-count';
+    pill.textContent = row.dataset.count || '0/0';
+    sub.remove();
+    row.querySelector('.chev').before(pill);
+  });
+
+  document.querySelectorAll('[data-phone]').forEach(phone => {
+    const sheet = phone.querySelector('[data-sheet]');
+    const home = phone.querySelector('[data-home]');
+    const detail = phone.querySelector('[data-detail]');
+    detail.innerHTML = detailMarkup();
+    buildTools(detail.querySelector('[data-tool-list]'));
+    const title = detail.querySelector('[data-detail-title]');
+    const count = detail.querySelector('[data-detail-count]');
+    const back = detail.querySelector('[data-back]');
+
+    phone.querySelectorAll('[data-open]').forEach(button => {
+      button.addEventListener('click', () => {
+        title.textContent = button.dataset.title || '扩展管理';
+        count.textContent = button.dataset.count || '';
+        detail.querySelector('[data-tool-list]').style.display = button.dataset.open === 'local' ? '' : 'none';
+        detail.querySelector('.tap-tip').style.display = button.dataset.open === 'local' ? '' : 'none';
+        animateHeight(sheet, () => {
+          home.classList.remove('active');
+          detail.classList.add('active');
+        });
+      });
+    });
+
+    back.addEventListener('click', () => {
+      animateHeight(sheet, () => {
+        detail.classList.remove('active');
+        home.classList.add('active');
+      });
+    });
+
+    phone.querySelectorAll('[data-switch]').forEach(sw => sw.addEventListener('click', () => sw.classList.toggle('on')));
+
+    phone.querySelectorAll('[data-tab]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const index = Number(tab.dataset.tab);
+        phone.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('on', b === tab));
+        phone.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('active', Number(p.dataset.panel) === index));
+        const indicator = phone.querySelector('[data-indicator]');
+        indicator.style.transform = `translateX(${index * 100}%)`;
+        const activePanel = phone.querySelector('.tab-panel.active');
+        const newH = Math.min(sheet.parentElement.clientHeight - 72, activePanel.offsetHeight + 132);
+        sheet.style.height = newH + 'px';
+      });
+    });
+  });
+
+  const tabs = document.querySelectorAll('.switcher [data-variant]');
+  const phones = document.querySelectorAll('[data-phone]');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => { t.classList.toggle('on', t === tab); t.setAttribute('aria-selected', t === tab ? 'true' : 'false'); });
+      phones.forEach(p => p.classList.remove('active'));
+      const target = document.querySelector(`[data-phone="${tab.dataset.variant}"]`);
+      target.classList.add('active');
+      const sheet = target.querySelector('[data-sheet]');
+      sheet.style.height = 'auto';
+      sheet.style.animation = 'none';
+      void sheet.offsetWidth;
+      sheet.style.animation = '';
+    });
+  });
+</script>
+</body>
+</html>

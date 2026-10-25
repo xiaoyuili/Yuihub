@@ -13,10 +13,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.core.content.FileProvider
-import androidx.core.net.toUri
 import com.dokar.sonner.ToastType
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.common.android.appTempFolder
 import me.yui.yuihub.R
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.files.FilesManager
@@ -25,7 +23,6 @@ import me.yui.yuihub.ui.components.ui.permission.PermissionManager
 import me.yui.yuihub.ui.components.ui.permission.rememberPermissionState
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.hooks.ChatInputState
-import me.yui.yuihub.utils.ImageUtils
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import java.io.File
@@ -55,7 +52,7 @@ internal fun rememberChatAttachmentPickerActions(
 
     var cameraOutputUri by remember { mutableStateOf<Uri?>(null) }
     var cameraOutputFile by remember { mutableStateOf<File?>(null) }
-    val (_, launchCameraCrop) = useCropLauncher(
+    val launchCameraCrop = useCropLauncher(
         onCroppedImageReady = { croppedUri ->
             inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
             onAttachmentAdded()
@@ -100,16 +97,11 @@ internal fun rememberChatAttachmentPickerActions(
         }
     }
 
-    var preCropTempFile by remember { mutableStateOf<File?>(null) }
-    val (_, launchImageCrop) = useCropLauncher(
+    val launchImageCrop = useCropLauncher(
         onCroppedImageReady = { croppedUri ->
             inputState.addImages(filesManager.createChatFilesByContents(listOf(croppedUri)))
             onAttachmentAdded()
         },
-        onCleanup = {
-            preCropTempFile?.delete()
-            preCropTempFile = null
-        }
     )
     val imagePickerLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { selectedUris ->
@@ -121,23 +113,7 @@ internal fun rememberChatAttachmentPickerActions(
                         onAttachmentAdded()
                     }
                 } else if (selectedUris.size == 1) {
-                    val tempFile = File(context.appTempFolder, "pick_temp_${System.currentTimeMillis()}.jpg")
-                    runCatching {
-                        val source = selectedUris.first()
-                        // HEIF/HEIC（尤其 HDR HEIF）交给 UCrop 前先解码转为 JPEG，规避裁剪解码失败
-                        val converted = ImageUtils.isHeifImage(context, source) &&
-                            ImageUtils.convertHeifToJpeg(context, source, tempFile)
-                        if (!converted) {
-                            context.contentResolver.openInputStream(source)?.use { input ->
-                                tempFile.outputStream().use { output -> input.copyTo(output) }
-                            }
-                        }
-                        preCropTempFile = tempFile
-                        launchImageCrop(tempFile.toUri())
-                    }.onFailure {
-                        Log.e("ImagePickButton", "Failed to copy image to temp, falling back", it)
-                        launchImageCrop(selectedUris.first())
-                    }
+                    launchImageCrop(selectedUris.first())
                 } else {
                     scope.launch {
                         inputState.addImages(filesManager.createChatFilesByContents(selectedUris))

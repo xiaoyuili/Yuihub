@@ -4,6 +4,13 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import me.yui.yuihub.YuiHubApp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.first
 import java.io.File
 import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.sync.BackupItem
@@ -24,31 +31,38 @@ class AutoBackupWorker(
     private val backupService: LocalBackupService by inject()
     private val settingsStore: SettingsStore by inject()
 
-    override suspend fun doWork(): Result {
-        val config = settingsStore.settingsFlow.value.backupReminderConfig
-        if (!config.autoBackupEnabled) {
-            Log.i(TAG, "doWork: auto backup disabled, skip")
-            return Result.success()
-        }
-
-        return try {
-            val items = listOf(BackupItem.SETTINGS, BackupItem.DATABASE, BackupItem.FILES)
-            val temp = backupService.prepareBackupFile(items)
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        if (!(applicationContext as YuiHubApp).awaitStartup()) return@withContext Result.retry()
+        var temp: File? = null
+        var incomplete: File? = null
+        try {
+            val config = settingsStore.settingsFlowRaw.first().backupReminderConfig
+            if (!config.autoBackupEnabled) {
+                Log.i(TAG, "doWork: auto backup disabled, skip")
+                return@withContext Result.success()
+            }
+            val items = BackupItem.ALL
+            val prepared = backupService.prepareBackupFile(items)
+            temp = prepared
 
             val targetDir = AutoBackupScheduler.backupDir(applicationContext)
             val fileName = AutoBackupScheduler.backupFileName(System.currentTimeMillis())
             val target = File(targetDir, fileName)
-            temp.copyTo(target, overwrite = true)
-            temp.delete()
-
-            // 删上一份自动备份：只删配置里记录的那个文件，避免误删用户手动导出的备份
-            val previousName = config.autoBackupLastFileName
-            if (previousName.isNotBlank() && previousName != fileName) {
-                val previous = File(targetDir, previousName)
-                if (previous.exists() && previous.delete()) {
-                    Log.i(TAG, "doWork: removed previous auto backup $previousName")
+            val partial = File(targetDir, "$fileName.partial")
+            incomplete = partial
+            prepared.inputStream().use { input ->
+                partial.outputStream().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                    }
                 }
             }
+            check(partial.renameTo(target)) { "Cannot publish auto backup" }
+            incomplete = null
 
             settingsStore.update { settings ->
                 settings.copy(
@@ -59,15 +73,24 @@ class AutoBackupWorker(
                     )
                 )
             }
+            val previousName = config.autoBackupLastFileName
+            if (previousName.matches(Regex("yuihub_auto_[0-9]+[.]zip")) && previousName != fileName) {
+                val previous = File(targetDir, previousName)
+                if (previous.exists() && previous.delete()) {
+                    Log.i(TAG, "doWork: removed previous auto backup $previousName")
+                }
+            }
             Log.i(TAG, "doWork: auto backup written $fileName (${target.length()} bytes)")
+            AutoBackupScheduler.enqueueNext(applicationContext, settingsStore, afterSuccess = true)
             Result.success()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "doWork: auto backup failed", e)
             Result.retry()
         } finally {
-            // 无论成败都排下一次，否则失败一次就永久停了
-            runCatching { AutoBackupScheduler.enqueueNext(applicationContext, settingsStore) }
-                .onFailure { Log.e(TAG, "doWork: reschedule failed", it) }
+            temp?.delete()
+            incomplete?.delete()
         }
     }
 

@@ -107,7 +107,7 @@ class ResponseAPI(
             .build()
 
         if (Log.isLoggable(TAG, Log.DEBUG)) {
-            Log.d(TAG, "generateText: ${json.encodeToString(requestBody)}")
+            Log.d(TAG, "generateText: request prepared messages=${messages.size}")
         }
 
         // await() waits for the response headers; reading the body can still block.
@@ -122,7 +122,7 @@ class ResponseAPI(
 
             val bodyStr = response.body?.string() ?: ""
             if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "generateText: $bodyStr")
+                Log.d(TAG, "generateText: response received chars=${bodyStr.length}")
             }
             val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
             parseResponseOutput(bodyJson)
@@ -152,7 +152,7 @@ class ResponseAPI(
             .build()
 
         if (Log.isLoggable(TAG, Log.DEBUG)) {
-            Log.d(TAG, "streamText: ${json.encodeToString(requestBody)}")
+            Log.d(TAG, "streamText: request prepared messages=${messages.size}")
         }
 
         val decoder = ResponseApiStreamDecoder()
@@ -160,7 +160,7 @@ class ResponseAPI(
         fun sendChunks(chunks: Iterable<StreamChunk>) {
             chunks.forEach { chunk ->
                 trySend(chunk).onFailure { e ->
-                    Log.w(TAG, "onEvent: chunk dropped (${e?.message})")
+                    Log.w(TAG, "onEvent: chunk dropped (${e?.javaClass?.simpleName})")
                 }
             }
         }
@@ -173,7 +173,7 @@ class ResponseAPI(
                 data: String
             ) {
                 if (Log.isLoggable(TAG, Log.DEBUG)) {
-                    Log.d(TAG, "onEvent: $id/$type $data")
+                    Log.d(TAG, "onEvent: received chars=${data.length}")
                 }
                 try {
                     val result = decoder.accept(SseEvent(id = id, event = type, data = data))
@@ -190,7 +190,7 @@ class ResponseAPI(
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 var exception = t
 
-                Log.w(TAG, "onFailure: ${t?.javaClass?.name} ${t?.message} / $response")
+                Log.w(TAG, "onFailure: error=${t?.javaClass?.simpleName}, httpCode=${response?.code}")
 
                 val code = response?.code
                 val retryAfterMs = response?.retryAfterMsOrNull()
@@ -199,11 +199,10 @@ class ResponseAPI(
                     if (!bodyRaw.isNullOrBlank()) {
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
                         exception = bodyElement.parseErrorDetail(code, retryAfterMs)
-                        Log.i(TAG, "onFailure: $exception")
+                        Log.i(TAG, "onFailure: parsed provider error httpCode=$code")
                     }
                 } catch (e: Throwable) {
-                    Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
-                    e.printStackTrace()
+                    Log.w(TAG, "onFailure: response parse failed (${e.javaClass.simpleName})")
                 } finally {
                     // t 为 null 且无响应体时不能 close(null)：会把失败伪装成正常结束，静默截断回复
                     close(exception ?: t ?: IOException("SSE stream failed without error detail (HTTP $code)"))
@@ -463,7 +462,7 @@ class ResponseAPI(
                                                     put("type", "input_image")
                                                     put("image_url", encoded.base64)
                                                 }.onFailure {
-                                                    it.printStackTrace()
+                                                    Log.w(TAG, "encode image failed: ${it.javaClass.simpleName}")
                                                     put("type", "input_text")
                                                     put("text", "Error: Failed to encode image to base64")
                                                 }
@@ -551,7 +550,7 @@ class ResponseAPI(
                                         put("type", "input_image")
                                         put("image_url", encodedImage.base64)
                                     }.onFailure {
-                                        it.printStackTrace()
+                                        Log.w(TAG, "encode image failed: ${it.javaClass.simpleName}")
                                         put("type", "input_text")
                                         put("text", "Error: Failed to encode image to base64")
                                     }

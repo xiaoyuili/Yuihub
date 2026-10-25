@@ -8,8 +8,12 @@ import java.nio.file.Paths
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.yui.yuihub.data.ai.prompts.PromptId
+import me.yui.yuihub.data.ai.prompts.isPromptEnabled
+import me.yui.yuihub.data.datastore.SettingsStore
 import me.yui.yuihub.data.db.entity.WorkspaceEntity
 import me.yui.yuihub.data.repository.WorkspaceRepository
+import me.yui.yuihub.utils.applyPlaceholders
 import me.rerere.workspace.PackageMirrorCatalog
 import me.rerere.workspace.PackageMirrorSetup
 import me.rerere.workspace.WorkspaceShellStatus
@@ -22,17 +26,24 @@ import me.rerere.workspace.WorkspaceShellStatus
  */
 class WorkspaceReminderTransformer(
     private val workspaceRepository: WorkspaceRepository,
+    private val settingsStore: SettingsStore,
 ) : InputMessageTransformer {
     override suspend fun transform(
         ctx: TransformerContext,
         messages: List<UIMessage>,
     ): List<UIMessage> {
         val workspaceId = ctx.assistant.workspaceId?.toString() ?: return messages
+        val settings = settingsStore.settingsFlow.value
+        if (!settings.isPromptEnabled(PromptId.WORKSPACE)) return messages
         val workspace = workspaceRepository.getById(workspaceId) ?: return messages
         // 与 ChatService.createWorkspaceToolsIfReady 保持一致: 仅在 shell 就绪时注入
         if (workspace.shellStatus != WorkspaceShellStatus.READY.name) return messages
 
-        val prompt = buildWorkspacePrompt(workspace, ctx.workspaceCwd) +
+        val prompt = buildWorkspacePrompt(
+            workspace = workspace,
+            cwd = ctx.workspaceCwd,
+            template = settings.workspacePrompt,
+        ) +
             buildAgentsPrompt(workspaceId, ctx.workspaceCwd) +
             buildPackageMirrorPrompt(workspace.packageMirrorSetup())
 
@@ -95,29 +106,36 @@ class WorkspaceReminderTransformer(
     }
 }
 
-private fun buildWorkspacePrompt(workspace: WorkspaceEntity, cwd: String? = null): String = buildString {
-    appendLine("<workspace>")
-    appendLine("You have a persistent Linux workspace \"${workspace.name}\" (sandboxed proot rootfs).")
-    appendLine("- Files area: `/workspace` — your working directory; it persists across turns. All workspace-tool paths must be absolute inside the Rootfs (e.g. `/workspace/notes.md`).")
-    appendLine("- Tools: `workspace_read_file` / `workspace_write_file` / `workspace_edit_file` (prefer edit for targeted changes over rewriting whole files), `workspace_shell`, `workspace_present_file`.")
-    appendLine("- Call `workspace_present_file` only when the user asks to receive a file; never send files on your own initiative.")
-    appendLine("- Skills live at `/skills/<skill-name>/SKILL.md` — read a skill before using it, and follow its instructions.")
-    appendLine("- Skills and workspace files may mention other AI products (Claude, Codex, etc.) as reference material or tooling docs. These describe OTHER products, not you: your identity, model and capabilities come only from this app and the system prompt — never claim to be or act as another product's assistant.")
-    appendLine("- User uploads are mounted at `/upload`: read from there, but treat it as the user's ORIGINAL files — never modify, overwrite, move or delete them by any means. The write/edit tools are blocked under /upload, but `workspace_shell` is NOT sandboxed for it, so a shell command like `rm`/`mv`/`sed -i`/`> /upload/...` WILL destroy the original irreversibly. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy.")
-    workspace.mountDirList().forEach { mount ->
-        // PRoot 的 -b 无只读能力；readOnly 仅是语义标记，写入拦截只发生在文件工具层，
-        // shell 不受限——提示词必须如实告知，不能让模型误以为挂载真的写不进去。
-        val mode = if (mount.readOnly) {
-            "treat as READ-ONLY — do not write, move or delete via shell or file tools"
-        } else {
-            "read-write"
+private fun buildWorkspacePrompt(
+    workspace: WorkspaceEntity,
+    cwd: String? = null,
+    template: String,
+): String {
+    val mounts = buildString {
+        workspace.mountDirList().forEach { mount ->
+            // PRoot 的 -b 无只读能力；readOnly 仅是语义标记，写入拦截只发生在文件工具层，
+            // shell 不受限——提示词必须如实告知，不能让模型误以为挂载真的写不进去。
+            val mode = if (mount.readOnly) {
+                "treat as READ-ONLY — do not write, move or delete via shell or file tools"
+            } else {
+                "read-write"
+            }
+            appendLine(
+                "- Host directory `${mount.sourcePath}` is mounted at `${mount.target}` ($mode); " +
+                    "changes there are visible to the user's other Android apps."
+            )
         }
-        appendLine("- Host directory `${mount.sourcePath}` is mounted at `${mount.target}` ($mode); changes there are visible to the user's other Android apps.")
     }
-    if (!cwd.isNullOrBlank()) {
-        appendLine("- Current working directory: `$cwd` — the default context for file operations and shell commands.")
+    val cwdBlock = if (!cwd.isNullOrBlank()) {
+        "- Current working directory: `$cwd` — the default context for file operations and shell commands.\n"
+    } else {
+        ""
     }
-    append("</workspace>")
+    return template.applyPlaceholders(
+        "workspace_name" to workspace.name,
+        "workspace_mounts" to mounts,
+        "workspace_cwd" to cwdBlock,
+    )
 }
 
 /**

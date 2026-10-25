@@ -5,6 +5,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +55,8 @@ import me.yui.yuihub.data.export.LorebookSerializer
 import me.yui.yuihub.data.export.rememberImporter
 import me.yui.yuihub.data.model.Lorebook
 import me.yui.yuihub.ui.components.nav.BackButton
+import me.yui.yuihub.ui.pages.setting.SettingIcon
+import me.yui.yuihub.ui.theme.EntryAccents
 import me.yui.yuihub.ui.components.ui.SwipeToReveal
 import me.yui.yuihub.ui.components.ui.Tag
 import me.yui.yuihub.ui.components.ui.TagType
@@ -112,7 +116,7 @@ fun LorebookPage(vm: LorebookVM = koinViewModel()) {
                         )
                     }
                 },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
         floatingActionButton = {
@@ -123,7 +127,7 @@ fun LorebookPage(vm: LorebookVM = koinViewModel()) {
                 Icon(HugeIcons.Add01, contentDescription = stringResource(R.string.prompt_page_add_lorebook))
             }
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier
@@ -151,11 +155,25 @@ fun LorebookPage(vm: LorebookVM = koinViewModel()) {
                 }
             }
 
+            item(key = "count") {
+                Text(
+                    text = stringResource(R.string.extensions_count_items, visibleBooks.size),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 2.dp),
+                )
+            }
+
             if (currentBooks.isEmpty()) {
                 item(key = "empty") {
                     LorebookEmptyState(
                         title = stringResource(R.string.lorebook_page_empty),
                         hint = stringResource(R.string.prompt_page_empty_hint),
+                        actionLabel = stringResource(R.string.prompt_page_add_lorebook),
+                        onAction = {
+                            val id = vm.addBook()
+                            navController.navigate(Screen.LorebookDetail(id.toString()))
+                        },
                     )
                 }
             }
@@ -195,22 +213,18 @@ private fun LorebookCard(
     Card(
         onClick = onOpen,
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = CustomColors.listItemColors.containerColor),
+        colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = HugeIcons.Book01,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp),
-            )
+            SettingIcon(HugeIcons.Book01, EntryAccents.Amber)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -258,13 +272,15 @@ internal fun LorebookEmptyState(
     title: String,
     hint: String,
     modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 80.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = title,
@@ -276,5 +292,10 @@ internal fun LorebookEmptyState(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
         )
+        if (actionLabel != null && onAction != null) {
+            Button(onClick = onAction) {
+                Text(actionLabel)
+            }
+        }
     }
 }

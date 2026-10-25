@@ -1,5 +1,8 @@
 package me.yui.yuihub.ui.components.ui.permission
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -51,7 +54,7 @@ fun rememberPermissionState(
     permissions: Set<PermissionInfo>
 ): PermissionState {
     val context = LocalContext.current
-    val activity = context as? ComponentActivity
+    val activity = context.findActivity() as? ComponentActivity
         ?: throw IllegalStateException("rememberPermissionState 必须在 ComponentActivity 中使用")
 
     // 创建权限状态对象
@@ -154,4 +157,11 @@ fun rememberPermissionState(
     return rememberPermissionState(
         permissions = setOf(info)
     )
+}
+
+/** BottomSheet / Dialog 的 LocalContext 通常是 ContextThemeWrapper，需要沿链找到宿主 Activity。 */
+internal tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

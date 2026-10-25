@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,12 +81,14 @@ import kotlin.uuid.Uuid
 fun ScheduledTaskEditPage(
     taskId: String?,
     defaultAssistantId: String? = null,
+    defaultConversationId: String? = null,
     vm: ScheduledTasksVM = koinViewModel(),
 ) {
     val settingsStore: SettingsStore = koinInject()
     val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
     val allTasks by vm.tasks.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
+    val locale = LocalConfiguration.current.locales[0]
 
     val existing = remember(taskId, allTasks) {
         taskId?.let { id -> allTasks.find { it.id == id } }
@@ -329,7 +332,7 @@ fun ScheduledTaskEditPage(
                                     Text(
                                         text = java.text.SimpleDateFormat(
                                             "yyyy-MM-dd",
-                                            java.util.Locale.getDefault()
+                                            locale
                                         ).format(java.util.Date(triggerAt)),
                                         style = MaterialTheme.typography.bodyMedium,
                                         modifier = Modifier.weight(1f),
@@ -358,7 +361,7 @@ fun ScheduledTaskEditPage(
                                     Text(
                                         text = java.text.SimpleDateFormat(
                                             "HH:mm",
-                                            java.util.Locale.getDefault()
+                                            locale
                                         ).format(java.util.Date(triggerAt)),
                                         style = MaterialTheme.typography.bodyMedium,
                                         modifier = Modifier.weight(1f),
@@ -450,6 +453,7 @@ fun ScheduledTaskEditPage(
                                 name = name.trim(),
                                 prompt = prompt.trim(),
                                 assistantId = assistantId,
+                                conversationId = defaultConversationId.orEmpty(),
                                 scheduleType = scheduleType,
                                 triggerAt = triggerAt,
                                 intervalMinutes = intervalMinutes,
@@ -465,6 +469,7 @@ fun ScheduledTaskEditPage(
                                     name = name.trim(),
                                     prompt = prompt.trim(),
                                     assistantId = assistantId.toString(),
+                                    conversationId = existing.conversationId,
                                     scheduleType = scheduleType.name,
                                     triggerAt = triggerAt,
                                     intervalMinutes = intervalMinutes,

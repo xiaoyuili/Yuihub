@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -71,20 +72,18 @@ import me.yui.yuihub.ui.context.LocalSettings
 import me.yui.yuihub.ui.context.LocalSharedTransitionScope
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.context.Navigator
-import me.yui.yuihub.ui.hooks.readBooleanPreference
-import me.yui.yuihub.ui.hooks.readStringPreference
 import me.yui.yuihub.ui.pages.assistant.AssistantPage
-import me.yui.yuihub.ui.pages.assistant.detail.AssistantBasicPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantDetailPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantExtensionsPage
+import me.yui.yuihub.ui.pages.assistant.detail.AssistantExtensionSectionPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantLocalToolPage
-import me.yui.yuihub.ui.pages.assistant.detail.AssistantMemoryPage
+import me.yui.yuihub.ui.pages.assistant.detail.memory.AssistantMemoryPage
 import me.yui.yuihub.ui.pages.assistant.detail.AssistantPromptPage
-import me.yui.yuihub.ui.pages.assistant.detail.AssistantRequestPage
 import me.yui.yuihub.ui.pages.backup.BackupPage
 import me.yui.yuihub.ui.pages.chat.ChatPage
 import me.yui.yuihub.ui.pages.debug.DebugPage
 import me.yui.yuihub.ui.pages.extensions.ExtensionsPage
+import me.yui.yuihub.ui.pages.extensions.LocalToolsPage
 import me.yui.yuihub.ui.pages.extensions.LorebookDetailPage
 import me.yui.yuihub.ui.pages.extensions.LorebookEntryEditPage
 import me.yui.yuihub.ui.pages.extensions.LorebookPage
@@ -104,6 +103,10 @@ import me.yui.yuihub.ui.pages.favorite.FavoritePage
 import me.yui.yuihub.ui.pages.imggen.ImageGenPage
 import me.yui.yuihub.ui.pages.search.SearchPage
 import me.yui.yuihub.ui.pages.setting.SettingAboutPage
+import me.yui.yuihub.ui.pages.setting.SettingAppearanceInteractionPage
+import me.yui.yuihub.ui.pages.setting.SettingAppearanceMessagePage
+import me.yui.yuihub.ui.pages.setting.SettingAppearancePage
+import me.yui.yuihub.ui.pages.setting.SettingAppearanceTypographyPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesPage
 import me.yui.yuihub.ui.pages.setting.SettingPreferencesThemePage
 import me.yui.yuihub.ui.pages.setting.SettingPermissionsPage
@@ -117,6 +120,9 @@ import me.yui.yuihub.ui.pages.setting.SettingModelPage
 import me.yui.yuihub.ui.pages.setting.SettingPage
 import me.yui.yuihub.ui.pages.setting.SettingProviderDetailPage
 import me.yui.yuihub.ui.pages.setting.SettingProviderPage
+import me.yui.yuihub.ui.pages.setting.SettingPromptsPage
+import me.yui.yuihub.ui.pages.setting.SettingPromptCategoryPage
+import me.yui.yuihub.ui.pages.setting.SettingPromptEditPage
 import me.yui.yuihub.ui.pages.setting.SettingSearchDetailPage
 import me.yui.yuihub.ui.pages.setting.SettingSearchPage
 import me.yui.yuihub.ui.pages.share.handler.ShareHandlerPage
@@ -159,12 +165,42 @@ class RouteActivity : ComponentActivity() {
         disableNavigationBarContrast()
         super.onCreate(savedInstanceState)
         me.yui.yuihub.utils.StartupTracer.mark("Activity.onCreate")
-        if (CrashHandler.hasCrashed(this)) {
-            startActivity(Intent(this, SafeModeActivity::class.java))
-            finish()
-            return
-        }
         setContent {
+            val app = application as YuiHubApp
+            val startup by app.startupState.collectAsStateWithLifecycle()
+            if (startup != StartupState.Ready) {
+                MaterialTheme {
+                    Column(
+                        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        when (val state = startup) {
+                            is StartupState.Failed -> {
+                                Text("恢复启动失败：${state.message}", color = MaterialTheme.colorScheme.onBackground)
+                                if (state.canRetry) {
+                                    Button(onClick = app::retryPendingRestore) { Text("重试") }
+                                } else {
+                                    Text("请退出后重新启动应用", color = MaterialTheme.colorScheme.onBackground)
+                                }
+                                Button(onClick = { finish() }) { Text("退出") }
+                            }
+                            else -> {
+                                CircularProgressIndicator()
+                                Text("正在安装已校验的备份…", color = MaterialTheme.colorScheme.onBackground)
+                            }
+                        }
+                    }
+                }
+                return@setContent
+            }
+            if (CrashHandler.hasCrashed(this)) {
+                LaunchedEffect(Unit) {
+                    startActivity(Intent(this@RouteActivity, SafeModeActivity::class.java))
+                    finish()
+                }
+                return@setContent
+            }
             YuihubTheme {
                 setSingletonImageLoaderFactory { context ->
                     ImageLoader.Builder(context)
@@ -261,14 +297,7 @@ class RouteActivity : ComponentActivity() {
             Screen.ImageGen
         } else Screen.Chat(
             id = this@RouteActivity.intent?.getStringExtra("conversationId")
-                ?: if (readBooleanPreference("create_new_conversation_on_start", true)) {
-                    Uuid.random().toString()
-                } else {
-                    readStringPreference(
-                        "lastConversationId",
-                        Uuid.random().toString()
-                    ) ?: Uuid.random().toString()
-                }
+                ?: Uuid.random().toString()
         )
 
         val backStack = rememberNavBackStack(startScreen)
@@ -359,10 +388,6 @@ class RouteActivity : ComponentActivity() {
                                 AssistantDetailPage(key.id)
                             }
 
-                            entry<Screen.AssistantBasic> { key ->
-                                AssistantBasicPage(key.id)
-                            }
-
                             entry<Screen.AssistantPrompt> { key ->
                                 AssistantPromptPage(key.id)
                             }
@@ -371,16 +396,16 @@ class RouteActivity : ComponentActivity() {
                                 AssistantMemoryPage(key.id)
                             }
 
-                            entry<Screen.AssistantRequest> { key ->
-                                AssistantRequestPage(key.id)
-                            }
-
                             entry<Screen.AssistantLocalTool> { key ->
                                 AssistantLocalToolPage(key.id)
                             }
 
                             entry<Screen.AssistantInjections> { key ->
                                 AssistantExtensionsPage(key.id)
+                            }
+
+                            entry<Screen.AssistantExtensionSection> { key ->
+                                AssistantExtensionSectionPage(key.id, key.section)
                             }
 
                             entry<Screen.AssistantScheduledTasks> { key ->
@@ -405,6 +430,22 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.SettingTheme> {
                                 SettingThemePage()
+                            }
+
+                            entry<Screen.SettingAppearance> {
+                                SettingAppearancePage()
+                            }
+
+                            entry<Screen.SettingAppearanceMessage> {
+                                SettingAppearanceMessagePage()
+                            }
+
+                            entry<Screen.SettingAppearanceTypography> {
+                                SettingAppearanceTypographyPage()
+                            }
+
+                            entry<Screen.SettingAppearanceInteraction> {
+                                SettingAppearanceInteractionPage()
                             }
 
                             entry<Screen.SettingPreferences> {
@@ -448,6 +489,18 @@ class RouteActivity : ComponentActivity() {
                                 SettingModelPage()
                             }
 
+                            entry<Screen.SettingPrompts> {
+                                SettingPromptsPage()
+                            }
+
+                            entry<Screen.SettingPromptCategory> { key ->
+                                SettingPromptCategoryPage(categoryId = key.category)
+                            }
+
+                            entry<Screen.SettingPromptEdit> { key ->
+                                SettingPromptEditPage(promptId = key.promptId)
+                            }
+
                             entry<Screen.SettingAbout> {
                                 SettingAboutPage()
                             }
@@ -471,6 +524,10 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.Extensions> {
                                 ExtensionsPage()
+                            }
+
+                            entry<Screen.LocalTools> {
+                                LocalToolsPage()
                             }
 
 
@@ -500,6 +557,13 @@ class RouteActivity : ComponentActivity() {
 
                             entry<Screen.ScheduledTasks> {
                                 ScheduledTasksPage()
+                            }
+
+                            entry<Screen.ConversationScheduledTasks> { key ->
+                                ScheduledTasksPage(
+                                    assistantId = key.assistantId,
+                                    conversationId = key.conversationId,
+                                )
                             }
 
                             entry<Screen.ScheduledTaskEdit> { key ->
@@ -541,8 +605,8 @@ class RouteActivity : ComponentActivity() {
                                 SearchPage()
                             }
 
-                            entry<Screen.Stats> { key ->
-                                StatsPage(chatId = key.chatId)
+                            entry<Screen.Stats> {
+                                StatsPage()
                             }
                         }
                     )
@@ -616,22 +680,19 @@ sealed interface Screen : NavKey {
     data class AssistantDetail(val id: String) : Screen
 
     @Serializable
-    data class AssistantBasic(val id: String) : Screen
-
-    @Serializable
     data class AssistantPrompt(val id: String) : Screen
 
     @Serializable
     data class AssistantMemory(val id: String) : Screen
 
     @Serializable
-    data class AssistantRequest(val id: String) : Screen
-
-    @Serializable
     data class AssistantLocalTool(val id: String) : Screen
 
     @Serializable
     data class AssistantInjections(val id: String) : Screen
+
+    @Serializable
+    data class AssistantExtensionSection(val id: String, val section: String) : Screen
 
     /** 某助手名下的定时任务列表（新建时默认选中该助手） */
     @Serializable
@@ -651,6 +712,18 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingTheme : Screen
+
+    @Serializable
+    data object SettingAppearance : Screen
+
+    @Serializable
+    data object SettingAppearanceMessage : Screen
+
+    @Serializable
+    data object SettingAppearanceTypography : Screen
+
+    @Serializable
+    data object SettingAppearanceInteraction : Screen
 
     @Serializable
     data object SettingPreferences : Screen
@@ -683,6 +756,15 @@ sealed interface Screen : NavKey {
     data object SettingModels : Screen
 
     @Serializable
+    data object SettingPrompts : Screen
+
+    @Serializable
+    data class SettingPromptCategory(val category: String) : Screen
+
+    @Serializable
+    data class SettingPromptEdit(val promptId: String) : Screen
+
+    @Serializable
     data object SettingAbout : Screen
 
     @Serializable
@@ -699,6 +781,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object Extensions : Screen
+
+    @Serializable
+    data object LocalTools : Screen
 
     @Serializable
     data object ModeInjections : Screen
@@ -726,6 +811,14 @@ sealed interface Screen : NavKey {
         val id: String? = null,
         /** 新建任务时的默认助手（从助手页进入的场景） */
         val defaultAssistantId: String? = null,
+        /** 从对话页进入时的归属会话 */
+        val defaultConversationId: String? = null,
+    ) : Screen
+
+    @Serializable
+    data class ConversationScheduledTasks(
+        val assistantId: String,
+        val conversationId: String,
     ) : Screen
 
     @Serializable
@@ -750,5 +843,5 @@ sealed interface Screen : NavKey {
     data object MessageSearch : Screen
 
     @Serializable
-    data class Stats(val chatId: String? = null) : Screen
+    data object Stats : Screen
 }

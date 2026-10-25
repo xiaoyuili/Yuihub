@@ -11,6 +11,7 @@ import me.yui.yuihub.data.repository.FilesRepository
 import me.yui.yuihub.data.repository.GenMediaRepository
 import me.yui.yuihub.data.repository.MemoryRepository
 import me.yui.yuihub.data.repository.ScheduledTaskRepository
+import me.yui.yuihub.data.repository.TokenUsageRepository
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.rerere.workspace.ProotShellRunner
 import me.rerere.workspace.RootfsInstaller
@@ -21,7 +22,7 @@ import java.io.File
 
 val repositoryModule = module {
     single {
-        ConversationRepository(get(), get(), get(), get(), get(), get(), get())
+        ConversationRepository(get(), get(), get(), get(), get(), get())
     }
 
     single {
@@ -29,7 +30,7 @@ val repositoryModule = module {
     }
 
     single {
-        MemoryRepository(get())
+        MemoryRepository(get(), get(), get(), get())
     }
 
     single {
@@ -46,6 +47,10 @@ val repositoryModule = module {
 
     single {
         ScheduledTaskRepository(get(), get())
+    }
+
+    single {
+        TokenUsageRepository(get())
     }
 
     single {
@@ -68,9 +73,7 @@ val repositoryModule = module {
                 WorkspaceBindMount(
                     source = File(context.filesDir, FileFolders.UPLOAD).apply { mkdirs() },
                     target = "/upload",
-                    // /upload 是用户上传的原始文件区。PRoot 的 -b 无只读能力，readOnly 只是语义标记：
-                    // 写入拦截仅由文件工具的 /upload 路径保护实现，workspace_shell 可绕过（会删掉原件）。
-                    // 需要改动时先复制到 /workspace。
+                    // Shell/终端使用独立快照，文件工具仍读取原件并拒绝写入；需要修改时复制到 /workspace。
                     readOnly = true,
                 ),
             ),

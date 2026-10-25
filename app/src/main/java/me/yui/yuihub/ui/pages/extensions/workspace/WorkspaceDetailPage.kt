@@ -37,6 +37,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -204,10 +205,10 @@ fun WorkspaceDetailPage(id: String) {
                         }
                     }
                 },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
             HorizontalPager(
@@ -459,7 +460,7 @@ private fun WorkspaceBasicPage(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CustomColors.cardColorsOnSurfaceContainer,
+                colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
             ) {
                 Column(
                     modifier = Modifier
@@ -480,7 +481,7 @@ private fun WorkspaceBasicPage(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CustomColors.cardColorsOnSurfaceContainer,
+                colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
             ) {
                 Column(
                     modifier = Modifier
@@ -553,7 +554,7 @@ private fun WorkspaceEnvironmentPage(
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CustomColors.cardColorsOnSurfaceContainer,
+                colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
             ) {
                 Column(
                     modifier = Modifier
@@ -622,7 +623,7 @@ private fun PackageMirrorCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CustomColors.cardColorsOnSurfaceContainer,
+        colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
     ) {
         Column(
             modifier = Modifier
@@ -796,7 +797,7 @@ private fun WorkspaceMountDirCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CustomColors.cardColorsOnSurfaceContainer,
+        colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
     ) {
         Column(
             modifier = Modifier
@@ -896,7 +897,7 @@ private fun WorkspaceToolApprovalCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CustomColors.cardColorsOnSurfaceContainer,
+        colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
     ) {
         Column(
             modifier = Modifier
@@ -1525,7 +1526,7 @@ private fun WorkspaceFileCard(
                 onLongClick = if (entry.isDirectory) null else onLongClick,
                 onLongClickLabel = if (entry.isDirectory) null else "选择文件",
             ),
-        colors = CustomColors.cardColorsOnSurfaceContainer,
+        colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
     ) {
         Row(
             modifier = Modifier
@@ -1705,7 +1706,7 @@ private fun EmptyDirectoryState() {
 private fun ErrorCard(message: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CustomColors.cardColorsOnSurfaceContainer,
+        colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
     ) {
         Text(
             text = message,

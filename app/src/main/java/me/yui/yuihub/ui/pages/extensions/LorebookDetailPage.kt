@@ -128,10 +128,10 @@ fun LorebookDetailPage(bookId: String, vm: LorebookVM = koinViewModel()) {
                         }
                     }
                 },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
             HorizontalPager(
@@ -302,7 +302,7 @@ private fun EntryCard(
     Card(
         onClick = onOpen,
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = CustomColors.listItemColors.containerColor),
+        colors = CardDefaults.cardColors(containerColor = CustomColors.groupedCardSurface),
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(

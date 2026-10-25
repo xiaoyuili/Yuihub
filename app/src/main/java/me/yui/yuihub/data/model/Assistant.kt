@@ -3,8 +3,6 @@ package me.yui.yuihub.data.model
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import me.rerere.ai.core.MessageRole
-import me.rerere.ai.provider.CustomBody
-import me.rerere.ai.provider.CustomHeader
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.core.ReasoningLevel
 import me.yui.yuihub.data.ai.tools.local.LocalToolOption
@@ -17,48 +15,145 @@ data class Assistant(
     val id: Uuid = Uuid.random(),
     val chatModelId: Uuid? = null, // 如果为null, 使用全局默认模型
     val name: String = "",
-    val avatar: Avatar = Avatar.Dummy,
-    val useAssistantAvatar: Boolean = false, // 使用助手头像替代模型头像
+    val avatar: Avatar = Avatar.Logo,
     val tags: List<Uuid> = emptyList(),
     val systemPrompt: String = "",
-    val temperature: Float? = null,
-    val topP: Float? = null,
     // 上下文消息条数上限, 超出后阶梯式截断; 0 表示不限制
     val contextMessageLimit: Int = 0,
     val streamOutput: Boolean = true,
     val enableMemory: Boolean = false,
+    val memoryAutoExtract: Boolean = true,
+    val memoryAutoOrganize: Boolean = true,
     val enableRecentChatsReference: Boolean = false,
     val messageTemplate: String = "{{ message }}",
     val presetMessages: List<UIMessage> = emptyList(),
     val regexes: List<AssistantRegex> = emptyList(),
     val reasoningLevel: ReasoningLevel = ReasoningLevel.AUTO,
     val maxTokens: Int? = null,
-    val customHeaders: List<CustomHeader> = emptyList(),
-    val customBodies: List<CustomBody> = emptyList(),
     val mcpServers: Set<Uuid> = emptySet(),
     val localTools: List<LocalToolOption> = listOf(LocalToolOption.TimeInfo),
     val enableWebSearch: Boolean = false, // 网络搜索开关(每个助手独立)
     val workspaceId: Uuid? = null,
-    val background: String? = null, // 聊天页背景图地址(本地文件 URI 或网络 URL), 为 null 时无背景
-    val backgroundOpacity: Float = 1.0f, // 背景图不透明度(0~1)
-    val useGradientBackground: Boolean = false, // 开启后聊天页使用动态渐变背景
     val modeInjectionIds: Set<Uuid> = emptySet(),      // 关联的模式注入 ID
     val lorebookIds: Set<Uuid> = emptySet(),            // 关联的 Lorebook ID
     val enabledSkills: Set<String> = emptySet(),        // 启用的 skill 名称列表
-    val enableTimeReminder: Boolean = false,            // 时间间隔提醒注入
-    val timeReminderIntervalMinutes: Int = 60,          // 时间提醒间隔（分钟，至少 1 分钟）
     val allowConversationSystemPrompt: Boolean = false, // 允许对话单独重写 system prompt
     val allowConversationPromptInjection: Boolean = false, // 允许对话单独绑定提示词注入
 )
 
 @Serializable
 data class AssistantMemory(
-    val id: Int,
+    val id: Int = 0,
+    val title: String = "",
     val content: String = "",
     val createdAt: Long = 0L,
     val updatedAt: Long = 0L,
-    val importance: Float = 0.5f,
+    val kind: String = MemoryKind.FACT,
+    /** 仅 kind=core 使用：user / rules / ai。 */
+    val section: String = "",
     val category: String = MemoryCategory.OTHER,
+    val keywords: List<String> = emptyList(),
+    /** 1-4：越高越重要，参与召回与整理排序。 */
+    val weight: Int = 2,
+    val status: String = MemoryStatus.ACTIVE,
+    val scope: String = MemoryScope.ASSISTANT,
+    val workspaceId: String? = null,
+    val sourceConversationId: String? = null,
+    val hitCount: Int = 0,
+    val lastInjectedAt: Long? = null,
+    val archivedAt: Long? = null,
+) {
+    val displayTitle: String
+        get() = title.ifBlank {
+            content.replace("\\s+".toRegex(), " ").trim().let {
+                if (it.length > 28) it.take(28) + "…" else it
+            }
+        }
+}
+
+object MemoryKind {
+    const val CORE = "core"
+    const val PROJECT = "project"
+    const val FACT = "fact"
+    const val LESSON = "lesson"
+    const val TOPIC = "topic"
+
+    val ALL = listOf(CORE, PROJECT, FACT, LESSON, TOPIC)
+
+    fun normalize(kind: String?): String {
+        val value = kind?.trim()?.lowercase().orEmpty()
+        return if (value in ALL) value else FACT
+    }
+
+    fun isCore(kind: String?): Boolean = normalize(kind) == CORE
+    fun isRetrievable(kind: String?): Boolean =
+        normalize(kind) in setOf(PROJECT, FACT, LESSON, TOPIC)
+}
+
+object MemorySection {
+    const val USER = "user"
+    const val RULES = "rules"
+    const val AI = "ai"
+
+    val ALL = listOf(USER, RULES, AI)
+
+    fun normalize(section: String?): String {
+        val value = section?.trim()?.lowercase().orEmpty()
+        return if (value in ALL) value else USER
+    }
+}
+
+object MemoryStatus {
+    const val ACTIVE = "active"
+    const val STALE = "stale"
+    const val ARCHIVED = "archived"
+
+    val ALL = listOf(ACTIVE, STALE, ARCHIVED)
+
+    fun normalize(status: String?): String {
+        val value = status?.trim()?.lowercase().orEmpty()
+        return if (value in ALL) value else ACTIVE
+    }
+}
+
+object MemoryScope {
+    const val ASSISTANT = "assistant"
+    const val WORKSPACE = "workspace"
+
+    val ALL = listOf(ASSISTANT, WORKSPACE)
+
+    fun normalize(scope: String?): String {
+        val value = scope?.trim()?.lowercase().orEmpty()
+        return if (value in ALL) value else ASSISTANT
+    }
+}
+
+@Serializable
+data class MemoryEvent(
+    val id: Long = 0,
+    val type: String = MemoryEventType.EXTRACT,
+    val summary: String = "",
+    val details: String = "",
+    val createdAt: Long = 0L,
+)
+
+object MemoryEventType {
+    const val EXTRACT = "extract"
+    const val ORGANIZE = "organize"
+    const val INJECT = "inject"
+    const val MANUAL = "manual"
+}
+
+data class MemoryStats(
+    val total: Int = 0,
+    val active: Int = 0,
+    val stale: Int = 0,
+    val archived: Int = 0,
+    val byKind: Map<String, Int> = emptyMap(),
+    val coreChars: Int = 0,
+    val coreCount: Int = 0,
+    val pendingOrganize: Boolean = false,
+    val lastOrganizedAt: Long = 0L,
 )
 
 /**

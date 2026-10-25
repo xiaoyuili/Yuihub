@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,12 +23,24 @@ import me.yui.yuihub.ui.components.ui.flowRowTitleStyle
 // 自动压缩检查点的可见流程行（对齐 deepseek-harness：压缩在会话中留一行检查点记录）：
 // [16dp 前导盒 14dp 字形] 6dp [标题 13sp 次要色] 8dp [2dp 分隔点] 8dp [摘要 13sp 三级色 单行 ellipsis]
 @Composable
-fun CompactionRow(title: String, summary: String, modifier: Modifier = Modifier) {
+fun CompactionRow(
+    title: String,
+    summary: String,
+    modifier: Modifier = Modifier,
+    loading: Boolean = false,
+) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (loading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                strokeWidth = 1.6.dp,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         Text(
             text = title,
             style = flowRowTitleStyle(),

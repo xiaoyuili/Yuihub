@@ -42,8 +42,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowRight01
+import me.rerere.hugeicons.stroke.Internet
+import me.rerere.hugeicons.stroke.Refresh03
 import me.rerere.hugeicons.stroke.View
 import me.rerere.hugeicons.stroke.ViewOff
+import me.rerere.hugeicons.stroke.Zap
 import me.yui.yuihub.BuildConfig
 import me.yui.yuihub.R
 import me.yui.yuihub.data.network.toProxyOrNull
@@ -52,6 +55,7 @@ import me.yui.yuihub.ui.components.ui.CardGroup
 import me.yui.yuihub.ui.components.ui.Switch
 import me.yui.yuihub.ui.context.LocalToaster
 import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.ui.theme.EntryAccents
 import me.yui.yuihub.utils.plus
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -259,10 +263,10 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
             TopAppBar(
                 title = { Text(stringResource(R.string.setting_page_preferences_network)) },
                 navigationIcon = { BackButton() },
-                colors = CustomColors.topBarColors,
+                colors = CustomColors.pageTopBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageBackground,
     ) { contentPadding ->
         LazyColumn(
             modifier = Modifier
@@ -274,8 +278,10 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
             item {
                 CardGroup(
                     modifier = Modifier.padding(horizontal = 8.dp),
+                    title = { Text(stringResource(R.string.setting_page_preferences_network_request)) },
                 ) {
                     item(
+                        leadingContent = { SettingIcon(HugeIcons.Refresh03, EntryAccents.Amber) },
                         headlineContent = {
                             Text(stringResource(R.string.setting_page_preferences_network_auto_retry))
                         },
@@ -357,6 +363,7 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                             proxyPasswordVisible = false
                             proxyDialogVisible = true
                         },
+                        leadingContent = { SettingIcon(HugeIcons.Internet, EntryAccents.Blue) },
                         headlineContent = {
                             Text(stringResource(R.string.setting_page_config))
                         },
@@ -376,6 +383,7 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                         },
                     )
                     item(
+                        leadingContent = { SettingIcon(HugeIcons.Zap, EntryAccents.Green) },
                         headlineContent = {
                             Text(stringResource(R.string.setting_provider_page_test_connection))
                         },

@@ -30,13 +30,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -200,6 +200,7 @@ internal fun ModelSelectorButton(
     modifier: Modifier = Modifier,
     onlyIcon: Boolean = false,
     allowClear: Boolean = false,
+    emptyLabel: String? = null,
     onClear: () -> Unit = {},
 ) {
     val model = state.currentModel
@@ -223,7 +224,9 @@ internal fun ModelSelectorButton(
                     )
                 }
                 Text(
-                    text = model?.displayName ?: stringResource(R.string.model_list_select_model),
+                    text = model?.displayName
+                        ?: emptyLabel
+                        ?: stringResource(R.string.model_list_select_model),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall
@@ -267,13 +270,15 @@ internal fun ModelSelectorButton(
 fun ModelListSheet(
     state: ModelListState,
     onSelect: (Model) -> Unit,
+    followOptionLabel: String? = null,
+    onSelectFollow: (() -> Unit)? = null,
 ) {
     if (!state.visible) return
 
     val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
-        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
 
     fun dismiss() {
@@ -296,6 +301,21 @@ fun ModelListSheet(
                 .imePadding(),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            if (followOptionLabel != null && onSelectFollow != null) {
+                TextButton(
+                    onClick = {
+                        onSelectFollow()
+                        dismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = followOptionLabel,
+                        modifier = Modifier.weight(1f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Start,
+                    )
+                }
+            }
             ModelList(
                 currentModel = state.modelId,
                 providers = state.filteredProviders,

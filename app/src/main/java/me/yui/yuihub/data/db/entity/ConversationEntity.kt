@@ -41,4 +41,14 @@ data class ConversationEntity(
     val folderId: String = "",
     @ColumnInfo("parent_conversation_id", defaultValue = "")
     val parentConversationId: String = "",
+    @ColumnInfo("compression_summaries", defaultValue = "[]")
+    val compressionSummaries: String = "[]",
+    @ColumnInfo("enabled_skills_override", defaultValue = "NULL")
+    val enabledSkillsOverride: String? = null,
+    @ColumnInfo("mcp_servers_override", defaultValue = "NULL")
+    val mcpServersOverride: String? = null,
+    @ColumnInfo("local_tools_override", defaultValue = "NULL")
+    val localToolsOverride: String? = null,
+    @ColumnInfo("subagent_persona_id", defaultValue = "NULL")
+    val subagentPersonaId: String? = null,
 )

@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,6 +28,11 @@ import me.yui.yuihub.ui.components.ui.permission.PermissionManager
 import me.yui.yuihub.ui.components.ui.permission.PermissionNotification
 import me.yui.yuihub.ui.components.ui.permission.rememberPermissionState
 import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.ui.theme.EntryAccents
+import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.Notification01
+import me.rerere.hugeicons.stroke.Shield01
+import me.rerere.hugeicons.stroke.Zap
 import me.yui.yuihub.utils.plus
 import org.koin.androidx.compose.koinViewModel
 
@@ -47,6 +53,9 @@ fun SettingPreferencesNotificationPage(vm: SettingVM = koinViewModel()) {
     )
     PermissionManager(permissionState = permissionState)
 
+    val anchorMessageGenerated = Modifier.settingsAnchor("preferences.notification.message_generated")
+    val anchorLiveUpdate = Modifier.settingsAnchor("preferences.notification.live_update")
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -56,10 +65,10 @@ fun SettingPreferencesNotificationPage(vm: SettingVM = koinViewModel()) {
                 navigationIcon = {
                     BackButton()
                 },
-                colors = CustomColors.topBarColors
+                colors = CustomColors.pageTopBarColors
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageBackground
     ) { contentPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -69,8 +78,11 @@ fun SettingPreferencesNotificationPage(vm: SettingVM = koinViewModel()) {
             item {
                 CardGroup(
                     modifier = Modifier.padding(horizontal = 8.dp),
+                    title = { Text(stringResource(R.string.setting_page_preferences_notification)) },
                 ) {
                     item(
+                        modifier = anchorMessageGenerated,
+                        leadingContent = { SettingIcon(HugeIcons.Notification01, EntryAccents.Cyan) },
                         headlineContent = { Text(stringResource(R.string.setting_display_page_notification_message_generated)) },
                         supportingContent = { Text(stringResource(R.string.setting_display_page_notification_message_generated_desc)) },
                         trailingContent = {
@@ -87,6 +99,8 @@ fun SettingPreferencesNotificationPage(vm: SettingVM = koinViewModel()) {
                     )
                     if (displaySetting.enableNotificationOnMessageGeneration) {
                         item(
+                            modifier = anchorLiveUpdate,
+                            leadingContent = { SettingIcon(HugeIcons.Zap, EntryAccents.Amber) },
                             headlineContent = { Text(stringResource(R.string.setting_display_page_live_update_notification)) },
                             supportingContent = { Text(stringResource(R.string.setting_display_page_live_update_notification_desc)) },
                             trailingContent = {
@@ -96,6 +110,18 @@ fun SettingPreferencesNotificationPage(vm: SettingVM = koinViewModel()) {
                                         updateDisplaySetting(displaySetting.copy(enableLiveUpdateNotification = it))
                                     }
                                 )
+                            },
+                        )
+                    }
+                    if (!permissionState.allPermissionsGranted) {
+                        item(
+                            leadingContent = { SettingIcon(HugeIcons.Shield01, EntryAccents.Rose) },
+                            headlineContent = { Text(stringResource(R.string.setting_page_preferences_notification_permission_missing)) },
+                            supportingContent = { Text(stringResource(R.string.setting_page_preferences_notification_permission_missing_desc)) },
+                            trailingContent = {
+                                TextButton(onClick = { permissionState.requestPermissions() }) {
+                                    Text(stringResource(R.string.setting_page_preferences_notification_permission_grant))
+                                }
                             },
                         )
                     }

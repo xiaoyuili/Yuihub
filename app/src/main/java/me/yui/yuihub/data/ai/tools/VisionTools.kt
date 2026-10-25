@@ -15,9 +15,12 @@ import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
+import me.yui.yuihub.data.ai.prompts.DEFAULT_VISION_PROMPT
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.yui.yuihub.data.files.FilesManager
+import me.yui.yuihub.data.repository.TokenUsageRepository
+import me.yui.yuihub.data.repository.TokenUsageSource
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.service.backgroundTextGenerationParams
 import me.yui.yuihub.utils.JsonInstantPretty
@@ -43,6 +46,9 @@ fun createVisionTool(
     workspaceRepository: WorkspaceRepository,
     filesManager: FilesManager,
     context: Context,
+    conversationId: String? = null,
+    tokenUsageRepository: TokenUsageRepository? = null,
+    systemPrompt: String = DEFAULT_VISION_PROMPT,
 ): Tool = Tool(
     name = VISION_TOOL_NAME,
     description = """
@@ -51,11 +57,7 @@ fun createVisionTool(
         an image in the workspace (screenshot, photo, chart, etc.).
         Returns the vision model's textual description of the image.
     """.trimIndent(),
-    systemPrompt = { _, _ ->
-        "This model has no vision capability: image parts in the conversation are not visible to you. " +
-            "Whenever a question involves an image, call the $VISION_TOOL_NAME tool with the image " +
-            "(URL, absolute file path, or workspace path) and answer based on its textual result."
-    },
+    systemPrompt = { _, _ -> systemPrompt },
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
@@ -105,6 +107,15 @@ fun createVisionTool(
             messages = listOf(message),
             params = backgroundTextGenerationParams(visionModel, Uuid.random()),
         )
+        result.usage?.let { usage ->
+            tokenUsageRepository?.record(
+                conversationId = conversationId,
+                provider = provider,
+                model = visionModel,
+                source = TokenUsageSource.VISION,
+                usage = usage,
+            )
+        }
         val answer = result.message.toText().trim()
         if (answer.isBlank()) {
             error("Vision model returned an empty response")

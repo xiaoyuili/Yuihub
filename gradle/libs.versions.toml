@@ -19,7 +19,6 @@ lifecycleViewmodelNav3 = "2.11.0"
 nav3Material = "1.3.0"
 markdown = "d79a97cc8e"
 okhttp = "5.5.0"
-retrofit = "3.0.0"
 coil = "3.6.2"
 quickjs = "1.0.15"
 room = "2.8.4"
@@ -30,12 +29,8 @@ kotlin-coroutines-core = "1.11.0"
 kotlinx-datetime = "0.8.0"
 ksp = "2.3.10"
 paging = "3.5.1"
-lucide-icons = "1.1.0"
 huge-icons = "1.4"
 image-viewer = "1.1.0-alpha.7"
-google-services = "4.5.0"
-firebase-bom = "34.17.0"
-firebase-crashlytics = "3.0.7"
 jsoup = "1.23.1"
 sonner = "0.4.0"
 workmanager = "2.11.2"
@@ -45,7 +40,6 @@ pebble = "4.1.1"
 browser = "1.10.0"
 appcompat = "1.8.0"
 material = "1.14.0"
-ucrop = "2.2.11-native"
 floatingx = "3.0.0"
 haze = "2.0.0-rc02"
 uiautomator = "2.4.0"
@@ -103,8 +97,6 @@ metadata-extractor = { module = "com.drewnoakes:metadata-extractor", version.ref
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-sse = { group = "com.squareup.okhttp3", name = "okhttp-sse", version.ref = "okhttp" }
 okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
-retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
-retrofit-serialization-json = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-gif = { group = "io.coil-kt.coil3", name = "coil-gif", version.ref = "coil" }
 coil-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
@@ -118,12 +110,8 @@ koin-androidx-workmanager = { group = "io.insert-koin", name = "koin-androidx-wo
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization-json" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlin-coroutines-core" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
-lucide-icons = { group = "com.composables", name = "icons-lucide", version.ref = "lucide-icons" }
 huge-icons = { group = "com.github.rikkahub", name = "hugeicons-compose", version.ref = "huge-icons" }
 image-viewer = { group = "com.jvziyaoyao.scale", name = "image-viewer", version.ref = "image-viewer" }
-firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebase-bom" }
-firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }
-firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 sonner = { module = "io.github.dokar3:sonner", version.ref = "sonner" }
 reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
@@ -135,7 +123,6 @@ snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "browser" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
-ucrop = { group = "com.github.yalantis", name = "ucrop", version.ref = "ucrop" }
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 haze-blur = { module = "dev.chrisbanes.haze:haze-blur", version.ref = "haze" }
 haze-blur-material3 = { module = "dev.chrisbanes.haze:haze-blur-material3", version.ref = "haze" }
@@ -157,7 +144,7 @@ slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 slf4j-android = { module = "uk.uuid.slf4j:slf4j-android", version = "2.0.17-0" }
 sqlite-android = { module = "com.github.rikkahub:sqlite-android", version.ref = "sqlite-android" }
 termux-terminal-view = { module = "com.termux.termux-app:terminal-view", version.ref = "termux" }
-guava-listenablefuture = { module = "com.google.guava:listenablefuture", version = "9999.0-empty-to-avoid-conflict-with-guava" }
+guava-listenablefuture = { module = "com.google.guava:listenablefuture", version = "1.0" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -165,7 +152,5 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
-google-services = { id = "com.google.gms.google-services", version.ref = "google-services" }
-firebase-crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "firebase-crashlytics" }
 android-test = { id = "com.android.test", version.ref = "agp" }
 baselineprofile = { id = "androidx.baselineprofile", version.ref = "baselineprofile" }

@@ -26,20 +26,6 @@ data class DecodeResult(
     val completed: Boolean = false,
 )
 
-/**
- * 把一条原始 SSE 事件压成单行可读的轨迹，供日志记录「每次请求的原始结束事件」。
- *
- * 只保留诊断所需字段，避免整段正文刷屏；当 data 不是 JSON（如 `[DONE]`）时原样短截。
- */
-fun describeSseEvent(id: String?, event: String?, data: String): String {
-    val prefix = buildString {
-        if (!event.isNullOrBlank()) append("event=$event ")
-        if (!id.isNullOrBlank()) append("id=$id ")
-    }
-    val compact = data.replace("\n", " ").trim()
-    val summary = when {
-        compact.length <= 220 -> compact
-        else -> compact.take(220) + "…(${compact.length} chars)"
-    }
-    return prefix + "data=" + summary
-}
+/** SSE 结束事件的诊断元数据，不包含响应正文或服务端提供的标识值。 */
+fun describeSseEvent(id: String?, event: String?, data: String): String =
+    "eventPresent=${!event.isNullOrBlank()} idPresent=${!id.isNullOrBlank()} dataChars=${data.length}"

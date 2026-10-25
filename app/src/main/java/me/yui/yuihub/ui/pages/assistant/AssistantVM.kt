@@ -59,7 +59,6 @@ class AssistantVM(
     private fun cleanupAssistantFiles(assistant: Assistant) {
         val uris = buildList {
             (assistant.avatar as? Avatar.Image)?.let { add(it.url.toUri()) }
-            assistant.background?.let { add(it.toUri()) }
         }
 
         if (uris.isNotEmpty()) {
@@ -73,7 +72,7 @@ class AssistantVM(
             val copiedAssistant = assistant.copy(
                 id = kotlin.uuid.Uuid.random(),
                 name = "${assistant.name} (Clone)",
-                avatar = if(assistant.avatar is Avatar.Image) Avatar.Dummy else assistant.avatar,
+                avatar = if(assistant.avatar is Avatar.Image) Avatar.Logo else assistant.avatar,
             )
             settingsStore.update(
                 settings.copy(

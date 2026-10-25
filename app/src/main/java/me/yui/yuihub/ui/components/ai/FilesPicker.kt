@@ -1,5 +1,7 @@
 package me.yui.yuihub.ui.components.ai
 
+import androidx.activity.compose.BackHandler
+
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -12,7 +14,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -30,8 +31,6 @@ import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.SheetValue
-import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,6 +66,8 @@ import me.rerere.hugeicons.stroke.Search01
 import me.rerere.hugeicons.stroke.Settings02
 import me.rerere.hugeicons.stroke.Video01
 import me.yui.yuihub.R
+import me.yui.yuihub.ui.theme.CustomColors
+import me.yui.yuihub.ui.theme.LocalGlassTheme
 import me.yui.yuihub.Screen
 import me.yui.yuihub.data.datastore.Settings
 import me.yui.yuihub.data.datastore.getCurrentChatModel
@@ -76,6 +78,7 @@ import me.yui.yuihub.data.model.Conversation
 import me.yui.yuihub.data.repository.WorkspaceRepository
 import me.yui.yuihub.ui.components.ui.AutoAIIcon
 import me.yui.yuihub.ui.components.ui.ExtensionSelector
+import me.yui.yuihub.ui.components.ui.rememberGuardedModalBottomSheetState
 import me.yui.yuihub.ui.components.ui.permission.PermissionCamera
 import me.yui.yuihub.ui.components.ui.permission.PermissionManager
 import me.yui.yuihub.ui.components.ui.permission.rememberPermissionState
@@ -167,7 +170,10 @@ internal fun FilesPicker(
             } else {
                 assistant.modeInjectionIds.size + assistant.lorebookIds.size
             }
-        val activeCount = modeAndLorebookCount + assistant.enabledSkills.size
+        val activeCount = modeAndLorebookCount +
+            (conversation.enabledSkillsOverride ?: assistant.enabledSkills).size +
+            (conversation.mcpServersOverride ?: assistant.mcpServers).size +
+            (conversation.localToolsOverride ?: assistant.localTools).size
         ListItem(
             leadingContent = {
                 Icon(
@@ -335,18 +341,25 @@ private fun InjectionQuickConfigSheet(
     onDismiss: () -> Unit,
     onDismissAll: () -> Unit,
 ) {
-    val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
     val navController = LocalNavController.current
+    val maxSheetHeight = LocalConfiguration.current.screenHeightDp.dp * 0.86f
+    val sheetState = rememberGuardedModalBottomSheetState()
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = if (LocalGlassTheme.current) {
+            CustomColors.glassSheetSurface
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        tonalElevation = 0.dp,
     ) {
+        BackHandler { onDismiss() }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.75f)
-                .padding(horizontal = 16.dp),
+                .heightIn(max = maxSheetHeight),
         ) {
             ExtensionSelector(
                 assistant = assistant,
@@ -354,7 +367,6 @@ private fun InjectionQuickConfigSheet(
                 onUpdate = onUpdateAssistant,
                 conversation = conversation,
                 onUpdateConversation = onUpdateConversation,
-                modifier = Modifier.weight(1f),
                 onNavigateToModeInjections = {
                     onDismissAll()
                     navController.navigate(Screen.ModeInjections)
@@ -370,7 +382,9 @@ private fun InjectionQuickConfigSheet(
                 onNavigateToMcp = {
                     onDismissAll()
                     navController.navigate(Screen.SettingMcp)
-                })
+                },
+                onDismissAll = onDismissAll,
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
         }

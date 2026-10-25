@@ -39,6 +39,16 @@
     android:required="false" />
 
   <queries>
+    <package android:name="com.tencent.mobileqq" />
+    <package android:name="com.tencent.tim" />
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="mqqapi" />
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.VIEW" />
+      <data android:scheme="mqqwpa" />
+    </intent>
     <intent>
       <action android:name="android.intent.action.TTS_SERVICE" />
     </intent>
@@ -119,9 +129,6 @@
           android:scheme="yuihub" />
       </intent-filter>
     </activity>
-    <activity
-      android:name="com.yalantis.ucrop.UCropActivity"
-      android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
 
     <service
       android:name=".service.ChatGenerationForegroundService"

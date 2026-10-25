@@ -11,21 +11,21 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
 import me.yui.yuihub.data.datastore.Settings
-import me.yui.yuihub.data.datastore.getCurrentAssistant
 
 @Composable
 fun AssistantBackground(setting: Settings, modifier: Modifier) {
-    val assistant = setting.getCurrentAssistant()
-    if (assistant.useGradientBackground) {
+    val displaySetting = setting.displaySetting
+    if (displaySetting.useGradientBackground) {
         MeshGradientBackground(modifier = modifier)
         return
     }
-    if (assistant.background != null) {
+    val background = displaySetting.chatBackground
+    if (background != null) {
         val backgroundColor = MaterialTheme.colorScheme.background
-        val backgroundOpacity = assistant.backgroundOpacity.coerceIn(0f, 1f)
+        val backgroundOpacity = displaySetting.chatBackgroundOpacity.coerceIn(0f, 1f)
         Box(modifier = modifier) {
             AsyncImage(
-                model = assistant.background,
+                model = background,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier

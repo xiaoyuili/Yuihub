@@ -19,6 +19,8 @@ import me.yui.yuihub.AppScope
 import me.yui.yuihub.CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID
 import me.yui.yuihub.R
 import me.yui.yuihub.RouteActivity
+import me.yui.yuihub.StartupState
+import me.yui.yuihub.YuiHubApp
 import org.koin.android.ext.android.inject
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.uuid.Uuid
@@ -82,6 +84,10 @@ class ChatGenerationForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if ((application as? YuiHubApp)?.startupState?.value != StartupState.Ready) {
+            stopService()
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_ACQUIRE -> acquire(intent)
             ACTION_RELEASE -> release(intent)
