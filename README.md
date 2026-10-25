@@ -12,10 +12,6 @@
 
 YuiHub 支持 OpenAI、Gemini、Claude 及兼容接口，提供多助手、对话分支、工具调用、记忆和本地工作区。对话数据默认保存在本机，并支持备份与恢复。
 
-<p align="center">
-  <img src="docs/screenshots/chat-light.png" width="300" alt="YuiHub 浅色主题">
-  <img src="docs/screenshots/chat-dark.png" width="300" alt="YuiHub 深色主题">
-</p>
 
 ## 功能
 
